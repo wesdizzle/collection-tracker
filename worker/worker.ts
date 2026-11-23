@@ -1054,6 +1054,19 @@ export async function loadGamesSnapshotForFallback(
   });
 }
 
+export async function loadOverlaySnapshotForFallback(
+  bucket?: R2Bucket,
+): Promise<R2BackupSnapshot<SnapshotTables> | null> {
+  const latest = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+  if (latest) return latest;
+  return loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    objectKey: R2_GAMES_ACTIVE_LITE_KEY,
+    maxBytes: MAX_GAMES_LITE_SNAPSHOT_BYTES,
+  });
+}
+
 function stripGameMetadataJsonInPlace(
   rows: Array<Record<string, unknown>>,
 ): void {
@@ -1738,11 +1751,136 @@ export async function resolveCatalogManifest(
   }
 }
 
-async function invalidateCatalogManifest(env: Env): Promise<void> {
-  cachedCatalogManifest = null;
-  if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.delete === 'function') {
-    await env.BACKUP_BUCKET.delete(R2_CATALOG_MANIFEST_KEY).catch(() => {});
+export async function recoverCatalogManifestFromR2Chunks(
+  bucket?: R2Bucket,
+): Promise<{ manifest: CatalogManifest; timestamp: string } | null> {
+  if (!bucket || typeof bucket.list !== 'function') {
+    return null;
   }
+
+  const chunkMetaMap = new Map<
+    number,
+    {
+      rowCount?: number;
+      version?: string;
+      timestamp?: string;
+      uploaded?: Date;
+    }
+  >();
+  let cursor: string | undefined;
+
+  for (let page = 0; page < 10; page++) {
+    const listOpts = {
+      prefix: R2_CATALOG_GAMES_CHUNK_PREFIX,
+      include: ['customMetadata'],
+      ...(cursor ? { cursor } : {}),
+    } as unknown as R2ListOptions;
+    const listed = await bucket.list(listOpts).catch(() => null);
+    if (!listed?.objects) {
+      break;
+    }
+    for (const obj of listed.objects) {
+      const m = /^catalog\/games-chunk-(\d+)\.json$/.exec(obj.key);
+      if (!m) continue;
+      const chunkIdx = Number(m[1]);
+      if (!Number.isInteger(chunkIdx) || chunkIdx < 0) continue;
+      const custom = obj.customMetadata;
+      const parsedCount = custom?.['rowCount']
+        ? Number(custom['rowCount'])
+        : undefined;
+      chunkMetaMap.set(chunkIdx, {
+        ...(parsedCount !== undefined &&
+        Number.isFinite(parsedCount) &&
+        parsedCount >= 0
+          ? { rowCount: parsedCount }
+          : {}),
+        version: custom?.['version'],
+        timestamp: custom?.['timestamp'],
+        uploaded: obj.uploaded,
+      });
+    }
+    if (listed.truncated && 'cursor' in listed && listed.cursor) {
+      cursor = listed.cursor;
+    } else {
+      break;
+    }
+  }
+
+  let contiguousCount = 0;
+  while (chunkMetaMap.has(contiguousCount)) {
+    contiguousCount++;
+  }
+  if (contiguousCount === 0) {
+    return null;
+  }
+
+  let chunk0Meta = chunkMetaMap.get(0);
+  if (
+    chunk0Meta &&
+    !chunk0Meta.version &&
+    !chunk0Meta.timestamp &&
+    typeof bucket.head === 'function'
+  ) {
+    const headObj = await bucket
+      .head(getCatalogChunkR2Key(0))
+      .catch(() => null);
+    if (headObj?.customMetadata) {
+      const headCount = headObj.customMetadata['rowCount']
+        ? Number(headObj.customMetadata['rowCount'])
+        : undefined;
+      chunk0Meta = {
+        ...chunk0Meta,
+        ...(headCount !== undefined &&
+        Number.isFinite(headCount) &&
+        headCount >= 0
+          ? { rowCount: headCount }
+          : {}),
+        version: headObj.customMetadata['version'],
+        timestamp: headObj.customMetadata['timestamp'],
+      };
+      chunkMetaMap.set(0, chunk0Meta);
+    }
+  }
+
+  let totalRows = 0;
+  let latestTimestamp = chunk0Meta?.timestamp || '';
+  let latestUploadedMs = 0;
+  for (let i = 0; i < contiguousCount; i++) {
+    const entry = chunkMetaMap.get(i);
+    if (!entry) break;
+    totalRows +=
+      entry.rowCount !== undefined ? entry.rowCount : CATALOG_GAMES_PER_CHUNK;
+    if (entry.timestamp && entry.timestamp > latestTimestamp) {
+      latestTimestamp = entry.timestamp;
+    }
+    if (entry.uploaded instanceof Date) {
+      const ms = entry.uploaded.getTime();
+      if (ms > latestUploadedMs) latestUploadedMs = ms;
+    }
+  }
+
+  const timestamp =
+    latestTimestamp ||
+    (latestUploadedMs > 0
+      ? new Date(latestUploadedMs).toISOString()
+      : new Date().toISOString());
+  const baseVersion = chunk0Meta?.version || timestamp.slice(0, 10);
+  const manifest: CatalogManifest = {
+    version: `${baseVersion}:r2-${contiguousCount}`,
+    timestamp,
+    totalRows,
+    chunkSize: CATALOG_GAMES_CHUNK_SIZE,
+    chunkCount: contiguousCount,
+    maxStableId: 0,
+    toysTotalRows: 0,
+    toysChunkCount: 1,
+  };
+  return { manifest, timestamp };
+}
+
+async function invalidateCatalogManifest(_env: Env): Promise<void> {
+  // Keep the last valid catalog/manifest.json in R2 until writeCatalogChunksToR2 overwrites it.
+  cachedCatalogManifest = null;
 }
 
 async function invalidateToysCatalogChunk(env: Env): Promise<void> {
@@ -2236,15 +2374,53 @@ function buildGamesListFromSnapshot(
 
   const userGamesByStableId = new Map<number, Record<string, unknown>>();
   const userReleasesByReleaseId = new Map<string, Record<string, unknown>>();
-  if (userId) {
+  const activeUserStableIds = new Set<number>();
+  if (userId !== null) {
     for (const ug of userGames) {
       if (Number(ug['user_id']) === userId) {
-        userGamesByStableId.set(Number(ug['game_id']), ug);
+        const sid = Number(ug['game_id']);
+        userGamesByStableId.set(sid, ug);
+        if (
+          Number(ug['play_status'] ?? 0) > 0 ||
+          Number(ug['queued'] ?? 0) > 0
+        ) {
+          activeUserStableIds.add(sid);
+        }
       }
+    }
+    const releaseToGameId = new Map<string, number>();
+    for (const r of releases) {
+      releaseToGameId.set(String(r['id']), Number(r['game_id']));
     }
     for (const ugr of userGameReleases) {
       if (Number(ugr['user_id']) === userId) {
-        userReleasesByReleaseId.set(String(ugr['release_id']), ugr);
+        const relId = String(ugr['release_id']);
+        userReleasesByReleaseId.set(relId, ugr);
+        if (
+          Number(ugr['ownership_status'] ?? 0) > 0 ||
+          Number(ugr['has_media'] ?? 0) > 0 ||
+          Number(ugr['has_case'] ?? 0) > 0 ||
+          Number(ugr['has_manual'] ?? 0) > 0
+        ) {
+          const gid = releaseToGameId.get(relId);
+          if (gid !== undefined && Number.isFinite(gid)) {
+            activeUserStableIds.add(gid);
+          }
+        }
+      }
+    }
+    for (const g of games) {
+      const sid = Number(g['stable_id']);
+      const parentId = g['bundle_parent_id'];
+      if (
+        activeUserStableIds.has(sid) &&
+        parentId !== undefined &&
+        parentId !== null
+      ) {
+        const pid = Number(parentId);
+        if (Number.isFinite(pid) && pid > 0) {
+          activeUserStableIds.add(pid);
+        }
       }
     }
   }
@@ -2258,6 +2434,7 @@ function buildGamesListFromSnapshot(
     }
   }
 
+  const todayDateStr = new Date().toISOString().slice(0, 10);
   const rows: Array<Record<string, unknown>> = [];
   for (const g of games) {
     if (g['is_hidden'] === 1) continue;
@@ -2265,6 +2442,27 @@ function buildGamesListFromSnapshot(
     if (allowedPlatformIds && !allowedPlatformIds.has(platId)) continue;
 
     const stableId = Number(g['stable_id']);
+    const gameReleases = releasesByGameId.get(stableId);
+    const relList: Array<Record<string, unknown> | null> =
+      gameReleases && gameReleases.length > 0 ? gameReleases : [null];
+
+    const isRetailOnSale = Number(g['retail_on_sale'] ?? 0) === 1;
+    const hasBundleParent =
+      g['bundle_parent_id'] !== null &&
+      g['bundle_parent_id'] !== undefined &&
+      Number(g['bundle_parent_id']) > 0;
+    const hasUpcomingRelease = relList.some((r) =>
+      Boolean(
+        r &&
+        typeof r['release_date'] === 'string' &&
+        String(r['release_date']).slice(0, 10) >= todayDateStr,
+      ),
+    );
+    const isGlobalActive =
+      isRetailOnSale || hasUpcomingRelease || hasBundleParent;
+    const isUserActive = userId !== null && activeUserStableIds.has(stableId);
+    if (!isUserActive && !isGlobalActive) continue;
+
     const p = platformById.get(platId);
     const pp =
       p &&
@@ -2273,16 +2471,44 @@ function buildGamesListFromSnapshot(
         ? platformById.get(Number(p['parent_platform_id']))
         : undefined;
     const effPlatform = pp || p;
-    const ug = userId ? userGamesByStableId.get(stableId) : undefined;
-    const gameReleases = releasesByGameId.get(stableId);
-    const relList: Array<Record<string, unknown> | null> =
-      gameReleases && gameReleases.length > 0 ? gameReleases : [null];
+    const ug = userId !== null ? userGamesByStableId.get(stableId) : undefined;
+    const isUgActive = Boolean(
+      ug &&
+      (Number(ug['play_status'] ?? 0) > 0 || Number(ug['queued'] ?? 0) > 0),
+    );
+    const hasPositiveRetailPrice =
+      g['retail_price'] !== null &&
+      g['retail_price'] !== undefined &&
+      Number(g['retail_price']) > 0;
+
+    let pushedForGame = 0;
+    const gameRows: Array<Record<string, unknown>> = [];
 
     for (const r of relList) {
       const relId = r ? String(r['id']) : null;
       const ugr =
-        userId && relId ? userReleasesByReleaseId.get(relId) : undefined;
-      rows.push({
+        userId !== null && relId
+          ? userReleasesByReleaseId.get(relId)
+          : undefined;
+      const isUgrActive = Boolean(
+        ugr &&
+        (Number(ugr['ownership_status'] ?? 0) > 0 ||
+          Number(ugr['has_media'] ?? 0) > 0 ||
+          Number(ugr['has_case'] ?? 0) > 0 ||
+          Number(ugr['has_manual'] ?? 0) > 0),
+      );
+      const isRowUpcoming = Boolean(
+        r &&
+        typeof r['release_date'] === 'string' &&
+        String(r['release_date']).slice(0, 10) >= todayDateStr,
+      );
+      const isRowGlobalActive =
+        isRetailOnSale ||
+        (hasPositiveRetailPrice && isGlobalActive) ||
+        isRowUpcoming ||
+        hasBundleParent;
+
+      const builtRow: Record<string, unknown> = {
         id: relId ?? g['id'],
         game_id: g['id'],
         stable_id: stableId,
@@ -2334,7 +2560,16 @@ function buildGamesListFromSnapshot(
         source: null,
         serial_code: null,
         is_source_verified: r?.['rom_name'] ? 1 : 0,
-      });
+      };
+      gameRows.push(builtRow);
+      if (isUgrActive || isUgActive || isRowGlobalActive) {
+        rows.push(builtRow);
+        pushedForGame++;
+      }
+    }
+
+    if (pushedForGame === 0 && isUserActive && gameRows.length > 0) {
+      rows.push(...gameRows);
     }
   }
 
@@ -6499,29 +6734,14 @@ Disallow: /
             },
           });
         }
-        const fallbackSnapshot = await loadGamesSnapshotForFallback(
+        const recovered = await recoverCatalogManifestFromR2Chunks(
           env.BACKUP_BUCKET,
         );
-        if (!fallbackSnapshot) {
+        if (!recovered) {
           return buildD1QuotaExceededResponse();
         }
-        const fallbackRows = buildGamesListFromSnapshot(
-          fallbackSnapshot,
-          null,
-          DEFAULT_USER_HOME_REGION,
-        );
-        const fallbackManifest: CatalogManifest = {
-          version: fallbackSnapshot.timestamp || 'r2-fallback',
-          timestamp: fallbackSnapshot.timestamp || new Date().toISOString(),
-          totalRows: fallbackRows.length,
-          chunkSize: CATALOG_GAMES_CHUNK_SIZE,
-          chunkCount: 1,
-          maxStableId: 0,
-          toysTotalRows: 0,
-          toysChunkCount: 1,
-        };
-        return Response.json(fallbackManifest, {
-          headers: buildR2DegradedHeaders(fallbackSnapshot.timestamp, {
+        return Response.json(recovered.manifest, {
+          headers: buildR2DegradedHeaders(recovered.timestamp, {
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
           }),
         });
@@ -6644,23 +6864,7 @@ Disallow: /
         }
         return d1Res;
       } catch {
-        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
-        if (!snapshot) {
-          return buildD1QuotaExceededResponse();
-        }
-        const allRows = buildGamesListFromSnapshot(
-          snapshot,
-          null,
-          DEFAULT_USER_HOME_REGION,
-        );
-        const start = chunkIndex * CATALOG_GAMES_CHUNK_SIZE;
-        const slice = allRows.slice(start, start + CATALOG_GAMES_CHUNK_SIZE);
-        return new Response(JSON.stringify(slice), {
-          headers: buildR2DegradedHeaders(snapshot.timestamp, {
-            'Content-Type': 'application/json',
-            'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-          }),
-        });
+        return buildD1QuotaExceededResponse();
       }
     }
 
@@ -6788,20 +6992,30 @@ Disallow: /
         );
         return Response.json(payload, { headers: privateHeaders });
       } catch {
-        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
+        const snapshot = await loadOverlaySnapshotForFallback(
+          env.BACKUP_BUCKET,
+        );
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
-        const r2Ugr = userId
-          ? (snapshot.tables?.['user_game_releases'] || []).filter(
-              (r) => Number(r['user_id']) === userId,
-            )
-          : [];
-        const r2Ug = userId
-          ? (snapshot.tables?.['user_games'] || []).filter(
-              (g) => Number(g['user_id']) === userId,
-            )
-          : [];
+        const r2Ugr =
+          userId !== null
+            ? (snapshot.tables?.['user_game_releases'] || []).filter(
+                (r) => Number(r['user_id']) === userId,
+              )
+            : [];
+        const r2Ug =
+          userId !== null
+            ? (snapshot.tables?.['user_games'] || []).filter(
+                (g) => Number(g['user_id']) === userId,
+              )
+            : [];
+        const r2Ut =
+          userId !== null
+            ? (snapshot.tables?.['user_toys'] || []).filter(
+                (t) => Number(t['user_id']) === userId,
+              )
+            : [];
         return Response.json(
           {
             version: snapshot.timestamp || '',
@@ -6809,7 +7023,7 @@ Disallow: /
             maxStableId: 0,
             ugr: r2Ugr,
             ug: r2Ug,
-            ut: [],
+            ut: r2Ut,
             deltaGames: [],
           },
           {
@@ -6864,7 +7078,44 @@ Disallow: /
           },
         });
       } catch {
-        return buildD1QuotaExceededResponse();
+        const snapshot = await loadOverlaySnapshotForFallback(
+          env.BACKUP_BUCKET,
+        );
+        if (!snapshot) {
+          return buildD1QuotaExceededResponse();
+        }
+        const user = resolvePublicUserFromSnapshot(snapshot, username);
+        if (
+          !user ||
+          (!user.is_public && (!sessionUser || sessionUser.id !== user.id))
+        ) {
+          return Response.json({ error: 'User not found' }, { status: 404 });
+        }
+        const r2Ugr = (snapshot.tables?.['user_game_releases'] || []).filter(
+          (r) => Number(r['user_id']) === user.id,
+        );
+        const r2Ug = (snapshot.tables?.['user_games'] || []).filter(
+          (g) => Number(g['user_id']) === user.id,
+        );
+        const r2Ut = (snapshot.tables?.['user_toys'] || []).filter(
+          (t) => Number(t['user_id']) === user.id,
+        );
+        return Response.json(
+          {
+            version: snapshot.timestamp || '',
+            timestamp: snapshot.timestamp || '',
+            maxStableId: 0,
+            ugr: r2Ugr,
+            ug: r2Ug,
+            ut: r2Ut,
+            deltaGames: [],
+          },
+          {
+            headers: buildR2DegradedHeaders(snapshot.timestamp, {
+              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            }),
+          },
+        );
       }
     }
 
@@ -6943,6 +7194,8 @@ Disallow: /
           headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            [X_CATALOG_PARTIAL_HEADER]: '1',
+            [X_CATALOG_CHUNK_SIZE_HEADER]: String(CATALOG_GAMES_CHUNK_SIZE),
           }),
         });
       }
@@ -7148,6 +7401,8 @@ Disallow: /
           headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Content-Type': 'application/json',
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+            [X_CATALOG_PARTIAL_HEADER]: '1',
+            [X_CATALOG_CHUNK_SIZE_HEADER]: String(CATALOG_GAMES_CHUNK_SIZE),
           }),
         });
       }

@@ -404,6 +404,7 @@ export class CollectionService implements OnDestroy {
       this._fullCatalogPromise = null;
       this._catalogIsPartial.set(false);
       this._currentCatalogVersion = null;
+      this._phase1GamesForSync = null;
       this._activeCatalogSyncId++;
       this._catalogSyncProgress.set({
         active: false,
@@ -825,6 +826,7 @@ export class CollectionService implements OnDestroy {
   private _fullCatalogPromise: Promise<void> | null = null;
   private _catalogIsPartial = signal<boolean>(false);
   private _currentCatalogVersion: string | null = null;
+  private _phase1GamesForSync: Game[] | null = null;
   private _activeCatalogSyncId = 0;
   private _catalogSyncProgress = signal<CatalogSyncProgress>({
     active: false,
@@ -1022,7 +1024,7 @@ export class CollectionService implements OnDestroy {
     const currentToys = this._toys();
     const currentPlatforms = this._platforms();
     const preserveExistingFullCatalog =
-      this._catalogIsPartial() &&
+      (this._catalogIsPartial() || this._dataDegradedMode() !== null) &&
       !this._fullCatalogLoaded() &&
       (existing?.state?.games?.length ?? 0) > currentGames.length;
     const snapshot: CollectionOfflineSnapshot = {
@@ -1067,6 +1069,7 @@ export class CollectionService implements OnDestroy {
     this._fullCatalogLoaded.set(false);
     this._fullCatalogPromise = null;
     this._catalogIsPartial.set(false);
+    this._phase1GamesForSync = null;
     this._activeCatalogSyncId++;
     this._catalogSyncProgress.set({
       active: false,
@@ -1094,6 +1097,7 @@ export class CollectionService implements OnDestroy {
           ? this._platforms()
           : platforms;
       this._games.set(finalGames);
+      this._phase1GamesForSync = finalGames;
       this._toys.set(finalToys);
       this._platforms.set(finalPlatforms);
 
@@ -1106,6 +1110,27 @@ export class CollectionService implements OnDestroy {
           finalPlatforms.length === 0)
       ) {
         await this.hydrateFromOfflineStoreIfEmpty(this._currentUser()!.id);
+      }
+
+      if (
+        this._activeRefreshSawDegraded &&
+        this._dataDegradedMode() === 'backup' &&
+        targetOwner === 'self' &&
+        this._currentUser()?.id
+      ) {
+        const stored = await this.offlineStore.getStoredState(
+          this._currentUser()!.id,
+        );
+        if ((stored?.state?.games?.length ?? 0) > finalGames.length) {
+          const merged = new Map<string, Game>();
+          for (const g of stored!.state.games) {
+            merged.set(g.id, g);
+          }
+          for (const g of finalGames) {
+            merged.set(g.id, g);
+          }
+          this._games.set(Array.from(merged.values()));
+        }
       }
 
       this._loadedOwnerContext.set(targetOwner);
@@ -1148,7 +1173,7 @@ export class CollectionService implements OnDestroy {
 
       if (
         !this._activeRefreshSawError &&
-        !this._activeRefreshSawDegraded &&
+        this._dataDegradedMode() !== 'offline' &&
         this._catalogIsPartial()
       ) {
         void this.ensureFullCatalogLoaded(true);
@@ -1380,7 +1405,8 @@ export class CollectionService implements OnDestroy {
       ugByStableId.set(Number(row.game_id), row);
     }
 
-    const phase1Games = this._games();
+    const phase1Games = this._phase1GamesForSync ?? this._games();
+    this._phase1GamesForSync = null;
     const phase1ById = new Map<string, Game>();
     for (const game of phase1Games) {
       phase1ById.set(game.id, game);
@@ -1453,6 +1479,22 @@ export class CollectionService implements OnDestroy {
     }
 
     const mergedMap = new Map<string, Game>();
+    if (
+      !this._isPublicView() &&
+      this._dataDegradedMode() === 'backup' &&
+      (existingSnapshot?.state?.games?.length ?? 0) > 0
+    ) {
+      for (const cachedGame of existingSnapshot!.state.games) {
+        const overlaidCached = this.applyOverlayToCatalogGame(
+          cachedGame,
+          ugrByReleaseId,
+          ugByStableId,
+          phase1ById,
+          true,
+        );
+        mergedMap.set(overlaidCached.id, overlaidCached);
+      }
+    }
     for (const game of phase1Games) {
       mergedMap.set(game.id, game);
     }
@@ -1589,10 +1631,13 @@ export class CollectionService implements OnDestroy {
     if (this._fullCatalogPromise) {
       return this._fullCatalogPromise;
     }
-    if (this._fullCatalogLoaded() || this.isDegraded()) {
+    if (this._fullCatalogLoaded() || this.degradedMode() === 'offline') {
       return;
     }
-    const useChunkedPipeline = forceChunked || this._catalogIsPartial();
+    const useChunkedPipeline =
+      forceChunked ||
+      this._catalogIsPartial() ||
+      this.degradedMode() === 'backup';
     const syncId = this._activeCatalogSyncId;
     this._fullCatalogLoaded.set(true);
     this._fullCatalogPromise = (async () => {

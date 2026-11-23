@@ -2072,6 +2072,433 @@ describe('CollectionService', () => {
       expect(service.catalogSyncProgress().percent).toBe(100);
       expect(service.games().map((g) => g.id)).toEqual(['gap-game-50000']);
     });
+
+    it('hydrates full catalog via R2 chunks and R2 overlay when degraded GET /api/games returns X-Catalog-Partial: 1', async () => {
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: 'owned-1',
+            game_id: 'owned-1',
+            stable_id: 1,
+            title: 'Owned Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 1,
+            play_status: 2,
+            has_media: 1,
+          },
+        ],
+        {
+          headers: {
+            [KIT_DEGRADED_HEADER]: 'r2-backup',
+            [KIT_SNAPSHOT_TIMESTAMP_HEADER]: '2026-11-23T00:00:54.000Z',
+            'X-Catalog-Partial': '1',
+          },
+        },
+      );
+      httpMock.expectOne('/api/toys').flush([], {
+        headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+      });
+      httpMock.expectOne('/api/platforms').flush([], {
+        headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+      });
+      await pRefresh;
+
+      expect(service.degradedMode()).toBe('backup');
+      expect(service.catalogIsPartial()).toBe(true);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush(
+        {
+          version: '2026-11-22:r2-1',
+          timestamp: '2026-11-22T23:31:50.000Z',
+          totalRows: 2,
+          chunkSize: 3500,
+          chunkCount: 1,
+          maxStableId: 0,
+        },
+        {
+          headers: {
+            [KIT_DEGRADED_HEADER]: 'r2-backup',
+            [KIT_SNAPSHOT_TIMESTAMP_HEADER]: '2026-11-22T23:31:50.000Z',
+          },
+        },
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=0')
+        .flush(
+          {
+            version: '2026-11-23T00:00:54.000Z',
+            timestamp: '2026-11-23T00:00:54.000Z',
+            maxStableId: 0,
+            ugr: [
+              {
+                release_id: 'owned-1',
+                ownership_status: 1,
+                has_media: 1,
+                has_case: 0,
+                has_manual: 0,
+              },
+            ],
+            ug: [{ game_id: 1, play_status: 2, queued: 0 }],
+            deltaGames: [],
+          },
+          {
+            headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+          },
+        );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/catalog/games?chunk=0&v=2026-11-22%3Ar2-1')
+        .flush([
+          {
+            id: 'owned-1',
+            game_id: 'owned-1',
+            stable_id: 1,
+            title: 'Owned Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 0,
+            play_status: 0,
+            has_media: 0,
+          },
+          {
+            id: 'unowned-2',
+            game_id: 'unowned-2',
+            stable_id: 2,
+            title: 'Catalog Unowned Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 0,
+            play_status: 0,
+            has_media: 0,
+          },
+        ]);
+
+      await service.ensureFullCatalogLoaded();
+      httpMock.expectNone('/api/games?include_unowned=1');
+
+      expect(service.degradedMode()).toBe('backup');
+      expect(service.catalogIsPartial()).toBe(false);
+      expect(service.games().length).toBe(2);
+      expect(
+        service.games().find((g) => g.id === 'owned-1')?.ownership_status,
+      ).toBe(1);
+      expect(service.games().find((g) => g.id === 'unowned-2')?.title).toBe(
+        'Catalog Unowned Game',
+      );
+    });
+
+    it('ensureFullCatalogLoaded uses chunked R2 pipeline in backup mode and skips network when offline', async () => {
+      const pAuth = service.refreshAuthStatus();
+      httpMock.expectOne('/api/auth/me').flush(
+        {
+          authenticated: true,
+          degraded: true,
+          degradedReason: 'r2_backup',
+          snapshotTimestamp: '2026-11-23T00:00:54.000Z',
+          user: {
+            id: 1,
+            username: 'alice',
+            role: 'admin',
+            isPublic: false,
+            homeRegion: 'USA',
+            displayName: 'Alice',
+            bio: null,
+          },
+        },
+        {
+          headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+        },
+      );
+      await pAuth;
+      httpMock
+        .expectOne('/api/journal/entries')
+        .flush({ authorized: true, entries: [] });
+
+      expect(service.degradedMode()).toBe('backup');
+
+      const pEnsureBackup = service.ensureFullCatalogLoaded();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectNone('/api/games?include_unowned=1');
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v-backup-chunk',
+        timestamp: '2026-11-23T00:00:54.000Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 0,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=0')
+        .flush({
+          version: 'v-backup-chunk',
+          timestamp: '2026-11-23T00:00:54.000Z',
+          maxStableId: 0,
+          ugr: [],
+          ug: [],
+          deltaGames: [],
+        });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?chunk=0&v=v-backup-chunk').flush([
+        {
+          id: 'cat-backup-1',
+          game_id: 'cat-backup-1',
+          stable_id: 10,
+          title: 'Backup Chunk Game',
+          platform: 'Switch',
+          platform_id: 1,
+          ownership_status: 0,
+          play_status: 0,
+          has_media: 0,
+        },
+      ]);
+      await pEnsureBackup;
+      expect(service.games().map((g) => g.id)).toEqual(['cat-backup-1']);
+
+      // When offline, ensureFullCatalogLoaded skips all network calls
+      const pOfflineRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush('Offline error', {
+        status: 503,
+        statusText: 'Service Unavailable',
+      });
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pOfflineRefresh;
+      expect(service.degradedMode()).toBe('offline');
+
+      await service.ensureFullCatalogLoaded(true);
+      httpMock.expectNone('/api/catalog/games?manifest=1');
+      httpMock.expectNone('/api/games?include_unowned=1');
+    });
+
+    it('preserves and merges cached full IndexedDB catalog during r2-backup degraded mode even when R2 chunks are partial', async () => {
+      const storeMap = new Map<
+        number,
+        {
+          state: { games: Game[]; catalogVersion?: string | null };
+          updatedAt: number;
+        }
+      >();
+      storeMap.set(1, {
+        state: {
+          catalogVersion: 'v2026-11-22-full',
+          games: [
+            {
+              id: 'cached-active-1',
+              game_id: 'cached-active-1',
+              stable_id: 1,
+              title: 'Cached Active Game',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 1,
+              play_status: 0,
+              has_media: 1,
+            } as Game,
+            {
+              id: 'cached-chunk0-2',
+              game_id: 'cached-chunk0-2',
+              stable_id: 2,
+              title: 'Cached Chunk0 Game',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 0,
+              play_status: 0,
+              has_media: 0,
+            } as Game,
+            {
+              id: 'cached-chunk1-3',
+              game_id: 'cached-chunk1-3',
+              stable_id: 3,
+              title: 'Cached Chunk1 Only Game',
+              platform: 'Switch',
+              platform_id: 1,
+              ownership_status: 0,
+              play_status: 0,
+              has_media: 0,
+            } as Game,
+          ],
+        },
+        updatedAt: 1000,
+      });
+
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+              catalogVersion?: string | null;
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+      vi.spyOn(internal.offlineStore, 'saveStateLocally').mockImplementation(
+        async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: {
+              games: state.games,
+              catalogVersion: state.catalogVersion ?? null,
+            },
+            updatedAt,
+          });
+        },
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: 'cached-active-1',
+            game_id: 'cached-active-1',
+            stable_id: 1,
+            title: 'Cached Active Game (Refreshed Price)',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 1,
+            play_status: 2,
+            has_media: 1,
+            retail_price: 2999,
+          },
+        ],
+        {
+          headers: {
+            [KIT_DEGRADED_HEADER]: 'r2-backup',
+            [KIT_SNAPSHOT_TIMESTAMP_HEADER]: new Date(5000).toISOString(),
+            'X-Catalog-Partial': '1',
+          },
+        },
+      );
+      httpMock.expectOne('/api/toys').flush([], {
+        headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+      });
+      httpMock.expectOne('/api/platforms').flush([], {
+        headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+      });
+      await pRefresh;
+
+      // Immediately after Phase 1, fuller IndexedDB catalog is merged with fresher active row & never overwritten
+      expect(service.games().length).toBe(3);
+      expect(
+        service.games().find((g) => g.id === 'cached-active-1')?.retail_price,
+      ).toBe(2999);
+      expect(storeMap.get(1)?.state.games.length).toBe(3);
+      expect(storeMap.get(1)?.state.catalogVersion).toBe('v2026-11-22-full');
+
+      // Phase 2 only recovers 1 R2 chunk (missing chunk 1 on server) -> cached chunk 1 entry is still retained
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush(
+        {
+          version: '2026-11-22:r2-1',
+          timestamp: '2026-11-22T23:31:50.000Z',
+          totalRows: 2,
+          chunkSize: 3500,
+          chunkCount: 1,
+          maxStableId: 0,
+        },
+        {
+          headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=0')
+        .flush(
+          {
+            version: '2026-11-23T00:00:54.000Z',
+            timestamp: '2026-11-23T00:00:54.000Z',
+            maxStableId: 0,
+            ugr: [
+              {
+                release_id: 'cached-active-1',
+                ownership_status: 1,
+                has_media: 1,
+                has_case: 0,
+                has_manual: 0,
+              },
+            ],
+            ug: [{ game_id: 1, play_status: 2, queued: 0 }],
+            deltaGames: [],
+          },
+          {
+            headers: { [KIT_DEGRADED_HEADER]: 'r2-backup' },
+          },
+        );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/catalog/games?chunk=0&v=2026-11-22%3Ar2-1')
+        .flush([
+          {
+            id: 'cached-active-1',
+            game_id: 'cached-active-1',
+            stable_id: 1,
+            title: 'Cached Active Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 0,
+            play_status: 0,
+            has_media: 0,
+          },
+          {
+            id: 'cached-chunk0-2',
+            game_id: 'cached-chunk0-2',
+            stable_id: 2,
+            title: 'Updated Chunk0 Game',
+            platform: 'Switch',
+            platform_id: 1,
+            ownership_status: 0,
+            play_status: 0,
+            has_media: 0,
+          },
+        ]);
+
+      await service.ensureFullCatalogLoaded();
+
+      expect(service.games().length).toBe(3);
+      expect(
+        service.games().find((g) => g.id === 'cached-chunk0-2')?.title,
+      ).toBe('Updated Chunk0 Game');
+      expect(
+        service.games().find((g) => g.id === 'cached-chunk1-3')?.title,
+      ).toBe('Cached Chunk1 Only Game');
+      expect(storeMap.get(1)?.state.games.length).toBe(3);
+    });
   });
 
   describe('Live eBay Market Pricing (6h Ephemeral Cache)', () => {

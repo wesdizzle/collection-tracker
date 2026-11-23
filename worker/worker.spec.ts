@@ -116,7 +116,11 @@ describe('Worker API Logic', () => {
       text: () => Promise<string>;
     } | null>;
     list: (options?: { prefix?: string }) => Promise<{
-      objects: { key: string; uploaded?: Date }[];
+      objects: {
+        key: string;
+        uploaded?: Date;
+        customMetadata?: Record<string, string>;
+      }[];
       truncated: boolean;
     }>;
     delete: (key: string) => Promise<void>;
@@ -207,10 +211,13 @@ describe('Worker API Logic', () => {
       },
       list: async (options?: { prefix?: string }) => {
         const prefix = options?.prefix || '';
-        const objects: { key: string }[] = [];
+        const objects: {
+          key: string;
+          customMetadata?: Record<string, string>;
+        }[] = [];
         for (const [key] of storage) {
           if (key.startsWith(prefix)) {
-            objects.push({ key });
+            objects.push({ key, customMetadata: metadata.get(key) });
           }
         }
         return { objects, truncated: false };
@@ -7581,6 +7588,458 @@ describe('Worker API Logic', () => {
       expect(chunk0Rows.map((r) => r.stable_id).sort((a, b) => a - b)).toEqual([
         10, 50000,
       ]);
+    });
+
+    it('enforces strict per-user isolation in R2 degraded /api/games and /api/u/:username/games and emits X-Catalog-Partial: 1', async () => {
+      db.exec(`
+        INSERT INTO users (id, username, is_public, home_region, display_name)
+        VALUES (2, 'bob', 1, 'USA', 'Bob'),
+               (3, 'carol', 0, 'USA', 'Carol');
+        INSERT INTO games (stable_id, id, title, platform_id, sort_index, retail_on_sale)
+        VALUES (2, 'bob-game', 'Bob Exclusive Tracked Game', 1, 1, 0),
+               (3, 'carol-game', 'Carol Private Tracked Game', 1, 2, 0),
+               (4, 'sale-game', 'Global Retail Deal Game', 1, 3, 1);
+        INSERT INTO game_releases (id, game_id, region, release_date)
+        VALUES ('bob-rel', 2, 'USA', '2001-01-01'),
+               ('carol-rel', 3, 'USA', '2001-01-01'),
+               ('sale-rel', 4, 'USA', '2001-01-01');
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+        VALUES (2, 'bob-rel', 2, 0),
+               (3, 'carol-rel', 1, 1);
+      `);
+
+      await performScheduledBackup(mockEnv, false);
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+      const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+
+      const secret = mockEnv.SESSION_SECRET!;
+      const aliceToken = await signSession(
+        { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+        secret,
+      );
+      const bobToken = await signSession(
+        { id: 2, username: 'bob', role: 'user', homeRegion: 'USA' },
+        secret,
+      );
+
+      // 1. Alice sees her own game + global on-sale game, never Bob's or Carol's
+      const aliceRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games', {
+          headers: { Cookie: `${HOST_SESSION_COOKIE}=${aliceToken}` },
+        }),
+        degradedEnv,
+      );
+      expect(aliceRes.status).toBe(200);
+      expect(aliceRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      expect(aliceRes.headers.get(X_CATALOG_PARTIAL_HEADER)).toBe('1');
+      const aliceIds = ((await aliceRes.json()) as Array<{ id: string }>).map(
+        (g) => g.id,
+      );
+      expect(aliceIds).toContain('gb-mario');
+      expect(aliceIds).toContain('sale-rel');
+      expect(aliceIds).not.toContain('bob-rel');
+      expect(aliceIds).not.toContain('carol-rel');
+
+      // 2. Bob sees his own game + global on-sale game, never Alice's or Carol's
+      const bobRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games', {
+          headers: { Cookie: `${HOST_SESSION_COOKIE}=${bobToken}` },
+        }),
+        degradedEnv,
+      );
+      expect(bobRes.status).toBe(200);
+      expect(bobRes.headers.get(X_CATALOG_PARTIAL_HEADER)).toBe('1');
+      const bobIds = ((await bobRes.json()) as Array<{ id: string }>).map(
+        (g) => g.id,
+      );
+      expect(bobIds).toContain('bob-rel');
+      expect(bobIds).toContain('sale-rel');
+      expect(bobIds).not.toContain('gb-mario');
+      expect(bobIds).not.toContain('carol-rel');
+
+      // 3. Anonymous visitor sees ONLY global on-sale game, never any user's tracked games
+      const anonRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games'),
+        degradedEnv,
+      );
+      expect(anonRes.status).toBe(200);
+      expect(anonRes.headers.get(X_CATALOG_PARTIAL_HEADER)).toBe('1');
+      const anonIds = ((await anonRes.json()) as Array<{ id: string }>).map(
+        (g) => g.id,
+      );
+      expect(anonIds).toEqual(['sale-rel']);
+
+      // 4. Public profile endpoint returns only Alice's games + global, never Bob's or Carol's
+      const pubAliceRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/u/alice/games'),
+        degradedEnv,
+      );
+      expect(pubAliceRes.status).toBe(200);
+      expect(pubAliceRes.headers.get(X_CATALOG_PARTIAL_HEADER)).toBe('1');
+      const pubAliceIds = (
+        (await pubAliceRes.json()) as Array<{ id: string }>
+      ).map((g) => g.id);
+      expect(pubAliceIds).toContain('gb-mario');
+      expect(pubAliceIds).toContain('sale-rel');
+      expect(pubAliceIds).not.toContain('bob-rel');
+      expect(pubAliceIds).not.toContain('carol-rel');
+
+      // 5. Private profile remains hidden in degraded mode
+      const privCarolRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/u/carol/games'),
+        degradedEnv,
+      );
+      expect(privCarolRes.status).toBe(404);
+    });
+
+    it('recovers catalog manifest from contiguous R2 chunks and never falls back to games-active-lite.json', async () => {
+      await performScheduledBackup(mockEnv, false);
+
+      await mockBucket.put(
+        getCatalogChunkR2Key(0),
+        JSON.stringify([
+          { id: 'c0-1', stable_id: 1, title: 'Chunk 0 Game A' },
+          { id: 'c0-2', stable_id: 2, title: 'Chunk 0 Game B' },
+        ]),
+        {
+          customMetadata: {
+            chunkIndex: '0',
+            rowCount: '2',
+            version: '2026-11-22:100:1',
+            timestamp: '2026-11-22T23:30:00.000Z',
+          },
+        },
+      );
+      await mockBucket.put(
+        getCatalogChunkR2Key(1),
+        JSON.stringify([{ id: 'c1-1', stable_id: 3, title: 'Chunk 1 Game C' }]),
+        {
+          customMetadata: {
+            chunkIndex: '1',
+            rowCount: '1',
+            version: '2026-11-22:100:1',
+            timestamp: '2026-11-23T00:30:00.000Z',
+          },
+        },
+      );
+      mockBucket.storage.delete(R2_CATALOG_MANIFEST_KEY);
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+      const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+
+      const manifestRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/catalog/games?manifest=1',
+        ),
+        degradedEnv,
+      );
+      expect(manifestRes.status).toBe(200);
+      expect(manifestRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      expect(manifestRes.headers.get('Cache-Control')).toContain('no-store');
+      const manifest = (await manifestRes.json()) as {
+        version: string;
+        totalRows: number;
+        chunkCount: number;
+        maxStableId: number;
+      };
+      expect(manifest.version).toBe('2026-11-22:100:1:r2-2');
+      expect(manifest.totalRows).toBe(3);
+      expect(manifest.chunkCount).toBe(2);
+      expect(manifest.maxStableId).toBe(0);
+
+      const chunk0Res = await worker.fetch(
+        new Request(
+          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`,
+        ),
+        degradedEnv,
+      );
+      const chunk1Res = await worker.fetch(
+        new Request(
+          `https://collection-tracker.example.com/api/catalog/games?chunk=1&v=${encodeURIComponent(manifest.version)}`,
+        ),
+        degradedEnv,
+      );
+      expect(chunk0Res.status).toBe(200);
+      expect(chunk1Res.status).toBe(200);
+      expect(((await chunk0Res.json()) as Array<{ id: string }>).length).toBe(
+        2,
+      );
+      expect(((await chunk1Res.json()) as Array<{ id: string }>).length).toBe(
+        1,
+      );
+
+      // Missing chunks + missing manifest returns 503 even if games-active-lite.json exists
+      mockBucket.storage.delete(getCatalogChunkR2Key(0));
+      mockBucket.storage.delete(getCatalogChunkR2Key(1));
+      resetWorkerRateLimits();
+      const missingManifestRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/catalog/games?manifest=1',
+        ),
+        degradedEnv,
+      );
+      const missingChunkRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/catalog/games?chunk=0&v=none',
+        ),
+        degradedEnv,
+      );
+      expect(missingManifestRes.status).toBe(503);
+      expect(missingChunkRes.status).toBe(503);
+    });
+
+    it('serves per-user R2 overlays (including user_toys) for /api/user/collection-overlay and /api/u/:username/collection-overlay from snapshots/latest.json', async () => {
+      db.exec(`
+        INSERT INTO users (id, username, is_public, home_region, display_name)
+        VALUES (2, 'bob', 1, 'USA', 'Bob'),
+               (3, 'carol', 0, 'USA', 'Carol');
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES (2, 'bob-game', 'Bob Game', 1),
+               (3, 'carol-game', 'Carol Game', 1);
+        INSERT INTO game_releases (id, game_id, region)
+        VALUES ('bob-rel', 2, 'USA'),
+               ('carol-rel', 3, 'USA');
+        INSERT INTO toys (stable_id, id, name, line, series_id, sort_index)
+        VALUES (2, 'mario-amiibo', 'Mario', 'amiibo', 'smash', 1);
+        INSERT INTO user_games (user_id, game_id, play_status, queued)
+        VALUES (1, 1, 2, 1),
+               (2, 2, 3, 0),
+               (3, 3, 1, 0);
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+        VALUES (2, 'bob-rel', 2, 0),
+               (3, 'carol-rel', 1, 0);
+        INSERT INTO user_toys (user_id, toy_id, ownership_status)
+        VALUES (1, 'link-amiibo', 1),
+               (2, 'mario-amiibo', 2);
+      `);
+
+      await performScheduledBackup(mockEnv, false);
+      mockBucket.storage.delete(R2_GAMES_ACTIVE_LITE_KEY);
+      resetR2SnapshotCache();
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+      const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+
+      const secret = mockEnv.SESSION_SECRET!;
+      const aliceToken = await signSession(
+        { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+        secret,
+      );
+      const carolToken = await signSession(
+        { id: 3, username: 'carol', role: 'user', homeRegion: 'USA' },
+        secret,
+      );
+
+      const aliceOverlayRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/user/collection-overlay?since_stable_id=0',
+          { headers: { Cookie: `${HOST_SESSION_COOKIE}=${aliceToken}` } },
+        ),
+        degradedEnv,
+      );
+      expect(aliceOverlayRes.status).toBe(200);
+      expect(aliceOverlayRes.headers.get(KIT_DEGRADED_HEADER)).toBe(
+        'r2-backup',
+      );
+      const aliceOverlay = (await aliceOverlayRes.json()) as {
+        ugr: Array<{ release_id: string }>;
+        ug: Array<{ game_id: number; play_status: number }>;
+        ut: Array<{ toy_id: string; ownership_status: number }>;
+      };
+      expect(aliceOverlay.ugr.map((r) => r.release_id)).toEqual(['gb-mario']);
+      expect(aliceOverlay.ug.map((g) => g.game_id)).toEqual([1]);
+      expect(aliceOverlay.ut).toEqual([
+        expect.objectContaining({ toy_id: 'link-amiibo', ownership_status: 1 }),
+      ]);
+
+      const bobOverlayRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/u/bob/collection-overlay',
+        ),
+        degradedEnv,
+      );
+      expect(bobOverlayRes.status).toBe(200);
+      expect(bobOverlayRes.headers.get(KIT_DEGRADED_HEADER)).toBe('r2-backup');
+      const bobOverlay = (await bobOverlayRes.json()) as {
+        ugr: Array<{ release_id: string }>;
+        ug: Array<{ game_id: number }>;
+        ut: Array<{ toy_id: string; ownership_status: number }>;
+      };
+      expect(bobOverlay.ugr.map((r) => r.release_id)).toEqual(['bob-rel']);
+      expect(bobOverlay.ug.map((g) => g.game_id)).toEqual([2]);
+      expect(bobOverlay.ut).toEqual([
+        expect.objectContaining({
+          toy_id: 'mario-amiibo',
+          ownership_status: 2,
+        }),
+      ]);
+
+      const unauthCarolRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/u/carol/collection-overlay',
+        ),
+        degradedEnv,
+      );
+      expect(unauthCarolRes.status).toBe(404);
+
+      const authCarolRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/u/carol/collection-overlay',
+          { headers: { Cookie: `${HOST_SESSION_COOKIE}=${carolToken}` } },
+        ),
+        degradedEnv,
+      );
+      expect(authCarolRes.status).toBe(200);
+      const carolOverlay = (await authCarolRes.json()) as {
+        ugr: Array<{ release_id: string }>;
+      };
+      expect(carolOverlay.ugr.map((r) => r.release_id)).toEqual(['carol-rel']);
+    });
+
+    it('keeps existing R2 catalog/manifest.json intact when ingestion triggers invalidation', async () => {
+      await writeCatalogChunksToR2(mockEnv, { forceRestart: true });
+      expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+
+      const mockVgp = {
+        products: [
+          {
+            id: 991002,
+            title: 'Switch Manifest Test Game - Nintendo Switch',
+            handle: 'switch-manifest-test-game',
+            vendor: 'Nintendo',
+            product_type: 'Switch Games',
+            tags: ['Nintendo Switch'],
+            variants: [
+              {
+                price: '39.99',
+                compare_at_price: '49.99',
+                barcode: '045496905999',
+                available: true,
+              },
+            ],
+          },
+        ],
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('open.er-api.com')) {
+            return new Response(JSON.stringify({ rates: { USD: 0.75 } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (
+            urlStr.includes('videogamesplus.ca/collections/sales/products.json')
+          ) {
+            return new Response(JSON.stringify(mockVgp), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (urlStr.includes('pnpgamesonline.com')) {
+            return new Response(JSON.stringify([]), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ products: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        });
+
+      try {
+        await syncWorkerRetailDeals(mockEnv);
+        const inserted = db
+          .prepare(`SELECT stable_id FROM games WHERE barcode = '045496905999'`)
+          .get();
+        expect(inserted).toBeDefined();
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 
