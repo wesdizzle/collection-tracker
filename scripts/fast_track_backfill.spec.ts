@@ -403,4 +403,80 @@ describe('fast_track_backfill', () => {
     expect(noopSummary.rolling.updatedGames).toBe(0);
     expect(noopSummary.rolling.updatedReleaseDates).toBe(0);
   });
+
+  it('respects auto_seek_release_scope (one_per_game vs all_releases including Rev 1, excluding companion demos) and region_scope any', async () => {
+    const db = createTestDb();
+    try {
+      db.exec(`
+        INSERT INTO users (id, username, home_region, auto_seek_release_scope, auto_seek_region_scope)
+        VALUES
+          (1, 'completionist', 'USA', 'all_releases', 'any'),
+          (2, 'minimalist', 'USA', 'one_per_game', 'home');
+
+        INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+        VALUES
+          (1, 'platform', '30', 2, 'any', 0),
+          (2, 'platform', '30', 2, 'home', 0);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, source, is_verified_physical)
+        VALUES
+          (201, 30, 'Zone of the Enders (USA)', '${normalizeTitleForMatching('Zone of the Enders')}', 'USA', NULL, 'Zone of the Enders (USA).iso', '11111111', 'dat', 1),
+          (202, 30, 'Zone of the Enders (USA) (Rev 1)', '${normalizeTitleForMatching('Zone of the Enders')}', 'USA', 'Rev 1', 'Zone of the Enders (USA) (Rev 1).iso', '22222222', 'dat', 1),
+          (203, 30, 'Zone of the Enders (Japan)', '${normalizeTitleForMatching('Zone of the Enders')}', 'Japan', NULL, 'Zone of the Enders (Japan).iso', '33333333', 'dat', 1),
+          (204, 30, 'Zone of the Enders - Metal Gear Solid 2 Demo (USA)', '${normalizeTitleForMatching('Zone of the Enders')}', 'USA', NULL, 'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).iso', '44444444', 'dat', 1);
+      `);
+    } finally {
+      db.close();
+    }
+
+    const summary = await runFastTrackBackfill({
+      stage: 'seed',
+      dbPath,
+      outDir,
+      dryRun: false,
+      igdbCachePath: cachePath,
+      delayMs: 0,
+      fetchFn: (async () =>
+        new Response('[]', { status: 200 })) as typeof fetch,
+    });
+    expect(summary.seed.insertedGames).toBe(1);
+    expect(summary.seed.insertedReleases).toBe(4);
+
+    const checkDb = new Database(dbPath, { readonly: true });
+    try {
+      const user1Rows = checkDb
+        .prepare(
+          `SELECT gr.region, gr.variants, gr.rom_name
+           FROM user_game_releases ugr
+           JOIN game_releases gr ON gr.id = ugr.release_id
+           WHERE ugr.user_id = 1 AND ugr.ownership_status = 2
+           ORDER BY gr.id`,
+        )
+        .all() as Array<{
+        region: string;
+        variants: string | null;
+        rom_name: string | null;
+      }>;
+      // User 1 (all_releases + region_scope='any'): USA Standard + USA Rev 1 + Japan, excluding companion demo
+      expect(user1Rows).toHaveLength(3);
+      expect(user1Rows.some((r) => r.variants === 'Rev 1')).toBe(true);
+      expect(user1Rows.some((r) => r.region === 'Japan')).toBe(true);
+      expect(
+        user1Rows.some((r) => /Trial Edition.*Demo/i.test(r.rom_name || '')),
+      ).toBe(false);
+
+      const user2Rows = checkDb
+        .prepare(
+          `SELECT gr.region, gr.variants
+           FROM user_game_releases ugr
+           JOIN game_releases gr ON gr.id = ugr.release_id
+           WHERE ugr.user_id = 2 AND ugr.ownership_status = 2`,
+        )
+        .all() as Array<{ region: string; variants: string | null }>;
+      // User 2 (one_per_game + home): only 1 preferred standard USA release
+      expect(user2Rows).toEqual([{ region: 'USA', variants: null }]);
+    } finally {
+      checkDb.close();
+    }
+  });
 });

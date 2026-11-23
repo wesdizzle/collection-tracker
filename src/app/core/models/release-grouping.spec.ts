@@ -14,6 +14,7 @@ import {
   deduplicateOwnedPlatformGames,
   extractMediaLabel,
   groupCatalogMediaIntoReleases,
+  mergeOwnershipStatus,
 } from './release-grouping';
 
 function makeRow(overrides: Partial<CatalogMediaRow> = {}): CatalogMediaRow {
@@ -200,5 +201,67 @@ describe('release-grouping & ReleaseMediaItem helpers', () => {
       makeRow({ stable_id: 2, id: 'mgs-d1', game_id: 'mgs-ps1' }),
     ]);
     expect(distinct.map((d) => d.game_id)).toEqual(['ff7-ps1', 'mgs-ps1']);
+  });
+
+  it('preserves Owned status when folding a Seeking pack-in companion demo regardless of input order', () => {
+    const host = makeRow({
+      stable_id: 2246,
+      id: '2246-1',
+      game_id: 'zone-of-the-enders-ps2',
+      title: 'Zone of the Enders',
+      platform: 'PlayStation 2',
+      platform_id: 30,
+      region: 'USA',
+      rom_name: 'Zone of the Enders (USA).iso',
+      ownership_status: OwnershipStatus.Owned,
+      has_media: 1,
+    });
+    const companionDemo = makeRow({
+      stable_id: 2246,
+      id: '2246-2',
+      game_id: 'zone-of-the-enders-ps2',
+      title: 'Zone of the Enders',
+      platform: 'PlayStation 2',
+      platform_id: 30,
+      region: 'USA',
+      rom_name:
+        'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).iso',
+      ownership_status: OwnershipStatus.Seeking,
+      has_media: 0,
+    });
+
+    const hostFirst = groupCatalogMediaIntoReleases([host, companionDemo]);
+    expect(hostFirst).toHaveLength(1);
+    expect(hostFirst[0].ownership_status).toBe(OwnershipStatus.Owned);
+    expect(hostFirst[0].mediaItems.map((m) => m.id)).toEqual([
+      '2246-1',
+      '2246-2',
+    ]);
+
+    const demoFirst = groupCatalogMediaIntoReleases([companionDemo, host]);
+    expect(demoFirst).toHaveLength(1);
+    expect(demoFirst[0].ownership_status).toBe(OwnershipStatus.Owned);
+    expect(demoFirst[0].mediaItems.map((m) => m.id)).toEqual([
+      '2246-1',
+      '2246-2',
+    ]);
+  });
+
+  it('enforces explicit ownership precedence: Owned > Ordered > PrioritySeeking > Seeking > Unowned', () => {
+    const orderedPrecedence: OwnershipStatus[] = [
+      OwnershipStatus.Owned,
+      OwnershipStatus.Ordered,
+      OwnershipStatus.PrioritySeeking,
+      OwnershipStatus.Seeking,
+      OwnershipStatus.Unowned,
+    ];
+    for (let i = 0; i < orderedPrecedence.length; i++) {
+      for (let j = i; j < orderedPrecedence.length; j++) {
+        const higher = orderedPrecedence[i];
+        const lower = orderedPrecedence[j];
+        expect(mergeOwnershipStatus(higher, lower)).toBe(higher);
+        expect(mergeOwnershipStatus(lower, higher)).toBe(higher);
+      }
+    }
   });
 });

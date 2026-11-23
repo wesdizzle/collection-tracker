@@ -69,6 +69,7 @@ import {
 } from '../shared/queries';
 import {
   isIgnoredFormatRelease,
+  isPackInCompanionDemoRom,
   isRegionMatchingHome,
 } from '../shared/source_format';
 import {
@@ -955,6 +956,17 @@ const BACKUP_TABLES = [
 export const R2_META_LITE_KEY = 'snapshots/meta-lite.json';
 export const R2_TOYS_LITE_KEY = 'snapshots/toys-lite.json';
 export const R2_GAMES_ACTIVE_LITE_KEY = 'snapshots/games-active-lite.json';
+export const R2_BACKUP_CHUNK_PREFIX = 'snapshots/chunks/';
+export const R2_BACKUP_CATALOG_MANIFEST_KEY =
+  'snapshots/chunks/catalog-manifest.json';
+export const R2_BACKUP_CANONICAL_MANIFEST_KEY =
+  'snapshots/chunks/canonical-manifest.json';
+export const BACKUP_CATALOG_CHUNKS_STATE_KEY = 'backup_catalog_chunks_state';
+export const BACKUP_CANONICAL_CHUNKS_STATE_KEY =
+  'backup_canonical_chunks_state';
+export const BACKUP_GAMES_CHUNK_SIZE = 10_000;
+export const BACKUP_RELEASES_CHUNK_SIZE = 15_000;
+export const BACKUP_CANONICAL_CHUNK_SIZE = 15_000;
 export const R2_CATALOG_MANIFEST_KEY = 'catalog/manifest.json';
 export const R2_CATALOG_GAMES_CHUNK_PREFIX = 'catalog/games-chunk-';
 export const R2_CATALOG_TOYS_CHUNK_KEY = 'catalog/toys-chunk-0.json';
@@ -1919,6 +1931,8 @@ interface DbUserRow {
   display_name: string | null;
   bio: string | null;
   auto_track_series_on_add?: number | null;
+  auto_seek_release_scope?: string | null;
+  auto_seek_region_scope?: string | null;
   track_individual_media?: number | null;
 }
 
@@ -1956,6 +1970,16 @@ function buildD1QuotaExceededResponse(
   );
 }
 
+function normalizeAutoSeekReleaseScope(
+  value: unknown,
+): 'one_per_game' | 'all_releases' {
+  return value === 'all_releases' ? 'all_releases' : 'one_per_game';
+}
+
+function normalizeAutoSeekRegionScope(value: unknown): 'home' | 'any' {
+  return value === 'any' ? 'any' : 'home';
+}
+
 function toUserProfileResponsePayload(
   profile: DbUserRow,
   role: SessionUser['role'],
@@ -1973,6 +1997,12 @@ function toUserProfileResponsePayload(
       profile.auto_track_series_on_add !== null
         ? Boolean(profile.auto_track_series_on_add)
         : true,
+    autoSeekReleaseScope: normalizeAutoSeekReleaseScope(
+      profile.auto_seek_release_scope,
+    ),
+    autoSeekRegionScope: normalizeAutoSeekRegionScope(
+      profile.auto_seek_region_scope,
+    ),
     trackIndividualMedia: Boolean(profile.track_individual_media),
   };
 }
@@ -1991,6 +2021,12 @@ function snapshotRowToDbUserRow(row: Record<string, unknown>): DbUserRow {
       row['auto_track_series_on_add'] === null
         ? 1
         : Number(row['auto_track_series_on_add']),
+    auto_seek_release_scope: normalizeAutoSeekReleaseScope(
+      row['auto_seek_release_scope'],
+    ),
+    auto_seek_region_scope: normalizeAutoSeekRegionScope(
+      row['auto_seek_region_scope'],
+    ),
     track_individual_media: Number(row['track_individual_media'] ?? 0),
   };
 }
@@ -2039,7 +2075,7 @@ async function resolveUserProfileWithFallback(
 
   try {
     profile = (await env.DB.prepare(
-      'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
+      "SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope, COALESCE(auto_seek_region_scope, 'home') as auto_seek_region_scope, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?",
     )
       .bind(sessionUser.id)
       .first()) as DbUserRow | null;
@@ -2049,12 +2085,20 @@ async function resolveUserProfileWithFallback(
     } else {
       try {
         profile = (await env.DB.prepare(
-          'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+          'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
         )
           .bind(sessionUser.id)
           .first()) as DbUserRow | null;
       } catch {
-        d1Failed = true;
+        try {
+          profile = (await env.DB.prepare(
+            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+          )
+            .bind(sessionUser.id)
+            .first()) as DbUserRow | null;
+        } catch {
+          d1Failed = true;
+        }
       }
     }
   }
@@ -2090,6 +2134,8 @@ async function resolveUserProfileWithFallback(
       display_name: null,
       bio: null,
       auto_track_series_on_add: 1,
+      auto_seek_release_scope: 'one_per_game',
+      auto_seek_region_scope: 'home',
       track_individual_media: 0,
     },
     degraded: true,
@@ -3000,26 +3046,51 @@ export async function applyReactiveSeriesAutoTracking(
   try {
     let autoTrack = 1;
     let homeRegion = 'USA';
+    let releaseScope: 'one_per_game' | 'all_releases' = 'one_per_game';
+    let defaultRegionScope: 'home' | 'any' = 'home';
     try {
       const userRow = await env.DB.prepare(
-        "SELECT COALESCE(auto_track_series_on_add, 1) as auto_track, COALESCE(home_region, 'USA') as home_region FROM users WHERE id = ?",
+        "SELECT COALESCE(auto_track_series_on_add, 1) as auto_track, COALESCE(home_region, 'USA') as home_region, COALESCE(auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope, COALESCE(auto_seek_region_scope, 'home') as auto_seek_region_scope FROM users WHERE id = ?",
       )
         .bind(userId)
-        .first<{ auto_track: number; home_region: string }>();
+        .first<{
+          auto_track: number;
+          home_region: string;
+          auto_seek_release_scope: string;
+          auto_seek_region_scope: string;
+        }>();
       if (userRow) {
         autoTrack = Number(userRow.auto_track ?? 1);
         homeRegion = userRow.home_region || 'USA';
+        releaseScope = normalizeAutoSeekReleaseScope(
+          userRow.auto_seek_release_scope,
+        );
+        defaultRegionScope = normalizeAutoSeekRegionScope(
+          userRow.auto_seek_region_scope,
+        );
       }
     } catch {
-      // Fallback if auto_track_series_on_add column is not yet present in unmigrated test DB
-      const fallbackUser = await env.DB.prepare(
-        'SELECT home_region FROM users WHERE id = ?',
-      )
-        .bind(userId)
-        .first<{ home_region: string | null }>()
-        .catch(() => null);
-      if (fallbackUser?.home_region) {
-        homeRegion = fallbackUser.home_region;
+      try {
+        const legacyUserRow = await env.DB.prepare(
+          "SELECT COALESCE(auto_track_series_on_add, 1) as auto_track, COALESCE(home_region, 'USA') as home_region FROM users WHERE id = ?",
+        )
+          .bind(userId)
+          .first<{ auto_track: number; home_region: string }>();
+        if (legacyUserRow) {
+          autoTrack = Number(legacyUserRow.auto_track ?? 1);
+          homeRegion = legacyUserRow.home_region || 'USA';
+        }
+      } catch {
+        // Fallback if columns are not yet present in unmigrated test DB
+        const fallbackUser = await env.DB.prepare(
+          'SELECT home_region FROM users WHERE id = ?',
+        )
+          .bind(userId)
+          .first<{ home_region: string | null }>()
+          .catch(() => null);
+        if (fallbackUser?.home_region) {
+          homeRegion = fallbackUser.home_region;
+        }
       }
     }
 
@@ -3088,22 +3159,22 @@ export async function applyReactiveSeriesAutoTracking(
     }
 
     const targetStatus = existingRule?.target_status || 2;
-    const regionScope = existingRule?.region_scope || 'home';
+    const regionScope = existingRule?.region_scope || defaultRegionScope;
 
     if (!existingRule) {
       await env.DB.prepare(
         `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
-         VALUES (?, 'series', ?, 2, 'home', 0)
+         VALUES (?, 'series', ?, 2, ?, 0)
          ON CONFLICT(user_id, rule_type, match_value) DO NOTHING`,
       )
-        .bind(userId, canonicalSeries)
+        .bind(userId, canonicalSeries, defaultRegionScope)
         .run();
     }
 
     // Find all sibling games in this canonical_series and their releases
     const { results: seriesReleases } = await env.DB.prepare(
       `SELECT g.stable_id, g.id as game_slug, g.platform_id, g.title, g.collections, g.franchises,
-              r.id as release_id, COALESCE(r.region, g.region) as region, r.variants,
+              r.id as release_id, COALESCE(r.region, g.region) as region, r.variants, r.rom_name,
               COALESCE(ugr.ownership_status, 0) as ownership_status
        FROM games g
        JOIN game_releases r ON r.game_id = g.stable_id
@@ -3122,6 +3193,7 @@ export async function applyReactiveSeriesAutoTracking(
         release_id: string;
         region: string | null;
         variants: string | null;
+        rom_name: string | null;
         ownership_status: number;
       }>();
 
@@ -3136,6 +3208,7 @@ export async function applyReactiveSeriesAutoTracking(
         release_id: string;
         region: string | null;
         variants: string | null;
+        rom_name: string | null;
         ownership_status: number;
       }>
     >();
@@ -3168,29 +3241,47 @@ export async function applyReactiveSeriesAutoTracking(
       if (stableId === gameStableId) continue;
       // Siblings that only share a generic title-derived series are not real series members
       if (untrackableGames.has(stableId)) continue;
-      // Skip if user already has any positive status (Owned=1, Seeking=2, Ordered=3, PrioritySeeking=4) on any release of this game
-      if (rels.some((r) => Number(r.ownership_status) > 0)) {
-        continue;
-      }
 
-      const matchingRels =
-        regionScope === 'any'
-          ? rels
-          : rels.filter((r) => isRegionMatchingHome(r.region, homeRegion));
+      const meta = gameMetaById.get(stableId);
+      const matchingRels = rels.filter(
+        (r) =>
+          !isPackInCompanionDemoRom(meta?.platformId ?? null, r.rom_name) &&
+          (regionScope === 'any' || isRegionMatchingHome(r.region, homeRegion)),
+      );
 
       if (matchingRels.length === 0) continue;
 
-      const chosen = matchingRels[0];
-      statements.push(
-        env.DB.prepare(
-          `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
-           VALUES (?, ?, ?, 0)
-           ON CONFLICT(user_id, release_id) DO UPDATE SET
-             ownership_status = excluded.ownership_status
-           WHERE user_game_releases.ownership_status = 0`,
-        ).bind(userId, chosen.release_id, targetStatus),
-      );
-      addedItems.push({ stableId, releaseId: chosen.release_id });
+      if (releaseScope === 'one_per_game') {
+        // Skip if user already has any positive status (Owned=1, Seeking=2, Ordered=3, PrioritySeeking=4) on any release of this game
+        if (rels.some((r) => Number(r.ownership_status) > 0)) {
+          continue;
+        }
+        const chosen = matchingRels[0];
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+             VALUES (?, ?, ?, 0)
+             ON CONFLICT(user_id, release_id) DO UPDATE SET
+               ownership_status = excluded.ownership_status
+             WHERE user_game_releases.ownership_status = 0`,
+          ).bind(userId, chosen.release_id, targetStatus),
+        );
+        addedItems.push({ stableId, releaseId: chosen.release_id });
+      } else {
+        for (const chosen of matchingRels) {
+          if (Number(chosen.ownership_status) > 0) continue;
+          statements.push(
+            env.DB.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+               VALUES (?, ?, ?, 0)
+               ON CONFLICT(user_id, release_id) DO UPDATE SET
+                 ownership_status = excluded.ownership_status
+               WHERE user_game_releases.ownership_status = 0`,
+            ).bind(userId, chosen.release_id, targetStatus),
+          );
+          addedItems.push({ stableId, releaseId: chosen.release_id });
+        }
+      }
     }
 
     if (statements.length > 0) {
@@ -3199,22 +3290,27 @@ export async function applyReactiveSeriesAutoTracking(
       }
       if (options?.notifySubscribers && addedItems.length > 0) {
         const { byId: platformById } = await loadPlatformLookupMaps(env);
-        const alerts: WatchedSeriesAlertItem[] = addedItems.map((added) => {
+        const uniqueAlertsByGame = new Map<number, WatchedSeriesAlertItem>();
+        for (const added of addedItems) {
+          if (uniqueAlertsByGame.has(added.stableId)) continue;
           const meta = gameMetaById.get(added.stableId);
           const platformName =
             meta?.platformId != null
               ? (platformById.get(meta.platformId)?.displayName ?? null)
               : null;
-          return {
+          uniqueAlertsByGame.set(added.stableId, {
             userId,
             itemType: 'game',
             itemId: String(added.stableId),
             title: meta?.title || canonicalSeries,
             series: canonicalSeries,
             platformName,
-          };
-        });
-        await dispatchWatchedSeriesNotifications(env, alerts);
+          });
+        }
+        await dispatchWatchedSeriesNotifications(
+          env,
+          Array.from(uniqueAlertsByGame.values()),
+        );
       }
     }
 
@@ -3572,13 +3668,23 @@ async function insertCatalogGameWithReleases(
   if (!inserted) return null;
   params.usedSlugs.add(gameSlug);
 
-  const insertedReleases: Array<{ id: string; region: string | null }> = [];
+  const insertedReleases: Array<{
+    id: string;
+    region: string | null;
+    variants?: string | null;
+    romName?: string | null;
+  }> = [];
   const relStatements: D1PreparedStatement[] = [];
   for (let i = 0; i < params.releases.length; i++) {
     const rel = params.releases[i];
     const relId = `${stableId}-${i + 1}`;
     const relRegion = rel.region ?? params.region ?? 'USA';
-    insertedReleases.push({ id: relId, region: relRegion });
+    insertedReleases.push({
+      id: relId,
+      region: relRegion,
+      variants: rel.variants ?? null,
+      romName: rel.romName ?? null,
+    });
     relStatements.push(
       env.DB.prepare(
         `INSERT INTO game_releases (
@@ -3734,28 +3840,62 @@ export async function evaluateTrackingRulesForNewGames(
     title?: string;
     platformName?: string | null;
     gameSlug?: string;
-    releases: Array<{ id: string; region: string | null }>;
+    releases: Array<{
+      id: string;
+      region: string | null;
+      variants?: string | null;
+      romName?: string | null;
+    }>;
   }>,
   options?: { notifySubscribers?: boolean },
 ): Promise<number> {
   if (!newGames || newGames.length === 0) return 0;
   try {
-    const { results: ruleRows } = await env.DB.prepare(
-      `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
-              COALESCE(u.home_region, 'USA') as home_region
-       FROM users u
-       CROSS JOIN user_tracking_rules r
-       WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
-    ).all<{
+    let rules: Array<{
       user_id: number;
       rule_type: 'series' | 'platform';
       match_value: string;
       target_status: number;
       region_scope: string;
       home_region: string;
-    }>();
+      auto_seek_release_scope?: string | null;
+    }> = [];
+    try {
+      const { results: ruleRows } = await env.DB.prepare(
+        `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
+                COALESCE(u.home_region, 'USA') as home_region,
+                COALESCE(u.auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope
+         FROM users u
+         CROSS JOIN user_tracking_rules r
+         WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
+      ).all<{
+        user_id: number;
+        rule_type: 'series' | 'platform';
+        match_value: string;
+        target_status: number;
+        region_scope: string;
+        home_region: string;
+        auto_seek_release_scope: string;
+      }>();
+      rules = ruleRows || [];
+    } catch {
+      const { results: ruleRows } = await env.DB.prepare(
+        `SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope,
+                COALESCE(u.home_region, 'USA') as home_region
+         FROM users u
+         CROSS JOIN user_tracking_rules r
+         WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')`,
+      ).all<{
+        user_id: number;
+        rule_type: 'series' | 'platform';
+        match_value: string;
+        target_status: number;
+        region_scope: string;
+        home_region: string;
+      }>();
+      rules = ruleRows || [];
+    }
 
-    const rules = ruleRows || [];
     if (rules.length === 0) return 0;
 
     const fallbackPlatformById = newGames.some((g) => !g.platformName)
@@ -3764,8 +3904,11 @@ export async function evaluateTrackingRulesForNewGames(
 
     const pendingPairs: Array<{
       userId: number;
+      gameStableId: number;
       releaseId: string;
       targetStatus: number;
+      releaseScope: 'one_per_game' | 'all_releases';
+      allGameReleaseIds: string[];
       matchedSeriesName: string | null;
       itemTitle: string;
       itemSlug: string;
@@ -3786,6 +3929,7 @@ export async function evaluateTrackingRulesForNewGames(
           targetStatus: number;
           regionScope: string;
           homeRegion: string;
+          releaseScope: 'one_per_game' | 'all_releases';
           matchedSeriesName: string | null;
         }
       >();
@@ -3809,6 +3953,9 @@ export async function evaluateTrackingRulesForNewGames(
               targetStatus: rule.target_status || 2,
               regionScope: rule.region_scope || 'home',
               homeRegion: rule.home_region || 'USA',
+              releaseScope: normalizeAutoSeekReleaseScope(
+                rule.auto_seek_release_scope,
+              ),
               matchedSeriesName: seriesName,
             });
           } else if (matchedSeries && !prev.matchedSeriesName) {
@@ -3821,31 +3968,48 @@ export async function evaluateTrackingRulesForNewGames(
         game.platformName ??
         fallbackPlatformById?.get(game.platformId)?.displayName ??
         null;
+      const allGameReleaseIds = game.releases.map((r) => r.id);
       for (const [userId, match] of matchedByUser.entries()) {
-        const candidateRels =
-          match.regionScope === 'any' || match.regionScope === 'all'
-            ? game.releases
-            : game.releases.filter(
-                (r) =>
-                  isRegionMatchingHome(r.region, match.homeRegion) ||
-                  (match.homeRegion === 'USA' && r.region === 'World'),
-              );
+        const candidateRels = game.releases.filter(
+          (r) =>
+            !isPackInCompanionDemoRom(game.platformId, r.romName) &&
+            (match.regionScope === 'any' ||
+              match.regionScope === 'all' ||
+              isRegionMatchingHome(r.region, match.homeRegion) ||
+              (match.homeRegion === 'USA' && r.region === 'World')),
+        );
         if (candidateRels.length === 0) continue;
 
-        const targetRel = candidateRels[0];
-        pendingPairs.push({
-          userId,
-          releaseId: targetRel.id,
-          targetStatus: match.targetStatus,
-          matchedSeriesName: match.matchedSeriesName,
-          itemTitle:
-            game.title ||
-            game.canonicalSeries ||
-            match.matchedSeriesName ||
-            targetRel.id,
-          itemSlug: String(game.stableId),
-          platformName: fallbackPlatName,
-        });
+        let targetRels: typeof candidateRels;
+        if (match.releaseScope === 'all_releases') {
+          targetRels = candidateRels;
+        } else {
+          const sorted = [...candidateRels].sort(
+            (a, b) =>
+              (a.variants && a.variants.trim() ? 1 : 0) -
+              (b.variants && b.variants.trim() ? 1 : 0),
+          );
+          targetRels = [sorted[0]];
+        }
+
+        for (const targetRel of targetRels) {
+          pendingPairs.push({
+            userId,
+            gameStableId: game.stableId,
+            releaseId: targetRel.id,
+            targetStatus: match.targetStatus,
+            releaseScope: match.releaseScope,
+            allGameReleaseIds,
+            matchedSeriesName: match.matchedSeriesName,
+            itemTitle:
+              game.title ||
+              game.canonicalSeries ||
+              match.matchedSeriesName ||
+              targetRel.id,
+            itemSlug: String(game.stableId),
+            platformName: fallbackPlatName,
+          });
+        }
       }
     }
 
@@ -3861,25 +4025,51 @@ export async function evaluateTrackingRulesForNewGames(
 
     const pairsToWrite: typeof pendingPairs = [];
     const watchedAlerts: WatchedSeriesAlertItem[] = [];
+    const seenAlertGameKeys = new Set<string>();
     for (const [uid, pairs] of pairsByUser.entries()) {
+      const releaseIdsToCheck = new Set<string>();
+      for (const p of pairs) {
+        releaseIdsToCheck.add(p.releaseId);
+        if (p.releaseScope === 'one_per_game') {
+          for (const rid of p.allGameReleaseIds) {
+            releaseIdsToCheck.add(rid);
+          }
+        }
+      }
+      const uniqueReleaseIds = Array.from(releaseIdsToCheck);
       const existingStatusByRel = new Map<string, number>();
-      for (let i = 0; i < pairs.length; i += 80) {
-        const chunk = pairs.slice(i, i + 80);
-        const ph = chunk.map(() => '?').join(',');
+      for (let i = 0; i < uniqueReleaseIds.length; i += 80) {
+        const chunkIds = uniqueReleaseIds.slice(i, i + 80);
+        const ph = chunkIds.map(() => '?').join(',');
         const existingRows = await env.DB.prepare(
           `SELECT release_id, ownership_status FROM user_game_releases WHERE user_id = ? AND release_id IN (${ph})`,
         )
-          .bind(uid, ...chunk.map((c) => c.releaseId))
+          .bind(uid, ...chunkIds)
           .all<{ release_id: string; ownership_status: number }>();
         for (const row of existingRows.results || []) {
           existingStatusByRel.set(row.release_id, row.ownership_status);
         }
       }
+      const queuedOnePerGame = new Set<number>();
       for (const p of pairs) {
-        const existingStatus = existingStatusByRel.get(p.releaseId);
-        if (existingStatus === undefined || existingStatus === 0) {
-          pairsToWrite.push(p);
-          if (options?.notifySubscribers && p.matchedSeriesName) {
+        if (p.releaseScope === 'one_per_game') {
+          if (queuedOnePerGame.has(p.gameStableId)) continue;
+          const hasAnyActive = p.allGameReleaseIds.some(
+            (rid) => (existingStatusByRel.get(rid) ?? 0) > 0,
+          );
+          if (hasAnyActive) continue;
+          queuedOnePerGame.add(p.gameStableId);
+        } else {
+          const existingStatus = existingStatusByRel.get(p.releaseId);
+          if (existingStatus !== undefined && existingStatus !== 0) {
+            continue;
+          }
+        }
+        pairsToWrite.push(p);
+        if (options?.notifySubscribers && p.matchedSeriesName) {
+          const alertKey = `${uid}::${p.itemSlug}`;
+          if (!seenAlertGameKeys.has(alertKey)) {
+            seenAlertGameKeys.add(alertKey);
             watchedAlerts.push({
               userId: uid,
               itemType: 'game',
@@ -4304,6 +4494,8 @@ export async function syncOrResolveOidcUser(
       display_name: claimDisplayName,
       bio: null,
       auto_track_series_on_add: 1,
+      auto_seek_release_scope: 'one_per_game',
+      auto_seek_region_scope: 'home',
       track_individual_media: 0,
     };
   }
@@ -4539,145 +4731,694 @@ export async function markCanonicalReleasesDirty(env: Env): Promise<void> {
   }
 }
 
+export interface BackupCatalogManifest {
+  version: string;
+  timestamp: string;
+  date: string;
+  tables: {
+    games: { rowCount: number; chunks: string[] };
+    game_releases: { rowCount: number; chunks: string[] };
+  };
+}
+
+export interface BackupCanonicalManifest {
+  version: string;
+  timestamp: string;
+  date: string;
+  rowCount: number;
+  maxId: number;
+  chunkCount: number;
+  sha256: string;
+  chunks: string[];
+}
+
+interface CatalogBackupChunksState {
+  version: string;
+  startedAt: string;
+  phase: 'games' | 'game_releases';
+  cursor: number | string;
+  chunkIndex: number;
+  targetMaxGameStableId: number;
+  targetMaxReleaseId: string;
+  gameChunks: string[];
+  releaseChunks: string[];
+  gameRowCount: number;
+  releaseRowCount: number;
+}
+
+interface CanonicalBackupChunksState {
+  version: string;
+  startedAt: string;
+  cursor: number;
+  chunkIndex: number;
+  targetMaxId: number;
+  chunks: string[];
+  rowsWritten: number;
+}
+
+export function getBackupChunkR2Key(
+  table: 'games' | 'game_releases' | 'canonical_releases',
+  chunkIndex: number,
+): string {
+  return `${R2_BACKUP_CHUNK_PREFIX}${table}-${String(chunkIndex).padStart(3, '0')}.json`;
+}
+
+async function readBucketCustomMetadata(
+  bucket: R2Bucket,
+  key: string,
+): Promise<Record<string, string> | null> {
+  try {
+    if (typeof bucket.head === 'function') {
+      const headObj = await bucket.head(key);
+      return headObj?.customMetadata ?? null;
+    }
+    if (typeof bucket.get === 'function') {
+      const getObj = await bucket.get(key);
+      return getObj?.customMetadata ?? null;
+    }
+  } catch {
+    // Ignore R2 metadata lookup error
+  }
+  return null;
+}
+
+async function readSyncStateJson<T>(
+  db: D1Database,
+  key: string,
+): Promise<T | null> {
+  try {
+    const row = await db
+      .prepare('SELECT value FROM sync_state WHERE key = ?')
+      .bind(key)
+      .first<{ value: string }>();
+    if (!row?.value) return null;
+    return JSON.parse(row.value) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSyncStateValue(
+  db: D1Database,
+  key: string,
+  value: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+    .bind(key, value)
+    .run();
+}
+
+async function deleteSyncStateKey(db: D1Database, key: string): Promise<void> {
+  await db.prepare('DELETE FROM sync_state WHERE key = ?').bind(key).run();
+}
+
+async function pruneTrailingBackupChunks(
+  bucket: R2Bucket,
+  table: 'games' | 'game_releases' | 'canonical_releases',
+  activeChunkCount: number,
+): Promise<void> {
+  if (
+    typeof bucket.list !== 'function' ||
+    typeof bucket.delete !== 'function'
+  ) {
+    return;
+  }
+  const prefix = `${R2_BACKUP_CHUNK_PREFIX}${table}-`;
+  const listed = await bucket.list({ prefix }).catch(() => null);
+  if (!listed?.objects) return;
+  for (const obj of listed.objects) {
+    const match = obj.key.match(new RegExp(`^${prefix}(\\d+)\\.json$`));
+    if (match && Number(match[1]) >= activeChunkCount) {
+      await bucket.delete(obj.key).catch(() => {});
+    }
+  }
+}
+
 /**
- * Diff-guarded daily R2 backup for `canonical_releases` (`snapshots/canonical_releases.json`).
- * Only reads and uploads `canonical_releases` (in primary-key pages) when `canonical_releases_dirty = '1'`
- * or when the R2 object's `customMetadata` (`rowCount`, `maxId`) does not match D1.
+ * Tier 2 diff-gated, cursor-resumed R2 backup for `games` and `game_releases`.
+ * Writes primary-key slices (`snapshots/chunks/games-NNN.json`,
+ * `snapshots/chunks/game_releases-NNN.json`) across consecutive cron ticks
+ * and publishes `snapshots/chunks/catalog-manifest.json` on completion.
+ */
+export async function performChunkedCatalogBackup(
+  env: Env,
+  options: {
+    gamesPageSize?: number;
+    releasesPageSize?: number;
+    maxChunksPerRun?: number;
+    forceRestart?: boolean;
+  } = {},
+): Promise<{
+  key: string;
+  skipped: boolean;
+  completed: boolean;
+  inProgress: boolean;
+  chunksWritten: number;
+  gamesRowCount: number;
+  releasesRowCount: number;
+}> {
+  if (!env.BACKUP_BUCKET) {
+    return {
+      key: 'none',
+      skipped: true,
+      completed: false,
+      inProgress: false,
+      chunksWritten: 0,
+      gamesRowCount: 0,
+      releasesRowCount: 0,
+    };
+  }
+
+  const gamesPageSize = Math.max(
+    1,
+    options.gamesPageSize ?? BACKUP_GAMES_CHUNK_SIZE,
+  );
+  const releasesPageSize = Math.max(
+    1,
+    options.releasesPageSize ?? BACKUP_RELEASES_CHUNK_SIZE,
+  );
+  const chunkLimit =
+    options.maxChunksPerRun === undefined
+      ? 2
+      : Number.isFinite(options.maxChunksPerRun)
+        ? Math.max(1, Math.floor(options.maxChunksPerRun))
+        : Number.POSITIVE_INFINITY;
+
+  let state: CatalogBackupChunksState | null = null;
+  if (!options.forceRestart) {
+    const saved = await readSyncStateJson<CatalogBackupChunksState>(
+      env.DB,
+      BACKUP_CATALOG_CHUNKS_STATE_KEY,
+    );
+    if (
+      saved &&
+      (saved.phase === 'games' || saved.phase === 'game_releases') &&
+      Array.isArray(saved.gameChunks) &&
+      Array.isArray(saved.releaseChunks)
+    ) {
+      state = saved;
+    }
+  }
+
+  if (!state) {
+    const [dirtyRow, manifestMeta, gameStats, relStats] = await Promise.all([
+      env.DB.prepare("SELECT value FROM sync_state WHERE key = 'db_dirty'")
+        .first<{ value: string }>()
+        .catch(() => null),
+      readBucketCustomMetadata(
+        env.BACKUP_BUCKET,
+        R2_BACKUP_CATALOG_MANIFEST_KEY,
+      ),
+      env.DB.prepare(
+        'SELECT COUNT(*) AS cnt, COALESCE(MAX(stable_id), 0) AS max_id FROM games',
+      )
+        .first<{ cnt: number; max_id: number }>()
+        .catch(() => ({ cnt: 0, max_id: 0 })),
+      env.DB.prepare(
+        "SELECT COUNT(*) AS cnt, COALESCE(MAX(id), '') AS max_id FROM game_releases",
+      )
+        .first<{ cnt: number; max_id: string }>()
+        .catch(() => ({ cnt: 0, max_id: '' })),
+    ]);
+
+    const isDirty = dirtyRow?.value === '1';
+    const totalGames = Number(gameStats?.cnt ?? 0);
+    const totalReleases = Number(relStats?.cnt ?? 0);
+    if (
+      !options.forceRestart &&
+      !isDirty &&
+      manifestMeta &&
+      manifestMeta['gamesRowCount'] === String(totalGames) &&
+      manifestMeta['releasesRowCount'] === String(totalReleases)
+    ) {
+      return {
+        key: 'none',
+        skipped: true,
+        completed: true,
+        inProgress: false,
+        chunksWritten: 0,
+        gamesRowCount: totalGames,
+        releasesRowCount: totalReleases,
+      };
+    }
+
+    const startedAt = new Date().toISOString();
+    state = {
+      version: `${startedAt.slice(0, 10)}:${totalGames}:${totalReleases}:${Date.now()}`,
+      startedAt,
+      phase: totalGames > 0 ? 'games' : 'game_releases',
+      cursor: totalGames > 0 ? 0 : '',
+      chunkIndex: 0,
+      targetMaxGameStableId: Number(gameStats?.max_id ?? 0),
+      targetMaxReleaseId: String(relStats?.max_id ?? ''),
+      gameChunks: [],
+      releaseChunks: [],
+      gameRowCount: 0,
+      releaseRowCount: 0,
+    };
+  }
+
+  let chunksWritten = 0;
+  let completed = false;
+
+  while (chunksWritten < chunkLimit && !completed) {
+    if (state.phase === 'games') {
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM games WHERE stable_id > ? ORDER BY stable_id ASC LIMIT ?',
+      )
+        .bind(Number(state.cursor) || 0, gamesPageSize)
+        .all<Record<string, unknown>>();
+      const batch = results || [];
+      if (batch.length === 0) {
+        state.phase = 'game_releases';
+        state.cursor = '';
+        state.chunkIndex = 0;
+        continue;
+      }
+
+      const chunkKey = getBackupChunkR2Key('games', state.chunkIndex);
+      await env.BACKUP_BUCKET.put(
+        chunkKey,
+        JSON.stringify({
+          table: 'games',
+          chunkIndex: state.chunkIndex,
+          rowCount: batch.length,
+          rows: batch,
+        }),
+        {
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: {
+            table: 'games',
+            chunkIndex: String(state.chunkIndex),
+            rowCount: String(batch.length),
+            version: state.version,
+          },
+        },
+      );
+      state.gameChunks.push(chunkKey);
+      state.gameRowCount += batch.length;
+      chunksWritten++;
+
+      const lastStableId = Number(batch[batch.length - 1]?.['stable_id'] ?? 0);
+      if (
+        batch.length < gamesPageSize ||
+        lastStableId <= (Number(state.cursor) || 0) ||
+        lastStableId >= state.targetMaxGameStableId
+      ) {
+        state.phase = 'game_releases';
+        state.cursor = '';
+        state.chunkIndex = 0;
+      } else {
+        state.cursor = lastStableId;
+        state.chunkIndex++;
+      }
+    } else {
+      const { results } = await env.DB.prepare(
+        'SELECT * FROM game_releases WHERE id > ? ORDER BY id ASC LIMIT ?',
+      )
+        .bind(String(state.cursor ?? ''), releasesPageSize)
+        .all<Record<string, unknown>>();
+      const batch = results || [];
+      if (batch.length === 0) {
+        completed = true;
+        break;
+      }
+
+      const chunkKey = getBackupChunkR2Key('game_releases', state.chunkIndex);
+      await env.BACKUP_BUCKET.put(
+        chunkKey,
+        JSON.stringify({
+          table: 'game_releases',
+          chunkIndex: state.chunkIndex,
+          rowCount: batch.length,
+          rows: batch,
+        }),
+        {
+          httpMetadata: { contentType: 'application/json' },
+          customMetadata: {
+            table: 'game_releases',
+            chunkIndex: String(state.chunkIndex),
+            rowCount: String(batch.length),
+            version: state.version,
+          },
+        },
+      );
+      state.releaseChunks.push(chunkKey);
+      state.releaseRowCount += batch.length;
+      chunksWritten++;
+
+      const lastId = String(batch[batch.length - 1]?.['id'] ?? '');
+      if (
+        batch.length < releasesPageSize ||
+        !lastId ||
+        lastId <= String(state.cursor ?? '') ||
+        (state.targetMaxReleaseId !== '' && lastId >= state.targetMaxReleaseId)
+      ) {
+        completed = true;
+        break;
+      }
+      state.cursor = lastId;
+      state.chunkIndex++;
+    }
+  }
+
+  if (!completed) {
+    await writeSyncStateValue(
+      env.DB,
+      BACKUP_CATALOG_CHUNKS_STATE_KEY,
+      JSON.stringify(state),
+    ).catch(() => {});
+    return {
+      key: R2_BACKUP_CATALOG_MANIFEST_KEY,
+      skipped: false,
+      completed: false,
+      inProgress: true,
+      chunksWritten,
+      gamesRowCount: state.gameRowCount,
+      releasesRowCount: state.releaseRowCount,
+    };
+  }
+
+  const timestamp = new Date().toISOString();
+  const manifest: BackupCatalogManifest = {
+    version: state.version,
+    timestamp,
+    date: timestamp.slice(0, 10),
+    tables: {
+      games: { rowCount: state.gameRowCount, chunks: state.gameChunks },
+      game_releases: {
+        rowCount: state.releaseRowCount,
+        chunks: state.releaseChunks,
+      },
+    },
+  };
+
+  await env.BACKUP_BUCKET.put(
+    R2_BACKUP_CATALOG_MANIFEST_KEY,
+    JSON.stringify(manifest),
+    {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: {
+        version: manifest.version,
+        gamesRowCount: String(state.gameRowCount),
+        releasesRowCount: String(state.releaseRowCount),
+        chunkCount: String(
+          state.gameChunks.length + state.releaseChunks.length,
+        ),
+      },
+    },
+  );
+  await deleteSyncStateKey(env.DB, BACKUP_CATALOG_CHUNKS_STATE_KEY).catch(
+    () => {},
+  );
+  await pruneTrailingBackupChunks(
+    env.BACKUP_BUCKET,
+    'games',
+    state.gameChunks.length,
+  );
+  await pruneTrailingBackupChunks(
+    env.BACKUP_BUCKET,
+    'game_releases',
+    state.releaseChunks.length,
+  );
+
+  return {
+    key: R2_BACKUP_CATALOG_MANIFEST_KEY,
+    skipped: false,
+    completed: true,
+    inProgress: false,
+    chunksWritten,
+    gamesRowCount: state.gameRowCount,
+    releasesRowCount: state.releaseRowCount,
+  };
+}
+
+/**
+ * Tier 3 diff-gated, cursor-resumed R2 backup for `canonical_releases`
+ * (`snapshots/chunks/canonical_releases-NNN.json` + `snapshots/chunks/canonical-manifest.json`).
+ * Reads up to `maxChunksPerRun` primary-key slices per invocation so 100k+ rows never
+ * exceed Cloudflare Workers Free Tier CPU/memory limits.
  */
 export async function performCanonicalReleasesBackup(
   env: Env,
-  options: { pageSize?: number; force?: boolean } = {},
+  options: {
+    pageSize?: number;
+    maxChunksPerRun?: number;
+    force?: boolean;
+  } = {},
 ): Promise<{
   key: string;
   rowCount: number;
   maxId: number;
   skipped: boolean;
+  inProgress: boolean;
+  chunksWritten: number;
 }> {
-  const latestCanonicalKey = 'snapshots/canonical_releases.json';
-  const pageSize = options.pageSize ?? 20000;
+  const pageSize = Math.max(1, options.pageSize ?? BACKUP_CANONICAL_CHUNK_SIZE);
+  const chunkLimit =
+    options.maxChunksPerRun === undefined
+      ? 2
+      : Number.isFinite(options.maxChunksPerRun)
+        ? Math.max(1, Math.floor(options.maxChunksPerRun))
+        : Number.POSITIVE_INFINITY;
+
   if (!env.BACKUP_BUCKET) {
-    return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
+    return {
+      key: 'none',
+      rowCount: 0,
+      maxId: 0,
+      skipped: true,
+      inProgress: false,
+      chunksWritten: 0,
+    };
   }
 
-  const [dirtyRow, statsRow] = await Promise.all([
-    env.DB.prepare(
-      "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
-    )
-      .first<{ value: string }>()
-      .catch(() => null),
-    env.DB.prepare(
-      'SELECT COUNT(*) AS cnt, COALESCE(MAX(id), 0) AS max_id FROM canonical_releases',
-    )
-      .first<{ cnt: number; max_id: number }>()
-      .catch(() => ({ cnt: 0, max_id: 0 })),
-  ]);
-
-  const isDirty = dirtyRow?.value === '1';
-  const rowCount = Number(statsRow?.cnt ?? 0);
-  const maxId = Number(statsRow?.max_id ?? 0);
-
-  if (!options.force && !isDirty) {
-    if (rowCount === 0) {
-      return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
+  let state: CanonicalBackupChunksState | null = null;
+  if (!options.force) {
+    const saved = await readSyncStateJson<CanonicalBackupChunksState>(
+      env.DB,
+      BACKUP_CANONICAL_CHUNKS_STATE_KEY,
+    );
+    if (
+      saved &&
+      Array.isArray(saved.chunks) &&
+      typeof saved.cursor === 'number'
+    ) {
+      state = saved;
     }
-    try {
-      let existingRowCount: string | undefined;
-      let existingMaxId: string | undefined;
-      if (typeof env.BACKUP_BUCKET.head === 'function') {
-        const headObj = await env.BACKUP_BUCKET.head(latestCanonicalKey);
-        existingRowCount = headObj?.customMetadata?.['rowCount'];
-        existingMaxId = headObj?.customMetadata?.['maxId'];
-      } else if (typeof env.BACKUP_BUCKET.get === 'function') {
-        const getObj = await env.BACKUP_BUCKET.get(latestCanonicalKey);
-        existingRowCount = getObj?.customMetadata?.['rowCount'];
-        existingMaxId = getObj?.customMetadata?.['maxId'];
+  }
+
+  if (!state) {
+    const [dirtyRow, statsRow, manifestMeta] = await Promise.all([
+      env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+      )
+        .first<{ value: string }>()
+        .catch(() => null),
+      env.DB.prepare(
+        'SELECT COUNT(*) AS cnt, COALESCE(MAX(id), 0) AS max_id FROM canonical_releases',
+      )
+        .first<{ cnt: number; max_id: number }>()
+        .catch(() => ({ cnt: 0, max_id: 0 })),
+      readBucketCustomMetadata(
+        env.BACKUP_BUCKET,
+        R2_BACKUP_CANONICAL_MANIFEST_KEY,
+      ),
+    ]);
+
+    const isDirty = dirtyRow?.value === '1';
+    const rowCount = Number(statsRow?.cnt ?? 0);
+    const maxId = Number(statsRow?.max_id ?? 0);
+
+    if (!options.force && !isDirty) {
+      if (rowCount === 0) {
+        return {
+          key: 'none',
+          rowCount: 0,
+          maxId: 0,
+          skipped: true,
+          inProgress: false,
+          chunksWritten: 0,
+        };
       }
       if (
-        existingRowCount === String(rowCount) &&
-        existingMaxId === String(maxId)
+        manifestMeta &&
+        manifestMeta['rowCount'] === String(rowCount) &&
+        manifestMeta['maxId'] === String(maxId)
       ) {
         return {
           key: 'none',
           rowCount,
           maxId,
           skipped: true,
+          inProgress: false,
+          chunksWritten: 0,
         };
       }
-    } catch {
-      // Proceed with backup if R2 metadata check fails
     }
+
+    if (rowCount === 0 && !isDirty && !options.force) {
+      return {
+        key: 'none',
+        rowCount: 0,
+        maxId: 0,
+        skipped: true,
+        inProgress: false,
+        chunksWritten: 0,
+      };
+    }
+
+    const startedAt = new Date().toISOString();
+    state = {
+      version: `${startedAt.slice(0, 10)}:${rowCount}:${maxId}:${Date.now()}`,
+      startedAt,
+      cursor: 0,
+      chunkIndex: 0,
+      targetMaxId: maxId,
+      chunks: [],
+      rowsWritten: 0,
+    };
   }
 
-  if (rowCount === 0 && !isDirty && !options.force) {
-    return { key: 'none', rowCount: 0, maxId: 0, skipped: true };
-  }
+  let chunksWritten = 0;
+  let completed = false;
 
-  const allRows: Record<string, unknown>[] = [];
-  let cursor = 0;
-  while (true) {
+  while (chunksWritten < chunkLimit) {
     const { results } = await env.DB.prepare(
       'SELECT * FROM canonical_releases WHERE id > ? ORDER BY id ASC LIMIT ?',
     )
-      .bind(cursor, pageSize)
+      .bind(state.cursor, pageSize)
       .all<Record<string, unknown>>();
     const batch = results || [];
-    if (batch.length === 0) break;
-    for (const r of batch) {
-      allRows.push(r);
+    if (batch.length === 0) {
+      completed = true;
+      break;
     }
+
+    const chunkKey = getBackupChunkR2Key(
+      'canonical_releases',
+      state.chunkIndex,
+    );
+    await env.BACKUP_BUCKET.put(
+      chunkKey,
+      JSON.stringify({
+        table: 'canonical_releases',
+        chunkIndex: state.chunkIndex,
+        rowCount: batch.length,
+        rows: batch,
+      }),
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: {
+          table: 'canonical_releases',
+          chunkIndex: String(state.chunkIndex),
+          rowCount: String(batch.length),
+          version: state.version,
+        },
+      },
+    );
+
+    state.chunks.push(chunkKey);
+    state.rowsWritten += batch.length;
+    chunksWritten++;
+
     const lastId = Number(batch[batch.length - 1]?.['id'] ?? 0);
-    if (!lastId || lastId <= cursor || batch.length < pageSize) break;
-    cursor = lastId;
+    if (!lastId || lastId <= state.cursor) {
+      completed = true;
+      break;
+    }
+    state.cursor = lastId;
+    state.chunkIndex++;
+    if (lastId >= state.targetMaxId || batch.length < pageSize) {
+      completed = true;
+      break;
+    }
   }
 
-  const actualCount = allRows.length;
-  const actualMaxId =
-    actualCount > 0 ? Number(allRows[actualCount - 1]?.['id'] ?? maxId) : 0;
+  if (!completed) {
+    await writeSyncStateValue(
+      env.DB,
+      BACKUP_CANONICAL_CHUNKS_STATE_KEY,
+      JSON.stringify(state),
+    ).catch(() => {});
+    return {
+      key: R2_BACKUP_CANONICAL_MANIFEST_KEY,
+      rowCount: state.rowsWritten,
+      maxId: state.targetMaxId,
+      skipped: false,
+      inProgress: true,
+      chunksWritten,
+    };
+  }
 
-  const tablesJson = `{"canonical_releases":${JSON.stringify(allRows)}}`;
-  const encoder = new TextEncoder();
+  const finalMaxId =
+    state.rowsWritten > 0 ? Math.max(state.cursor, state.targetMaxId) : 0;
+  const manifestSummaryStr = JSON.stringify({
+    version: state.version,
+    rowCount: state.rowsWritten,
+    maxId: finalMaxId,
+    chunks: state.chunks,
+  });
   const hashBuffer = await crypto.subtle.digest(
     'SHA-256',
-    encoder.encode(tablesJson),
+    new TextEncoder().encode(manifestSummaryStr),
   );
   const sha256 = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
   const timestamp = new Date().toISOString();
-  const metadataJson = JSON.stringify({
+  const manifest: BackupCanonicalManifest = {
+    version: state.version,
     timestamp,
     date: timestamp.slice(0, 10),
-    version: 1,
-    totalRows: actualCount,
-    rowCount: actualCount,
-    maxId: actualMaxId,
+    rowCount: state.rowsWritten,
+    maxId: finalMaxId,
+    chunkCount: state.chunks.length,
     sha256,
-    tableCounts: { canonical_releases: actualCount },
-  });
-  const payload = `{"timestamp":${JSON.stringify(timestamp)},"version":"1.0","metadata":${metadataJson},"tables":${tablesJson}}`;
+    chunks: state.chunks,
+  };
 
-  await env.BACKUP_BUCKET.put(latestCanonicalKey, payload, {
-    httpMetadata: { contentType: 'application/json' },
-    customMetadata: {
-      sha256,
-      totalRows: String(actualCount),
-      rowCount: String(actualCount),
-      maxId: String(actualMaxId),
+  await env.BACKUP_BUCKET.put(
+    R2_BACKUP_CANONICAL_MANIFEST_KEY,
+    JSON.stringify(manifest),
+    {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: {
+        version: manifest.version,
+        sha256,
+        totalRows: String(state.rowsWritten),
+        rowCount: String(state.rowsWritten),
+        maxId: String(finalMaxId),
+        chunkCount: String(state.chunks.length),
+      },
     },
-  });
+  );
 
-  await env.DB.prepare(
-    `INSERT INTO sync_state (key, value, updated_at)
-     VALUES ('canonical_releases_dirty', '0', datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')`,
-  ).run();
+  await deleteSyncStateKey(env.DB, BACKUP_CANONICAL_CHUNKS_STATE_KEY).catch(
+    () => {},
+  );
+  await writeSyncStateValue(env.DB, 'canonical_releases_dirty', '0').catch(
+    () => {},
+  );
+  await pruneTrailingBackupChunks(
+    env.BACKUP_BUCKET,
+    'canonical_releases',
+    state.chunks.length,
+  );
 
   return {
-    key: latestCanonicalKey,
-    rowCount: actualCount,
-    maxId: actualMaxId,
+    key: R2_BACKUP_CANONICAL_MANIFEST_KEY,
+    rowCount: state.rowsWritten,
+    maxId: finalMaxId,
     skipped: false,
+    inProgress: false,
+    chunksWritten,
   };
 }
 
@@ -5299,12 +6040,40 @@ Disallow: /
           displayName?: unknown;
           bio?: unknown;
           autoTrackSeriesOnAdd?: boolean;
+          autoSeekReleaseScope?: unknown;
+          autoSeekRegionScope?: unknown;
           trackIndividualMedia?: boolean;
         } | null;
 
         if (!body || typeof body !== 'object') {
           return Response.json(
             { error: 'Invalid JSON payload' },
+            { status: 400 },
+          );
+        }
+
+        if (
+          body.autoSeekReleaseScope !== undefined &&
+          body.autoSeekReleaseScope !== 'one_per_game' &&
+          body.autoSeekReleaseScope !== 'all_releases'
+        ) {
+          return Response.json(
+            {
+              error:
+                "Invalid autoSeekReleaseScope: expected 'one_per_game' or 'all_releases'",
+            },
+            { status: 400 },
+          );
+        }
+        if (
+          body.autoSeekRegionScope !== undefined &&
+          body.autoSeekRegionScope !== 'home' &&
+          body.autoSeekRegionScope !== 'any'
+        ) {
+          return Response.json(
+            {
+              error: "Invalid autoSeekRegionScope: expected 'home' or 'any'",
+            },
             { status: 400 },
           );
         }
@@ -5368,6 +6137,18 @@ Disallow: /
           updates.push('auto_track_series_on_add = ?');
           updateParams.push(body.autoTrackSeriesOnAdd ? 1 : 0);
         }
+        if (body.autoSeekReleaseScope !== undefined) {
+          updates.push('auto_seek_release_scope = ?');
+          updateParams.push(
+            normalizeAutoSeekReleaseScope(body.autoSeekReleaseScope),
+          );
+        }
+        if (body.autoSeekRegionScope !== undefined) {
+          updates.push('auto_seek_region_scope = ?');
+          updateParams.push(
+            normalizeAutoSeekRegionScope(body.autoSeekRegionScope),
+          );
+        }
         if (body.trackIndividualMedia !== undefined) {
           updates.push('track_individual_media = ?');
           updateParams.push(body.trackIndividualMedia ? 1 : 0);
@@ -5383,16 +6164,24 @@ Disallow: /
         let profile: DbUserRow | null = null;
         try {
           profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
+            "SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope, COALESCE(auto_seek_region_scope, 'home') as auto_seek_region_scope, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?",
           )
             .bind(sessionUser.id)
             .first()) as DbUserRow | null;
         } catch {
-          profile = (await env.DB.prepare(
-            'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
-          )
-            .bind(sessionUser.id)
-            .first()) as DbUserRow | null;
+          try {
+            profile = (await env.DB.prepare(
+              'SELECT id, username, is_public, home_region, display_name, bio, COALESCE(auto_track_series_on_add, 1) as auto_track_series_on_add, COALESCE(track_individual_media, 0) as track_individual_media FROM users WHERE id = ?',
+            )
+              .bind(sessionUser.id)
+              .first()) as DbUserRow | null;
+          } catch {
+            profile = (await env.DB.prepare(
+              'SELECT id, username, is_public, home_region, display_name, bio FROM users WHERE id = ?',
+            )
+              .bind(sessionUser.id)
+              .first()) as DbUserRow | null;
+          }
         }
 
         if (!profile) {
@@ -5494,7 +6283,23 @@ Disallow: /
         const ruleType = body.rule_type;
         const matchValue = String(rawMatchVal).trim();
         const targetStatus = body.target_status === 4 ? 4 : 2;
-        const regionScope = body.region_scope === 'any' ? 'any' : 'home';
+        let regionScope: 'home' | 'any';
+        if (body.region_scope === 'any' || body.region_scope === 'home') {
+          regionScope = body.region_scope;
+        } else {
+          try {
+            const prefRow = await env.DB.prepare(
+              "SELECT COALESCE(auto_seek_region_scope, 'home') as auto_seek_region_scope FROM users WHERE id = ?",
+            )
+              .bind(sessionUser.id)
+              .first<{ auto_seek_region_scope: string }>();
+            regionScope = normalizeAutoSeekRegionScope(
+              prefRow?.auto_seek_region_scope,
+            );
+          } catch {
+            regionScope = 'home';
+          }
+        }
         const isIgnored = body.is_ignored ? 1 : 0;
 
         await env.DB.prepare(
@@ -9311,6 +10116,15 @@ export default {
         const backupStart = Date.now();
         try {
           const res = await performScheduledBackup(env, true);
+          await performChunkedCatalogBackup(env, {
+            maxChunksPerRun: 2,
+            forceRestart: true,
+          }).catch((catBackupErr) => {
+            console.warn(
+              '[WorkerCron] Chunked catalog backup start failed:',
+              catBackupErr,
+            );
+          });
           await env.DB.prepare(
             `INSERT INTO sync_state (key, value, updated_at)
              VALUES ('db_dirty', '0', datetime('now'))
@@ -9351,6 +10165,14 @@ export default {
             );
           }
         }
+        await performChunkedCatalogBackup(env, { maxChunksPerRun: 2 }).catch(
+          (catBackupErr) => {
+            console.warn(
+              '[WorkerCron] Chunked catalog backup resume failed:',
+              catBackupErr,
+            );
+          },
+        );
       }
     }
 
@@ -9360,16 +10182,40 @@ export default {
       typeof env.BACKUP_BUCKET.head === 'function'
     ) {
       try {
-        const [hasLatest, hasGamesLite, hasCatalogManifest, chunkCursorRow] =
-          await Promise.all([
-            env.BACKUP_BUCKET.head('snapshots/latest.json'),
-            env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
-            env.BACKUP_BUCKET.head(R2_CATALOG_MANIFEST_KEY),
-            env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
-              .bind(CATALOG_CHUNKS_STATE_KEY)
-              .first<{ value: string }>()
-              .catch(() => null),
-          ]);
+        const [
+          hasLatest,
+          hasGamesLite,
+          hasCatalogManifest,
+          chunkCursorRow,
+          hasBackupCatalogManifest,
+          hasBackupCanonicalManifest,
+          backupCatalogCursorRow,
+          backupCanonicalCursorRow,
+          canonicalDirtyRow,
+        ] = await Promise.all([
+          env.BACKUP_BUCKET.head('snapshots/latest.json'),
+          env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
+          env.BACKUP_BUCKET.head(R2_CATALOG_MANIFEST_KEY),
+          env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+            .bind(CATALOG_CHUNKS_STATE_KEY)
+            .first<{ value: string }>()
+            .catch(() => null),
+          env.BACKUP_BUCKET.head(R2_BACKUP_CATALOG_MANIFEST_KEY),
+          env.BACKUP_BUCKET.head(R2_BACKUP_CANONICAL_MANIFEST_KEY),
+          env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+            .bind(BACKUP_CATALOG_CHUNKS_STATE_KEY)
+            .first<{ value: string }>()
+            .catch(() => null),
+          env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+            .bind(BACKUP_CANONICAL_CHUNKS_STATE_KEY)
+            .first<{ value: string }>()
+            .catch(() => null),
+          env.DB.prepare(
+            "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+          )
+            .first<{ value: string }>()
+            .catch(() => null),
+        ]);
         let manifestVersion =
           hasCatalogManifest?.customMetadata?.['version'] || '';
         if (hasCatalogManifest && !manifestVersion) {
@@ -9398,9 +10244,22 @@ export default {
         ) {
           await writeCatalogChunksToR2(env, { maxChunksPerRun: 2 });
         }
+        if (
+          backupCatalogCursorRow?.value ||
+          (hasLatest && !hasBackupCatalogManifest)
+        ) {
+          await performChunkedCatalogBackup(env, { maxChunksPerRun: 2 });
+        }
+        if (
+          backupCanonicalCursorRow?.value ||
+          canonicalDirtyRow?.value === '1' ||
+          (hasLatest && !hasBackupCanonicalManifest)
+        ) {
+          await performCanonicalReleasesBackup(env, { maxChunksPerRun: 2 });
+        }
       } catch (liteBackfillErr) {
         console.warn(
-          '[WorkerCron] Daytime one-time lite snapshot backfill failed:',
+          '[WorkerCron] Daytime one-time lite/chunked backup failed:',
           liteBackfillErr,
         );
       }
@@ -9568,16 +10427,20 @@ export default {
         );
       }
 
-      // 6. Diff-guarded canonical_releases R2 backup (only dumps when dirty or out of sync with R2)
+      // 6. Diff-guarded cursor-resumed canonical_releases R2 backup
       const canonicalBackupStart = Date.now();
       try {
-        const crBackupRes = await performCanonicalReleasesBackup(env);
+        const crBackupRes = await performCanonicalReleasesBackup(env, {
+          maxChunksPerRun: 2,
+        });
         if (!crBackupRes.skipped) {
           logCronExecution(
             'canonical_releases_backup',
             'SUCCESS',
             Date.now() - canonicalBackupStart,
-            `Backed up ${crBackupRes.rowCount} canonical_releases rows to R2 (${crBackupRes.key})`,
+            crBackupRes.inProgress
+              ? `Chunked canonical_releases backup in progress (${crBackupRes.rowCount} rows staged, ${crBackupRes.chunksWritten} chunks)`
+              : `Backed up ${crBackupRes.rowCount} canonical_releases rows to R2 (${crBackupRes.key})`,
             crBackupRes,
           );
         }
@@ -9593,12 +10456,20 @@ export default {
         );
       }
 
-      // 7. Build pre-processed, user-agnostic R2 catalog chunks for progressive client loading
+      // 7. Build pre-processed, user-agnostic R2 catalog chunks when dirty or manifest is absent
       try {
-        await writeCatalogChunksToR2(env, {
-          maxChunksPerRun: 2,
-          forceRestart: true,
-        });
+        const hasPublicCatalogManifest =
+          env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.head === 'function'
+            ? await env.BACKUP_BUCKET.head(R2_CATALOG_MANIFEST_KEY).catch(
+                () => null,
+              )
+            : null;
+        if (isDirty || !lastDailyRunDate || !hasPublicCatalogManifest) {
+          await writeCatalogChunksToR2(env, {
+            maxChunksPerRun: 2,
+            forceRestart: true,
+          });
+        }
       } catch (chunkErr) {
         console.warn(
           '[WorkerCron] Failed to write R2 catalog chunks:',
@@ -9641,25 +10512,41 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
     return { matchedCount: 0, totalDeals: 0, sources };
   }
 
-  const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
-     FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
-  ).all<{
-    stable_id: number;
-    id: string;
-    title: string;
-    platform_id: number;
-    ownership_status: number;
-    barcode: string | null;
-  }>();
+  const targetPlatforms = Array.from(
+    new Set(
+      deals
+        .filter((d) => d.categoryHint !== 'toy')
+        .map((d) => resolveRetailPlatformId(d.platform, d.name))
+        .filter((id): id is number => typeof id === 'number' && id > 0),
+    ),
+  );
 
-  const candidates: CandidateGame[] = candidateRows.results || [];
+  let candidates: Array<CandidateGame & { id: string }> = [];
+  if (targetPlatforms.length > 0) {
+    const placeholders = targetPlatforms.map(() => '?').join(', ');
+    const candidateRows = await env.DB.prepare(
+      `SELECT g.stable_id, g.id, g.title, g.platform_id, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
+       FROM games g
+       LEFT JOIN game_releases r ON r.game_id = g.stable_id
+       WHERE g.platform_id IN (${placeholders})`,
+    )
+      .bind(...targetPlatforms)
+      .all<{
+        stable_id: number;
+        id: string;
+        title: string;
+        platform_id: number;
+        ownership_status: number;
+        barcode: string | null;
+      }>();
+    candidates = candidateRows.results || [];
+  }
+
   const candidateLookup = new Map<
     number,
     { id: string; title: string; platform_id: number; ownership_status: number }
   >();
-  for (const c of candidateRows.results || []) {
+  for (const c of candidates) {
     if (!candidateLookup.has(c.stable_id)) {
       candidateLookup.set(c.stable_id, {
         id: c.id,
@@ -10095,11 +10982,31 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
     // Proceed cleanly in minimal test schemas
   }
 
+  const targetPlatforms = Array.from(
+    new Set(
+      preOrders
+        .map((po) => resolveRetailPlatformId(po.platform, po.name))
+        .filter((id): id is number => typeof id === 'number' && id > 0),
+    ),
+  );
+  if (targetPlatforms.length === 0) {
+    return {
+      matchedCount: 0,
+      ingestedCount: 0,
+      totalPreOrders: preOrders.length,
+      sources,
+    };
+  }
+
+  const placeholders = targetPlatforms.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
     `SELECT g.stable_id, g.id, g.title, g.platform_id, g.igdb_id, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
-     LEFT JOIN game_releases r ON r.game_id = g.stable_id`,
-  ).all<CandidateGame & { igdb_id?: number | null }>();
+     LEFT JOIN game_releases r ON r.game_id = g.stable_id
+     WHERE g.platform_id IN (${placeholders})`,
+  )
+    .bind(...targetPlatforms)
+    .all<CandidateGame & { igdb_id?: number | null }>();
 
   const candidates = candidateRows.results || [];
   const existingByPlatformNorm = new Map<string, CandidateGame>();
@@ -12277,7 +13184,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     const upcomingRes = await env.DB.prepare(
       `SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json
        FROM game_releases r
-       JOIN games g ON g.stable_id = r.game_id
+       CROSS JOIN games g ON g.stable_id = r.game_id
        WHERE r.release_date >= DATE('now')
          AND g.igdb_id IS NOT NULL AND g.igdb_id > 0
        LIMIT 100`,
@@ -12497,11 +13404,17 @@ export async function syncWorkerIgdbSeriesAndCanonical(
           .map((c) => c.stableId);
         const ph = chunkIds.map(() => '?').join(',');
         const missingDateRes = await env.DB.prepare(
-          `SELECT id, game_id, region FROM game_releases WHERE game_id IN (${ph}) AND release_date IS NULL`,
+          `SELECT id, game_id, region, release_date FROM game_releases WHERE game_id IN (${ph})`,
         )
           .bind(...chunkIds)
-          .all<{ id: string; game_id: number; region: string | null }>();
+          .all<{
+            id: string;
+            game_id: number;
+            region: string | null;
+            release_date: string | null;
+          }>();
         for (const rel of missingDateRes.results || []) {
+          if (rel.release_date) continue;
           const info = dateByGameId.get(rel.game_id);
           if (!info) continue;
           const plat = platformById.get(info.platformId);
@@ -12552,30 +13465,30 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 
       const releasesByGameId = new Map<
         number,
-        Array<{ id: string; region: string | null }>
+        Array<{
+          id: string;
+          region: string | null;
+          variants?: string | null;
+          romName?: string | null;
+        }>
       >();
-      const ownedOrSeekingGameIds = new Set<number>();
 
       for (let i = 0; i < trackableCandidates.length; i += 80) {
         const chunk = trackableCandidates.slice(i, i + 80);
         const ids = chunk.map((c) => c.stableId);
         const ph = ids.map(() => '?').join(',');
 
-        const [relRes, activeRes] = await Promise.all([
-          env.DB.prepare(
-            `SELECT id, game_id, region FROM game_releases WHERE game_id IN (${ph})`,
-          )
-            .bind(...ids)
-            .all<{ id: string; game_id: number; region: string | null }>(),
-          env.DB.prepare(
-            `SELECT DISTINCT r.game_id
-             FROM user_game_releases ugr
-             JOIN game_releases r ON r.id = ugr.release_id
-             WHERE r.game_id IN (${ph}) AND ugr.ownership_status > 0`,
-          )
-            .bind(...ids)
-            .all<{ game_id: number }>(),
-        ]);
+        const relRes = await env.DB.prepare(
+          `SELECT id, game_id, region, variants, rom_name FROM game_releases WHERE game_id IN (${ph})`,
+        )
+          .bind(...ids)
+          .all<{
+            id: string;
+            game_id: number;
+            region: string | null;
+            variants: string | null;
+            rom_name: string | null;
+          }>();
 
         for (const rel of relRes.results || []) {
           let list = releasesByGameId.get(rel.game_id);
@@ -12583,19 +13496,17 @@ export async function syncWorkerIgdbSeriesAndCanonical(
             list = [];
             releasesByGameId.set(rel.game_id, list);
           }
-          list.push({ id: rel.id, region: rel.region });
-        }
-        for (const row of activeRes.results || []) {
-          ownedOrSeekingGameIds.add(row.game_id);
+          list.push({
+            id: rel.id,
+            region: rel.region,
+            variants: rel.variants,
+            romName: rel.rom_name,
+          });
         }
       }
 
       const healGames = trackableCandidates
-        .filter(
-          (c) =>
-            (releasesByGameId.get(c.stableId)?.length || 0) > 0 &&
-            !ownedOrSeekingGameIds.has(c.stableId),
-        )
+        .filter((c) => (releasesByGameId.get(c.stableId)?.length || 0) > 0)
         .map((c) => ({
           stableId: c.stableId,
           gameSlug: c.gameSlug,
@@ -14380,7 +15291,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     }
 
     const relStatements: D1PreparedStatement[] = [];
-    const addedReleases: Array<{ id: string; region: string | null }> = [];
+    const addedReleases: Array<{
+      id: string;
+      region: string | null;
+      variants?: string | null;
+      romName?: string | null;
+    }> = [];
 
     for (let i = 0; i < canonicalRels.length; i++) {
       const cr = canonicalRels[i];
@@ -14402,7 +15318,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
             igdbMeta.first_release_date,
           )
         : null;
-      addedReleases.push({ id: relSlug, region: relRegion });
+      addedReleases.push({
+        id: relSlug,
+        region: relRegion,
+        variants: cr.variants || null,
+        romName: cr.rom_name || null,
+      });
 
       relStatements.push(
         env.DB.prepare(

@@ -391,8 +391,8 @@ import {
                   >Auto-track series when adding a game</span
                 >
                 <span class="toggle-desc">
-                  Follow a game's franchise and mark other home-region physical
-                  releases as Seeking when adding an entry.
+                  Follow a game's franchise and automatically mark matching
+                  unowned releases as Seeking when adding an entry.
                 </span>
               </div>
               <span class="switch-wrapper">
@@ -416,6 +416,59 @@ import {
             </label>
 
             <div class="tracking-card">
+              <div class="tracking-label">Auto-Seeking Preferences</div>
+              <div class="tracking-pref-grid">
+                <label
+                  class="tracking-pref-field"
+                  for="select-auto-seek-region"
+                >
+                  <span class="tracking-pref-title">Default Region Scope</span>
+                  <span class="tracking-desc">
+                    Home region automatically includes World and broader
+                    regional tags.
+                  </span>
+                  <select
+                    id="select-auto-seek-region"
+                    class="text-input"
+                    [ngModel]="autoSeekRegionScope()"
+                    (ngModelChange)="onChangeAutoSeekRegionScope($event)"
+                    data-testid="select-auto-seek-region"
+                  >
+                    <option value="home">
+                      Home region (incl. World &amp; broader regions)
+                    </option>
+                    <option value="any">All regions globally</option>
+                  </select>
+                </label>
+
+                <label
+                  class="tracking-pref-field"
+                  for="select-auto-seek-release"
+                >
+                  <span class="tracking-pref-title">Releases per Game</span>
+                  <span class="tracking-desc">
+                    Choose whether to seek one release per game or every edition
+                    and cartridge revision.
+                  </span>
+                  <select
+                    id="select-auto-seek-release"
+                    class="text-input"
+                    [ngModel]="autoSeekReleaseScope()"
+                    (ngModelChange)="onChangeAutoSeekReleaseScope($event)"
+                    data-testid="select-auto-seek-release"
+                  >
+                    <option value="one_per_game">
+                      At least one release per game
+                    </option>
+                    <option value="all_releases">
+                      All releases &amp; editions (incl. revisions)
+                    </option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="tracking-card">
               <div class="tracking-label">Add Tracking or Ignore Rule</div>
               <div class="tracking-add-row">
                 <select [(ngModel)]="newRuleType" class="text-input">
@@ -431,6 +484,15 @@ import {
                   class="text-input"
                   data-testid="new-rule-target-input"
                 />
+                <select
+                  [(ngModel)]="newRuleRegionScope"
+                  class="text-input"
+                  aria-label="Rule region scope"
+                  data-testid="new-rule-region-scope"
+                >
+                  <option value="home">Home region (+ World)</option>
+                  <option value="any">Global (All regions)</option>
+                </select>
                 <label class="ignore-check">
                   <input type="checkbox" [(ngModel)]="newRuleIgnored" />
                   <span>Ignore</span>
@@ -467,6 +529,9 @@ import {
                       <span class="rule-target">{{
                         rule.target_value || rule.match_value
                       }}</span>
+                      @if (rule.region_scope === 'any' && !rule.is_ignored) {
+                        <span class="rule-scope-badge">Global</span>
+                      }
                       @if (rule.is_ignored) {
                         <span class="rule-ignored-badge">Ignored</span>
                       }
@@ -643,6 +708,29 @@ import {
         opacity: 0.75;
       }
 
+      .tracking-pref-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      .tracking-pref-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .tracking-pref-title {
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+
+      .rule-scope-badge {
+        color: var(--m3-primary);
+        font-weight: 700;
+        font-size: 0.65rem;
+      }
+
       .rule-ignored-badge {
         color: var(--kit-danger, #ef4444);
         font-weight: 700;
@@ -678,12 +766,17 @@ export class ProfileModalComponent implements OnInit {
   public isAdmin = this.collectionService.isAdmin;
   public publicProfile = this.collectionService.publicProfile;
   public autoTrackSeriesOnAdd = signal<boolean>(true);
+  public autoSeekRegionScope = signal<'home' | 'any'>('home');
+  public autoSeekReleaseScope = signal<'one_per_game' | 'all_releases'>(
+    'one_per_game',
+  );
   public trackIndividualMedia = signal<boolean>(false);
   public trackingRules = signal<UserTrackingRule[]>([]);
   public catalogSeedStatus = signal<CatalogSeedStatus | null>(null);
   public newRuleType: 'series' | 'platform' | 'toy_line' | 'toy_series' =
     'series';
   public newRuleTarget = '';
+  public newRuleRegionScope: 'home' | 'any' = 'home';
   public newRuleIgnored = false;
   public accountHubUrl = computed(
     () =>
@@ -782,6 +875,14 @@ export class ProfileModalComponent implements OnInit {
         this.homeRegion = user.homeRegion || 'USA';
         this.isPublic = user.isPublic;
         this.autoTrackSeriesOnAdd.set(user.autoTrackSeriesOnAdd !== false);
+        const regionScope = user.autoSeekRegionScope === 'any' ? 'any' : 'home';
+        const releaseScope =
+          user.autoSeekReleaseScope === 'all_releases'
+            ? 'all_releases'
+            : 'one_per_game';
+        this.autoSeekRegionScope.set(regionScope);
+        this.autoSeekReleaseScope.set(releaseScope);
+        this.newRuleRegionScope = regionScope;
         this.trackIndividualMedia.set(Boolean(user.trackIndividualMedia));
       },
       error: () => {
@@ -793,6 +894,15 @@ export class ProfileModalComponent implements OnInit {
           this.homeRegion = current.homeRegion || 'USA';
           this.isPublic = current.isPublic;
           this.autoTrackSeriesOnAdd.set(current.autoTrackSeriesOnAdd !== false);
+          const regionScope =
+            current.autoSeekRegionScope === 'any' ? 'any' : 'home';
+          const releaseScope =
+            current.autoSeekReleaseScope === 'all_releases'
+              ? 'all_releases'
+              : 'one_per_game';
+          this.autoSeekRegionScope.set(regionScope);
+          this.autoSeekReleaseScope.set(releaseScope);
+          this.newRuleRegionScope = regionScope;
           this.trackIndividualMedia.set(Boolean(current.trackIndividualMedia));
         }
       },
@@ -871,6 +981,42 @@ export class ProfileModalComponent implements OnInit {
       });
   }
 
+  public onChangeAutoSeekRegionScope(scope: 'home' | 'any'): void {
+    const normalized = scope === 'any' ? 'any' : 'home';
+    const prev = this.autoSeekRegionScope();
+    this.autoSeekRegionScope.set(normalized);
+    this.newRuleRegionScope = normalized;
+    this.collectionService
+      .updateProfile({ autoSeekRegionScope: normalized })
+      .subscribe({
+        next: (updated) => {
+          this.profile.set(updated);
+        },
+        error: () => {
+          this.autoSeekRegionScope.set(prev);
+        },
+      });
+  }
+
+  public onChangeAutoSeekReleaseScope(
+    scope: 'one_per_game' | 'all_releases',
+  ): void {
+    const normalized =
+      scope === 'all_releases' ? 'all_releases' : 'one_per_game';
+    const prev = this.autoSeekReleaseScope();
+    this.autoSeekReleaseScope.set(normalized);
+    this.collectionService
+      .updateProfile({ autoSeekReleaseScope: normalized })
+      .subscribe({
+        next: (updated) => {
+          this.profile.set(updated);
+        },
+        error: () => {
+          this.autoSeekReleaseScope.set(prev);
+        },
+      });
+  }
+
   public onToggleTrackIndividualMedia(enabled: boolean): void {
     this.trackIndividualMedia.set(enabled);
     this.collectionService
@@ -892,12 +1038,14 @@ export class ProfileModalComponent implements OnInit {
       .saveTrackingRule({
         rule_type: this.newRuleType,
         target_value: target,
+        region_scope: this.newRuleRegionScope,
         is_ignored: this.newRuleIgnored,
         clear_existing_seeking: this.newRuleIgnored,
       })
       .subscribe({
         next: () => {
           this.newRuleTarget = '';
+          this.newRuleRegionScope = this.autoSeekRegionScope();
           this.newRuleIgnored = false;
           this.collectionService.getTrackingRules().subscribe({
             next: (rules) => this.trackingRules.set(rules),

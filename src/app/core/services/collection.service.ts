@@ -582,6 +582,7 @@ export class CollectionService implements OnDestroy {
     rule_type: 'series' | 'platform' | 'toy_line' | 'toy_series';
     target_value?: string;
     match_value?: string;
+    region_scope?: 'home' | 'any';
     is_ignored?: boolean;
     apply_retroactive?: boolean;
     clear_existing_seeking?: boolean;

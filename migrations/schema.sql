@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     bio TEXT,
     auto_track_series_on_add INTEGER NOT NULL DEFAULT 1 CHECK (auto_track_series_on_add IN (0, 1)),
+    auto_seek_release_scope TEXT NOT NULL DEFAULT 'one_per_game' CHECK (auto_seek_release_scope IN ('one_per_game', 'all_releases')),
+    auto_seek_region_scope TEXT NOT NULL DEFAULT 'home' CHECK (auto_seek_region_scope IN ('home', 'any')),
     track_individual_media INTEGER NOT NULL DEFAULT 0 CHECK (track_individual_media IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

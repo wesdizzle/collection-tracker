@@ -37,6 +37,7 @@ import {
 } from '../shared/title_matching.js';
 import {
   isIgnoredFormatRelease,
+  isPackInCompanionDemoRom,
   isRegionMatchingHome,
 } from '../shared/source_format.js';
 import {
@@ -202,6 +203,7 @@ interface ReleaseStateRecord {
   game_id: number;
   region: string | null;
   variants: string | null;
+  rom_name: string | null;
   rom_crc: string | null;
   release_date: string | null;
   canonical_release_id: number | null;
@@ -214,6 +216,7 @@ interface TrackingRuleRow {
   target_status: number;
   region_scope: string;
   home_region: string;
+  auto_seek_release_scope: 'one_per_game' | 'all_releases';
 }
 
 interface WeightedStatement {
@@ -870,13 +873,15 @@ export async function runFastTrackBackfill(
 
     const releaseRows = db
       .prepare(
-        'SELECT id, game_id, region, variants, rom_crc, release_date, canonical_release_id FROM game_releases',
+        'SELECT id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id FROM game_releases',
       )
       .all() as ReleaseStateRecord[];
     const releasesByGameId = new Map<number, ReleaseStateRecord[]>();
     const releaseIdsByGameId = new Map<number, Set<string>>();
+    const releaseToGameId = new Map<string, number>();
 
     for (const r of releaseRows) {
+      releaseToGameId.set(r.id, r.game_id);
       const list = releasesByGameId.get(r.game_id) || [];
       list.push(r);
       releasesByGameId.set(r.game_id, list);
@@ -903,6 +908,7 @@ export async function runFastTrackBackfill(
     // Load active tracking rules + existing user_game_releases keys (silent application: zero push notifications)
     let trackingRules: TrackingRuleRow[] = [];
     const existingTrackedPairs = new Set<string>();
+    const existingTrackedGames = new Set<string>();
     try {
       const hasUsersTable = Boolean(
         db
@@ -911,38 +917,84 @@ export async function runFastTrackBackfill(
           )
           .get(),
       );
-      trackingRules = db
-        .prepare(
-          hasUsersTable
-            ? `SELECT utr.user_id, utr.rule_type, utr.match_value, utr.target_status,
+      if (hasUsersTable) {
+        try {
+          trackingRules = db
+            .prepare(
+              `SELECT utr.user_id, utr.rule_type, utr.match_value, utr.target_status,
+                      COALESCE(utr.region_scope, 'home') as region_scope,
+                      COALESCE(u.home_region, 'USA') as home_region,
+                      COALESCE(u.auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope
+               FROM user_tracking_rules utr
+               LEFT JOIN users u ON u.id = utr.user_id
+               WHERE utr.is_ignored = 0`,
+            )
+            .all() as TrackingRuleRow[];
+        } catch {
+          const fallbackRules = db
+            .prepare(
+              `SELECT utr.user_id, utr.rule_type, utr.match_value, utr.target_status,
                       COALESCE(utr.region_scope, 'home') as region_scope,
                       COALESCE(u.home_region, 'USA') as home_region
                FROM user_tracking_rules utr
                LEFT JOIN users u ON u.id = utr.user_id
-               WHERE utr.is_ignored = 0`
-            : `SELECT user_id, rule_type, match_value, target_status,
-                      COALESCE(region_scope, 'home') as region_scope,
-                      'USA' as home_region
-               FROM user_tracking_rules
-               WHERE is_ignored = 0`,
-        )
-        .all() as TrackingRuleRow[];
+               WHERE utr.is_ignored = 0`,
+            )
+            .all() as Array<Omit<TrackingRuleRow, 'auto_seek_release_scope'>>;
+          trackingRules = fallbackRules.map((r) => ({
+            ...r,
+            auto_seek_release_scope: 'one_per_game',
+          }));
+        }
+      } else {
+        const fallbackRules = db
+          .prepare(
+            `SELECT user_id, rule_type, match_value, target_status,
+                    COALESCE(region_scope, 'home') as region_scope,
+                    'USA' as home_region
+             FROM user_tracking_rules
+             WHERE is_ignored = 0`,
+          )
+          .all() as Array<Omit<TrackingRuleRow, 'auto_seek_release_scope'>>;
+        trackingRules = fallbackRules.map((r) => ({
+          ...r,
+          auto_seek_release_scope: 'one_per_game',
+        }));
+      }
 
       const ugrRows = db
-        .prepare('SELECT user_id, release_id FROM user_game_releases')
-        .all() as Array<{ user_id: number; release_id: string }>;
+        .prepare(
+          'SELECT user_id, release_id, COALESCE(ownership_status, 0) as ownership_status FROM user_game_releases',
+        )
+        .all() as Array<{
+        user_id: number;
+        release_id: string;
+        ownership_status: number;
+      }>;
       for (const ugr of ugrRows) {
         existingTrackedPairs.add(`${ugr.user_id}::${ugr.release_id}`);
+        if (ugr.ownership_status > 0) {
+          const gid = releaseToGameId.get(ugr.release_id);
+          if (gid !== undefined) {
+            existingTrackedGames.add(`${ugr.user_id}::${gid}`);
+          }
+        }
       }
     } catch {
       // Optional tables may not exist in minimal test fixtures
     }
 
     const buildSilentRuleStatements = (params: {
+      stableId: number;
       platformId: number;
       canonicalSeries: string;
       seriesTrackable: boolean;
-      releases: Array<{ id: string; region: string | null }>;
+      releases: Array<{
+        id: string;
+        region: string | null;
+        variants?: string | null;
+        rom_name?: string | null;
+      }>;
     }): { stmts: WeightedStatement[]; count: number } => {
       if (trackingRules.length === 0 || params.releases.length === 0) {
         return { stmts: [], count: 0 };
@@ -964,21 +1016,54 @@ export async function runFastTrackBackfill(
 
         const targetStatus =
           rule.target_status === 4 ? 4 : rule.target_status === 3 ? 3 : 2;
+        const userGameKey = `${rule.user_id}::${params.stableId}`;
+        const releaseScope =
+          rule.auto_seek_release_scope === 'all_releases'
+            ? 'all_releases'
+            : 'one_per_game';
 
-        for (const rel of params.releases) {
-          const regionMatches =
+        const matchingRels = params.releases.filter((rel) => {
+          if (isPackInCompanionDemoRom(params.platformId, rel.rom_name)) {
+            return false;
+          }
+          return (
             rule.region_scope === 'any' ||
-            isRegionMatchingHome(rel.region, rule.home_region);
-          if (!regionMatches) continue;
-          const pairKey = `${rule.user_id}::${rel.id}`;
+            isRegionMatchingHome(rel.region, rule.home_region)
+          );
+        });
+        if (matchingRels.length === 0) continue;
+
+        if (releaseScope === 'one_per_game') {
+          if (existingTrackedGames.has(userGameKey)) continue;
+          const sorted = [...matchingRels].sort(
+            (a, b) =>
+              (a.variants && a.variants.trim() ? 1 : 0) -
+              (b.variants && b.variants.trim() ? 1 : 0),
+          );
+          const chosen = sorted[0];
+          const pairKey = `${rule.user_id}::${chosen.id}`;
           if (existingTrackedPairs.has(pairKey)) continue;
           existingTrackedPairs.add(pairKey);
+          existingTrackedGames.add(userGameKey);
 
           stmts.push({
-            sql: `INSERT OR IGNORE INTO user_game_releases (user_id, release_id, ownership_status) VALUES (${rule.user_id}, ${escapeSql(rel.id)}, ${targetStatus});`,
+            sql: `INSERT OR IGNORE INTO user_game_releases (user_id, release_id, ownership_status) VALUES (${rule.user_id}, ${escapeSql(chosen.id)}, ${targetStatus});`,
             writes: 2,
           });
           count++;
+        } else {
+          for (const rel of matchingRels) {
+            const pairKey = `${rule.user_id}::${rel.id}`;
+            if (existingTrackedPairs.has(pairKey)) continue;
+            existingTrackedPairs.add(pairKey);
+            existingTrackedGames.add(userGameKey);
+
+            stmts.push({
+              sql: `INSERT OR IGNORE INTO user_game_releases (user_id, release_id, ownership_status) VALUES (${rule.user_id}, ${escapeSql(rel.id)}, ${targetStatus});`,
+              writes: 2,
+            });
+            count++;
+          }
         }
       }
       return { stmts, count };
@@ -1212,8 +1297,12 @@ export async function runFastTrackBackfill(
               releaseIdsByGameId.get(existingGame.stable_id) || new Set();
             releaseIdsByGameId.set(existingGame.stable_id, usedIds);
             const stmts: WeightedStatement[] = [];
-            const addedForRules: Array<{ id: string; region: string | null }> =
-              [];
+            const addedForRules: Array<{
+              id: string;
+              region: string | null;
+              variants?: string | null;
+              rom_name?: string | null;
+            }> = [];
 
             for (const cr of toAttach) {
               const relId = nextSeqRelId(existingGame.stable_id, usedIds);
@@ -1236,12 +1325,18 @@ export async function runFastTrackBackfill(
                 game_id: existingGame.stable_id,
                 region: reg,
                 variants: cr.variants || null,
+                rom_name: cr.rom_name || null,
                 rom_crc: cr.rom_crc || null,
                 release_date: relDate,
                 canonical_release_id: cr.id,
               };
               existingRels.push(relMem);
-              addedForRules.push({ id: relId, region: reg });
+              addedForRules.push({
+                id: relId,
+                region: reg,
+                variants: cr.variants || null,
+                rom_name: cr.rom_name || null,
+              });
               summary.seed.insertedReleases++;
             }
             releasesByGameId.set(existingGame.stable_id, existingRels);
@@ -1254,6 +1349,7 @@ export async function runFastTrackBackfill(
                 franchises: existingGame.franchises ?? undefined,
               });
             const ruleRes = buildSilentRuleStatements({
+              stableId: existingGame.stable_id,
               platformId: existingGame.platform_id,
               canonicalSeries: series,
               seriesTrackable: isSeriesTrackable({
@@ -1327,7 +1423,12 @@ export async function runFastTrackBackfill(
 
         const usedIds = new Set<string>();
         const relMemList: ReleaseStateRecord[] = [];
-        const addedForRules: Array<{ id: string; region: string | null }> = [];
+        const addedForRules: Array<{
+          id: string;
+          region: string | null;
+          variants?: string | null;
+          rom_name?: string | null;
+        }> = [];
         for (const cr of siblings) {
           const relId = nextSeqRelId(stableId, usedIds);
           const reg = cr.region || 'USA';
@@ -1349,6 +1450,7 @@ export async function runFastTrackBackfill(
             game_id: stableId,
             region: reg,
             variants: cr.variants || null,
+            rom_name: cr.rom_name || null,
             rom_crc: cr.rom_crc || null,
             release_date: relDate,
             canonical_release_id: cr.id,
@@ -1365,13 +1467,19 @@ export async function runFastTrackBackfill(
               newGameMem,
             );
           }
-          addedForRules.push({ id: relId, region: reg });
+          addedForRules.push({
+            id: relId,
+            region: reg,
+            variants: cr.variants || null,
+            rom_name: cr.rom_name || null,
+          });
           summary.seed.insertedReleases++;
         }
         releaseIdsByGameId.set(stableId, usedIds);
         releasesByGameId.set(stableId, relMemList);
 
         const ruleRes = buildSilentRuleStatements({
+          stableId,
           platformId: group.platform_id,
           canonicalSeries,
           seriesTrackable: isSeriesTrackable({
@@ -1485,6 +1593,7 @@ export async function runFastTrackBackfill(
         }
 
         const ruleRes = buildSilentRuleStatements({
+          stableId: g.stable_id,
           platformId: g.platform_id,
           canonicalSeries: series,
           seriesTrackable: isSeriesTrackable({
@@ -1492,7 +1601,12 @@ export async function runFastTrackBackfill(
             collections: g.collections,
             franchises: g.franchises,
           }),
-          releases: rels.map((r) => ({ id: r.id, region: r.region })),
+          releases: rels.map((r) => ({
+            id: r.id,
+            region: r.region,
+            variants: r.variants,
+            rom_name: r.rom_name,
+          })),
         });
         stmts.push(...ruleRes.stmts);
         summary.igdbBackfill.rulesApplied += ruleRes.count;
@@ -1585,6 +1699,7 @@ export async function runFastTrackBackfill(
         }
 
         const ruleRes = buildSilentRuleStatements({
+          stableId: g.stable_id,
           platformId: g.platform_id,
           canonicalSeries: nextSeries,
           seriesTrackable: isSeriesTrackable({
@@ -1592,7 +1707,12 @@ export async function runFastTrackBackfill(
             collections: nextCollections,
             franchises: nextFranchises,
           }),
-          releases: rels.map((r) => ({ id: r.id, region: r.region })),
+          releases: rels.map((r) => ({
+            id: r.id,
+            region: r.region,
+            variants: r.variants,
+            rom_name: r.rom_name,
+          })),
         });
         stmts.push(...ruleRes.stmts);
         summary.rolling.rulesApplied += ruleRes.count;
@@ -1814,6 +1934,8 @@ export async function runFastTrackBackfill(
                 const addedForRules: Array<{
                   id: string;
                   region: string | null;
+                  variants?: string | null;
+                  rom_name?: string | null;
                 }> = [];
                 const relMemList: ReleaseStateRecord[] = [];
                 const matchedCrs = detection.matched_releases;
@@ -1830,11 +1952,17 @@ export async function runFastTrackBackfill(
                       game_id: stableId,
                       region: reg,
                       variants: cr.variants || null,
+                      rom_name: cr.rom_name || null,
                       rom_crc: cr.rom_crc || null,
                       release_date: platReleaseDate,
                       canonical_release_id: cr.id ?? null,
                     });
-                    addedForRules.push({ id: relId, region: reg });
+                    addedForRules.push({
+                      id: relId,
+                      region: reg,
+                      variants: cr.variants || null,
+                      rom_name: cr.rom_name || null,
+                    });
                     summary.seriesDiscovery.insertedReleases++;
                   }
                 } else {
@@ -1848,15 +1976,22 @@ export async function runFastTrackBackfill(
                     game_id: stableId,
                     region: 'USA',
                     variants: 'Standard Edition',
+                    rom_name: null,
                     rom_crc: null,
                     release_date: platReleaseDate,
                     canonical_release_id: null,
                   });
-                  addedForRules.push({ id: relId, region: 'USA' });
+                  addedForRules.push({
+                    id: relId,
+                    region: 'USA',
+                    variants: 'Standard Edition',
+                    rom_name: null,
+                  });
                   summary.seriesDiscovery.insertedReleases++;
                 }
 
                 const ruleRes = buildSilentRuleStatements({
+                  stableId,
                   platformId: localPlat.id,
                   canonicalSeries: computedSeries,
                   seriesTrackable: isSeriesTrackable({

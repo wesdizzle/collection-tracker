@@ -18,12 +18,15 @@ import worker, {
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
   R2_GAMES_ACTIVE_LITE_KEY,
+  R2_BACKUP_CATALOG_MANIFEST_KEY,
+  R2_BACKUP_CANONICAL_MANIFEST_KEY,
   R2_CATALOG_MANIFEST_KEY,
   R2_CATALOG_TOYS_CHUNK_KEY,
   X_CATALOG_PARTIAL_HEADER,
   X_CATALOG_CHUNK_SIZE_HEADER,
   buildIgdbSearchTokens,
   fetchIgdbMetadataForTitles,
+  getBackupChunkR2Key,
   getCatalogChunkR2Key,
   getBroadCatalogSeedStatus,
   isAuthorizedAdmin,
@@ -31,6 +34,7 @@ import worker, {
   markCanonicalReleasesDirty,
   markDbDirty,
   performCanonicalReleasesBackup,
+  performChunkedCatalogBackup,
   performScheduledBackup,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
@@ -44,6 +48,7 @@ import worker, {
   syncWorkerRetailDeals,
   syncWorkerRetailPreOrders,
   syncWorkerWatchedSeriesDiscovery,
+  applyReactiveSeriesAutoTracking,
   evaluateTrackingRulesForNewGames,
   evaluateTrackingRulesForNewToys,
   writeCatalogChunksToR2,
@@ -3120,23 +3125,45 @@ describe('Worker API Logic', () => {
         expect(dbRow.display_name).toBe('Alice M.');
         expect(dbRow.track_individual_media).toBe(1);
 
-        // 5. Toggle back to false
+        // 5. Toggle back to false and update autoSeekReleaseScope / autoSeekRegionScope
         const putDisableRes = await worker.fetch(
           new Request(
             'https://collection-tracker.example.com/api/user/profile',
             {
               method: 'PUT',
               headers: authHeaders,
-              body: JSON.stringify({ trackIndividualMedia: false }),
+              body: JSON.stringify({
+                trackIndividualMedia: false,
+                autoSeekReleaseScope: 'all_releases',
+                autoSeekRegionScope: 'any',
+              }),
             },
           ),
           mockEnv,
         );
         expect(putDisableRes.status).toBe(200);
-        expect(
-          ((await putDisableRes.json()) as { trackIndividualMedia: boolean })
-            .trackIndividualMedia,
-        ).toBe(false);
+        const disabledPayload = (await putDisableRes.json()) as {
+          trackIndividualMedia: boolean;
+          autoSeekReleaseScope: string;
+          autoSeekRegionScope: string;
+        };
+        expect(disabledPayload.trackIndividualMedia).toBe(false);
+        expect(disabledPayload.autoSeekReleaseScope).toBe('all_releases');
+        expect(disabledPayload.autoSeekRegionScope).toBe('any');
+
+        // 6. Reject invalid autoSeekReleaseScope / autoSeekRegionScope
+        const badScopeRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/profile',
+            {
+              method: 'PUT',
+              headers: authHeaders,
+              body: JSON.stringify({ autoSeekReleaseScope: 'invalid_scope' }),
+            },
+          ),
+          mockEnv,
+        );
+        expect(badScopeRes.status).toBe(400);
       });
 
       it('GET /api/u/:username returns public profile, and 404 for private or missing profiles', async () => {
@@ -5988,7 +6015,7 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('performCanonicalReleasesBackup writes snapshots/canonical_releases.json when dirty or out of sync and skips when clean', async () => {
+      it('performCanonicalReleasesBackup writes chunked R2 backup across cursor ticks, skips when clean, and re-runs on drift', async () => {
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source)
           VALUES
@@ -6004,13 +6031,36 @@ describe('Worker API Logic', () => {
           .get() as { value: string };
         expect(dirtyBefore.value).toBe('1');
 
-        // First backup: dirty = '1' -> writes R2 snapshot and clears dirty flag
-        const first = await performCanonicalReleasesBackup(mockEnv, {
+        // Tick 1: maxChunksPerRun = 1 with pageSize = 1 -> writes chunk 0 and saves cursor
+        const tick1 = await performCanonicalReleasesBackup(mockEnv, {
           pageSize: 1,
+          maxChunksPerRun: 1,
         });
-        expect(first).toEqual({
-          key: 'snapshots/canonical_releases.json',
+        expect(tick1).toEqual({
+          key: R2_BACKUP_CANONICAL_MANIFEST_KEY,
           skipped: false,
+          inProgress: true,
+          chunksWritten: 1,
+          rowCount: 1,
+          maxId: 20,
+        });
+        expect(
+          mockBucket.storage.has(getBackupChunkR2Key('canonical_releases', 0)),
+        ).toBe(true);
+        expect(mockBucket.storage.has(R2_BACKUP_CANONICAL_MANIFEST_KEY)).toBe(
+          false,
+        );
+
+        // Tick 2: resumes cursor, writes chunk 1, publishes manifest, clears dirty flag
+        const tick2 = await performCanonicalReleasesBackup(mockEnv, {
+          pageSize: 1,
+          maxChunksPerRun: 1,
+        });
+        expect(tick2).toEqual({
+          key: R2_BACKUP_CANONICAL_MANIFEST_KEY,
+          skipped: false,
+          inProgress: false,
+          chunksWritten: 1,
           rowCount: 2,
           maxId: 20,
         });
@@ -6022,43 +6072,122 @@ describe('Worker API Logic', () => {
           .get() as { value: string };
         expect(dirtyAfter.value).toBe('0');
 
-        const storedObj = await mockBucket.get(
-          'snapshots/canonical_releases.json',
+        const manifestObj = await mockBucket.get(
+          R2_BACKUP_CANONICAL_MANIFEST_KEY,
         );
-        expect(storedObj).not.toBeNull();
-        expect(storedObj?.customMetadata).toMatchObject({
+        expect(manifestObj).not.toBeNull();
+        expect(manifestObj?.customMetadata).toMatchObject({
           rowCount: '2',
           maxId: '20',
+          chunkCount: '2',
         });
-        const parsed = JSON.parse(storedObj!.body) as {
-          metadata: { rowCount: number; maxId: number };
-          tables: { canonical_releases: { id: number; raw_title: string }[] };
+        const manifest = JSON.parse(manifestObj!.body) as {
+          rowCount: number;
+          maxId: number;
+          chunks: string[];
         };
-        expect(parsed.metadata.rowCount).toBe(2);
-        expect(parsed.metadata.maxId).toBe(20);
-        expect(parsed.tables.canonical_releases).toHaveLength(2);
+        expect(manifest.chunks).toEqual([
+          'snapshots/chunks/canonical_releases-000.json',
+          'snapshots/chunks/canonical_releases-001.json',
+        ]);
 
-        // Second backup: clean and R2 metadata matches -> skipped without full table scan
+        // Second backup: clean and R2 metadata matches -> skipped without scanning rows
         const second = await performCanonicalReleasesBackup(mockEnv);
         expect(second).toEqual({
           key: 'none',
           skipped: true,
+          inProgress: false,
+          chunksWritten: 0,
           rowCount: 2,
           maxId: 20,
         });
 
-        // Third backup: row added directly (e.g. offline DAT sync without dirty flag) -> metadata mismatch triggers backup
+        // Third backup: row added directly -> metadata mismatch triggers fresh backup
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source)
           VALUES (30, 1, 'Game C (Japan)', 'gamec', 'Japan', 1, 'dat');
         `);
-        const third = await performCanonicalReleasesBackup(mockEnv);
+        const third = await performCanonicalReleasesBackup(mockEnv, {
+          pageSize: 10,
+          maxChunksPerRun: 2,
+        });
         expect(third).toEqual({
-          key: 'snapshots/canonical_releases.json',
+          key: R2_BACKUP_CANONICAL_MANIFEST_KEY,
           skipped: false,
+          inProgress: false,
+          chunksWritten: 1,
           rowCount: 3,
           maxId: 30,
         });
+        // Pruned trailing chunk-1 from earlier 2-chunk run!
+        expect(
+          mockBucket.storage.has(getBackupChunkR2Key('canonical_releases', 1)),
+        ).toBe(false);
+      });
+
+      it('performChunkedCatalogBackup writes games and game_releases across cursor ticks, publishes manifest, and skips when clean', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (2, '2', 'Game Two', 1), (3, '3', 'Game Three', 1);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('2-1', 2, 'USA'), ('3-1', 3, 'USA');
+        `);
+
+        // Tick 1: maxChunksPerRun = 2 writes games chunk 0 (row 1) and games chunk 1 (row 2 -> completes games, moves to game_releases)
+        const step1 = await performChunkedCatalogBackup(mockEnv, {
+          gamesPageSize: 1,
+          releasesPageSize: 2,
+          maxChunksPerRun: 2,
+          forceRestart: true,
+        });
+        expect(step1.completed).toBe(false);
+        expect(step1.inProgress).toBe(true);
+        expect(step1.chunksWritten).toBe(2);
+
+        // Tick 2: writes games chunk 2 (row 3 -> finishes games phase) + game_releases chunk 0 (rows 1..2)
+        const step2 = await performChunkedCatalogBackup(mockEnv, {
+          gamesPageSize: 1,
+          releasesPageSize: 2,
+          maxChunksPerRun: 2,
+        });
+        expect(step2.completed).toBe(false);
+        expect(step2.inProgress).toBe(true);
+        expect(step2.chunksWritten).toBe(2);
+
+        // Tick 3: finishes game_releases chunk 1 (row 3) and writes catalog-manifest.json
+        const step3 = await performChunkedCatalogBackup(mockEnv, {
+          gamesPageSize: 1,
+          releasesPageSize: 2,
+          maxChunksPerRun: 2,
+        });
+        expect(step3.completed).toBe(true);
+        expect(step3.inProgress).toBe(false);
+        expect(step3.gamesRowCount).toBe(3);
+        expect(step3.releasesRowCount).toBe(3);
+
+        const manifestObj = await mockBucket.get(
+          R2_BACKUP_CATALOG_MANIFEST_KEY,
+        );
+        expect(manifestObj).not.toBeNull();
+        const manifest = JSON.parse(manifestObj!.body) as {
+          tables: {
+            games: { rowCount: number; chunks: string[] };
+            game_releases: { rowCount: number; chunks: string[] };
+          };
+        };
+        expect(manifest.tables.games.rowCount).toBe(3);
+        expect(manifest.tables.games.chunks).toHaveLength(3);
+        expect(manifest.tables.game_releases.rowCount).toBe(3);
+        expect(manifest.tables.game_releases.chunks).toHaveLength(2);
+
+        // Clean repeat run skips without scanning
+        await envClearDirtyForTest();
+        async function envClearDirtyForTest() {
+          db.prepare("DELETE FROM sync_state WHERE key = 'db_dirty'").run();
+        }
+        const skippedRun = await performChunkedCatalogBackup(mockEnv);
+        expect(skippedRun.skipped).toBe(true);
+        expect(skippedRun.chunksWritten).toBe(0);
       });
 
       it('resolveIgdbPlatformReleaseDate resolves platform-specific and regional release dates while respecting companion hardware and launch bounds', async () => {
@@ -7597,8 +7726,201 @@ describe('Worker API Logic', () => {
           }),
           expect.anything(),
         );
+
+        // Multi-release auto_seek_release_scope ('one_per_game' vs 'all_releases' incl. Rev 1, World & global, deduped 1 alert/game)
+        webPushSpy.mockClear();
+        db.prepare(
+          `UPDATE users SET auto_seek_release_scope = 'all_releases', auto_seek_region_scope = 'any' WHERE id = 1`,
+        ).run();
+        db.prepare(
+          `INSERT OR REPLACE INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+           VALUES (1, 'series', 'Metroid', 2, 'any', 0)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, canonical_series)
+           VALUES (707, '707', 'Metroid Prime: Echoes', 30, 'Metroid')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+           VALUES
+             ('707-1', 707, 'USA', NULL, 'Metroid Prime Echoes (USA).iso'),
+             ('707-2', 707, 'USA', 'Rev 1', 'Metroid Prime Echoes (USA) (Rev 1).iso'),
+             ('707-3', 707, 'Japan', NULL, 'Metroid Prime Echoes (Japan).iso'),
+             ('707-4', 707, 'USA', NULL, 'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).iso')`,
+        ).run();
+        // User 2 already owns the Japan release and uses default 'one_per_game' + 'home'
+        db.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status) VALUES (2, '707-3', 1)`,
+        ).run();
+
+        const addedRowsCount = await evaluateTrackingRulesForNewGames(
+          mockEnv,
+          [
+            {
+              stableId: 707,
+              platformId: 30,
+              canonicalSeries: 'Metroid',
+              seriesTrackable: true,
+              title: 'Metroid Prime: Echoes',
+              platformName: 'PlayStation 2',
+              releases: [
+                {
+                  id: '707-1',
+                  region: 'USA',
+                  variants: null,
+                  romName: 'Metroid Prime Echoes (USA).iso',
+                },
+                {
+                  id: '707-2',
+                  region: 'USA',
+                  variants: 'Rev 1',
+                  romName: 'Metroid Prime Echoes (USA) (Rev 1).iso',
+                },
+                {
+                  id: '707-3',
+                  region: 'Japan',
+                  variants: null,
+                  romName: 'Metroid Prime Echoes (Japan).iso',
+                },
+                {
+                  id: '707-4',
+                  region: 'USA',
+                  variants: null,
+                  romName:
+                    'Metal Gear Solid 2 - Sons of Liberty - Trial Edition (USA) (Demo).iso',
+                },
+              ],
+            },
+          ],
+          { notifySubscribers: true },
+        );
+        // User 1 gets 3 Seeking rows (707-1, 707-2 Rev 1, 707-3 Japan; 707-4 companion demo excluded).
+        // User 2 gets 0 because user 2 already owns 707-3 and uses one_per_game.
+        expect(addedRowsCount).toBe(3);
+        // Only ONE push notification for game 707 even though 3 releases matched
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+
+        // applyReactiveSeriesAutoTracking honors 'all_releases' + 'any' region and skips companion demos
+        webPushSpy.mockClear();
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, collections, franchises, canonical_series)
+           VALUES
+             (708, '708', 'Metroid Fusion', 19, 'Metroid', 'Metroid', 'Metroid'),
+             (709, '709', 'Metroid: Zero Mission', 30, 'Metroid', 'Metroid', 'Metroid')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region, variants, rom_name)
+           VALUES
+             ('708-1', 708, 'USA', NULL, 'Metroid Fusion (USA).gba'),
+             ('709-1', 709, 'USA', NULL, 'Metroid Zero Mission (USA).iso'),
+             ('709-2', 709, 'USA', 'Rev 1', 'Metroid Zero Mission (USA) (Rev 1).iso'),
+             ('709-3', 709, 'Europe', NULL, 'Metroid Zero Mission (Europe).iso'),
+             ('709-4', 709, 'USA', NULL, 'Final Fantasy XII (USA) (Demo).iso')`,
+        ).run();
+        const reactiveRes = await applyReactiveSeriesAutoTracking(
+          mockEnv,
+          1,
+          708,
+          'Metroid',
+        );
+        expect(reactiveRes.trackedSeries).toBe('Metroid');
+        expect(reactiveRes.autoAddedCount).toBeGreaterThanOrEqual(3);
+        const reactive709 = db
+          .prepare(
+            `SELECT r.id, ugr.ownership_status
+             FROM game_releases r
+             JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = 1
+             WHERE r.game_id = 709
+             ORDER BY r.id`,
+          )
+          .all() as Array<{ id: string; ownership_status: number }>;
+        expect(reactive709.map((r) => r.id)).toEqual([
+          '709-1',
+          '709-2',
+          '709-3',
+        ]);
       } finally {
         webPushSpy.mockRestore();
+      }
+    });
+
+    it('falls back safely when pre-DDL users table lacks auto_seek_release_scope and auto_seek_region_scope', async () => {
+      const legacyDb = new Database(':memory:');
+      const schemaSql = fs.readFileSync(
+        path.join(__dirname, '..', 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      const legacySchemaSql = schemaSql.replace(
+        /^\s*auto_seek_(?:release|region)_scope\b[^\n]*\n/gm,
+        '',
+      );
+      legacyDb.exec(legacySchemaSql);
+      legacyDb.exec(`
+        INSERT INTO users (id, username, home_region) VALUES (1, 'alice', 'USA');
+        INSERT OR IGNORE INTO platforms (id, name, display_name) VALUES (26, 'nintendo-switch', 'Switch');
+        INSERT INTO games (stable_id, id, title, platform_id, canonical_series) VALUES (1, '1', 'Metroid Dread', 26, 'Metroid');
+        INSERT INTO game_releases (id, game_id, region) VALUES ('1-1', 1, 'USA');
+        INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+        VALUES (1, 'series', 'Metroid', 2, 'home', 0);
+      `);
+      try {
+        const legacyEnv = {
+          ...mockEnv,
+          DB: (() => {
+            const createStmt = (query: string, boundParams: unknown[] = []) => {
+              const s = legacyDb.prepare(query);
+              return {
+                bind: (...p: unknown[]) => createStmt(query, p),
+                first: async <T>() =>
+                  (s.get(...boundParams) ?? null) as T | null,
+                all: async <T>() => ({ results: s.all(...boundParams) as T[] }),
+                run: async () => {
+                  const info = s.run(...boundParams);
+                  return { success: true, meta: { changes: info.changes } };
+                },
+              };
+            };
+            return {
+              prepare: (q: string) => createStmt(q),
+              batch: async (stmts: { run: () => Promise<unknown> }[]) =>
+                Promise.all(stmts.map((s) => s.run())),
+            } as unknown as D1Database;
+          })(),
+        };
+        const token = await signSession(
+          { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+          mockEnv.SESSION_SECRET!,
+        );
+        const profileRes = await worker.fetch(
+          new Request(
+            'https://collection-tracker.example.com/api/user/profile',
+            {
+              headers: { Cookie: `${HOST_SESSION_COOKIE}=${token}` },
+            },
+          ),
+          legacyEnv,
+        );
+        expect(profileRes.status).toBe(200);
+        const profile = (await profileRes.json()) as {
+          autoSeekReleaseScope: string;
+          autoSeekRegionScope: string;
+        };
+        expect(profile.autoSeekReleaseScope).toBe('one_per_game');
+        expect(profile.autoSeekRegionScope).toBe('home');
+
+        const added = await evaluateTrackingRulesForNewGames(legacyEnv, [
+          {
+            stableId: 1,
+            platformId: 26,
+            canonicalSeries: 'Metroid',
+            seriesTrackable: true,
+            title: 'Metroid Dread',
+            releases: [{ id: '1-1', region: 'USA' }],
+          },
+        ]);
+        expect(added).toBe(1);
+      } finally {
+        legacyDb.close();
       }
     });
 

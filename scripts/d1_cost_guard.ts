@@ -11,6 +11,7 @@
  *    Compares `data/remote_baseline.db` against `migrations/schema.sql` via `diffSqliteSchema`.
  */
 
+import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -321,7 +322,7 @@ export function runCollectionStaticSchemaCostGuard(
     },
     {
       name: 'active tracking rules lookup by user_id and rule_type',
-      sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
+      sql: "SELECT r.user_id, r.rule_type, r.match_value, r.target_status, r.region_scope, COALESCE(u.home_region, 'USA') as home_region, COALESCE(u.auto_seek_release_scope, 'one_per_game') as auto_seek_release_scope FROM users u CROSS JOIN user_tracking_rules r WHERE u.id > 0 AND r.user_id = u.id AND r.is_ignored = 0 AND r.rule_type IN ('series', 'platform')",
       params: [],
     },
     {
@@ -391,8 +392,33 @@ export function runCollectionStaticSchemaCostGuard(
     },
     {
       name: 'upcoming physical releases IGDB refresh lookup',
-      sql: "SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json FROM game_releases r JOIN games g ON g.stable_id = r.game_id WHERE r.release_date >= DATE('now') LIMIT 100",
+      sql: "SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json FROM game_releases r CROSS JOIN games g ON g.stable_id = r.game_id WHERE r.release_date >= DATE('now') AND g.igdb_id IS NOT NULL AND g.igdb_id > 0 LIMIT 100",
       params: [],
+    },
+    {
+      name: 'igdb passive release_date backfill by game_id IN (...)',
+      sql: 'SELECT id, game_id, region, release_date FROM game_releases WHERE game_id IN (?, ?, ?)',
+      params: [1, 2, 3],
+    },
+    {
+      name: 'retail deals platform-scoped candidate lookup',
+      sql: 'SELECT g.stable_id, g.id, g.title, g.platform_id, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode FROM games g LEFT JOIN game_releases r ON r.game_id = g.stable_id WHERE g.platform_id IN (?, ?)',
+      params: [26, 27],
+    },
+    {
+      name: 'chunked backup games PK cursor slice',
+      sql: 'SELECT * FROM games WHERE stable_id > ? ORDER BY stable_id ASC LIMIT ?',
+      params: [0, 10000],
+    },
+    {
+      name: 'chunked backup game_releases PK cursor slice',
+      sql: 'SELECT * FROM game_releases WHERE id > ? ORDER BY id ASC LIMIT ?',
+      params: ['', 15000],
+    },
+    {
+      name: 'chunked backup canonical_releases PK cursor slice',
+      sql: 'SELECT * FROM canonical_releases WHERE id > ? ORDER BY id ASC LIMIT ?',
+      params: [0, 15000],
     },
   ];
 
@@ -401,6 +427,78 @@ export function runCollectionStaticSchemaCostGuard(
     maxSecondaryIndexes: MAX_SECONDARY_INDEXES,
     criticalQueries,
   });
+
+  if (fs.existsSync(schemaPath)) {
+    const planCheckDb = new Database(':memory:');
+    try {
+      planCheckDb.exec(fs.readFileSync(schemaPath, 'utf8'));
+      const queryByName = new Map(criticalQueries.map((q) => [q.name, q]));
+      const upcomingQuery = queryByName.get(
+        'upcoming physical releases IGDB refresh lookup',
+      )!;
+      const backfillQuery = queryByName.get(
+        'igdb passive release_date backfill by game_id IN (...)',
+      )!;
+      const retailCandidatesQuery = queryByName.get(
+        'retail deals platform-scoped candidate lookup',
+      )!;
+      const indexAssertions: Array<{
+        name: string;
+        sql: string;
+        params: unknown[];
+        requiredSubstrings: string[];
+        forbiddenSubstrings?: string[];
+      }> = [
+        {
+          name: upcomingQuery.name,
+          sql: upcomingQuery.sql,
+          params: upcomingQuery.params,
+          requiredSubstrings: ['idx_game_releases_release_date'],
+          forbiddenSubstrings: ['idx_games_igdb_id'],
+        },
+        {
+          name: backfillQuery.name,
+          sql: backfillQuery.sql,
+          params: backfillQuery.params,
+          requiredSubstrings: ['idx_game_releases_game_id'],
+          forbiddenSubstrings: ['idx_game_releases_release_date'],
+        },
+        {
+          name: retailCandidatesQuery.name,
+          sql: retailCandidatesQuery.sql,
+          params: retailCandidatesQuery.params,
+          requiredSubstrings: [
+            'idx_games_platform_id',
+            'idx_game_releases_game_id',
+          ],
+        },
+      ];
+      for (const assertion of indexAssertions) {
+        const planRows = planCheckDb
+          .prepare(`EXPLAIN QUERY PLAN ${assertion.sql}`)
+          .all(...assertion.params) as Array<{ detail: string }>;
+        const details = planRows.map((r) => r.detail).join(' | ');
+        for (const reqIdx of assertion.requiredSubstrings) {
+          if (!details.includes(reqIdx)) {
+            result.passed = false;
+            result.errors.push(
+              `Query '${assertion.name}' expected query plan to use '${reqIdx}', got: ${details}`,
+            );
+          }
+        }
+        for (const forbidIdx of assertion.forbiddenSubstrings || []) {
+          if (details.includes(forbidIdx)) {
+            result.passed = false;
+            result.errors.push(
+              `Query '${assertion.name}' regressed to forbidden index '${forbidIdx}': ${details}`,
+            );
+          }
+        }
+      }
+    } finally {
+      planCheckDb.close();
+    }
+  }
 
   const compoundChecks = [
     {

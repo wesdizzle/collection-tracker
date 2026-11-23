@@ -968,3 +968,23 @@ export function isRegionMatchingHome(
 
   return false;
 }
+
+/**
+ * Identifies pack-in companion demo discs cataloged separately in DATs that belong
+ * inside a retail host release rather than standing alone as an auto-sought game.
+ */
+export function isPackInCompanionDemoRom(
+  platformId: number | null | undefined,
+  romName: string | null | undefined,
+): boolean {
+  if (!romName) return false;
+  return (
+    (platformId === 29 && /^mega man legends 2.*\(demo\)/i.test(romName)) ||
+    (platformId === 30 &&
+      /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i.test(
+        romName,
+      )) ||
+    (platformId === 30 &&
+      /^final fantasy xii\s*\(usa\)\s*\(demo\)/i.test(romName))
+  );
+}

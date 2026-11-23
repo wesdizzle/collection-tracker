@@ -74,6 +74,8 @@ const TABLE_HYDRATION_ORDER = [
 
 const isDirectD1 = process.argv.includes('--direct-d1');
 
+const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 export function hydrateCanonicalReleasesFromSnapshotFile(
   dbPath: string,
   snapshotJsonPath: string,
@@ -84,14 +86,13 @@ export function hydrateCanonicalReleasesFromSnapshotFile(
   const rows = parsed?.tables?.canonical_releases;
   if (!Array.isArray(rows)) return 0;
 
-  const SAFE_COL_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
   const db = new Database(dbPath);
   try {
     db.pragma('foreign_keys = OFF');
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM "canonical_releases"').run();
       if (rows.length === 0) return;
-      const columns = Object.keys(rows[0]).filter((c) => SAFE_COL_RE.test(c));
+      const columns = Object.keys(rows[0]).filter((c) => SAFE_IDENT_RE.test(c));
       const colList = columns.map((c) => `"${c}"`).join(', ');
       const placeholders = columns.map(() => '?').join(', ');
       const insertStmt = db.prepare(
@@ -109,43 +110,212 @@ export function hydrateCanonicalReleasesFromSnapshotFile(
   return rows.length;
 }
 
-function pullCanonicalReleasesFromR2(targetDbPath: string): number | null {
-  const objectKey = 'snapshots/canonical_releases.json';
-  const tempCanonicalPath = path.join(
-    os.tmpdir(),
-    `_r2_canonical_${process.pid}_${Date.now()}.json`,
-  );
+/**
+ * Replaces `tableName` inside an existing SQLite database from an ordered list
+ * of chunk JSON files (`{ rows: [...] }` or raw row arrays) inside a single transaction.
+ */
+export function hydrateTableFromChunkFiles(
+  dbPath: string,
+  tableName: string,
+  chunkJsonPaths: string[],
+): number {
+  if (!SAFE_IDENT_RE.test(tableName)) {
+    throw new Error(`[D1Pull] Unsafe table identifier: ${tableName}`);
+  }
+
+  let totalInserted = 0;
+  const db = new Database(dbPath);
   try {
-    const r2Res = spawnSync(
-      'npx',
-      [
-        'wrangler',
-        'r2',
-        'object',
-        'get',
-        `collection-backups/${objectKey}`,
-        '--file',
-        tempCanonicalPath,
-        '--remote',
-      ],
-      {
-        cwd: rootDir,
-        stdio: 'pipe',
-        shell: process.platform === 'win32',
-        timeout: 60_000,
-      },
-    );
-    if (r2Res.status !== 0 || !fs.existsSync(tempCanonicalPath)) {
+    db.pragma('foreign_keys = OFF');
+    db.pragma('synchronous = OFF');
+    db.pragma('temp_store = MEMORY');
+
+    const tx = db.transaction(() => {
+      db.prepare(`DELETE FROM "${tableName}"`).run();
+      let cachedSignature = '';
+      let cachedColumns: string[] = [];
+      let cachedStmt: Database.Statement | null = null;
+
+      for (const chunkPath of chunkJsonPaths) {
+        const parsed = JSON.parse(fs.readFileSync(chunkPath, 'utf-8')) as
+          | { rows?: Array<Record<string, unknown>> }
+          | Array<Record<string, unknown>>;
+        const rows = Array.isArray(parsed) ? parsed : parsed?.rows;
+        if (!Array.isArray(rows) || rows.length === 0) continue;
+
+        const columns = Object.keys(rows[0]).filter((c) =>
+          SAFE_IDENT_RE.test(c),
+        );
+        if (columns.length === 0) continue;
+
+        const signature = columns.join('\0');
+        if (!cachedStmt || signature !== cachedSignature) {
+          cachedSignature = signature;
+          cachedColumns = columns;
+          const colList = columns.map((c) => `"${c}"`).join(', ');
+          const placeholders = columns.map(() => '?').join(', ');
+          cachedStmt = db.prepare(
+            `INSERT INTO "${tableName}" (${colList}) VALUES (${placeholders})`,
+          );
+        }
+
+        for (const row of rows) {
+          cachedStmt.run(...cachedColumns.map((c) => row[c] ?? null));
+          totalInserted++;
+        }
+      }
+    });
+    tx();
+  } finally {
+    try {
+      db.pragma('synchronous = FULL');
+      db.pragma('foreign_keys = ON');
+    } catch {
+      // Ignore pragma restore errors if db failed early
+    }
+    db.close();
+  }
+  return totalInserted;
+}
+
+function downloadR2ObjectToFile(
+  objectKey: string,
+  targetFile: string,
+): boolean {
+  if (!objectKey.startsWith('snapshots/') || objectKey.includes('..')) {
+    throw new Error(`[D1Pull] Invalid R2 object key: ${objectKey}`);
+  }
+  const r2Res = spawnSync(
+    'npx',
+    [
+      'wrangler',
+      'r2',
+      'object',
+      'get',
+      `collection-backups/${objectKey}`,
+      '--file',
+      targetFile,
+      '--remote',
+    ],
+    {
+      cwd: rootDir,
+      stdio: 'pipe',
+      shell: process.platform === 'win32',
+      timeout: 60_000,
+    },
+  );
+  return r2Res.status === 0 && fs.existsSync(targetFile);
+}
+
+function pullChunkedR2Table(
+  tempDir: string,
+  targetDbPath: string,
+  tableName: 'games' | 'game_releases' | 'canonical_releases',
+  chunkKeys: string[],
+): number {
+  const localPaths: string[] = [];
+  for (let i = 0; i < chunkKeys.length; i++) {
+    const chunkKey = chunkKeys[i];
+    const localPath = path.join(tempDir, `${tableName}-${i}.json`);
+    if (!downloadR2ObjectToFile(chunkKey, localPath)) {
+      throw new Error(
+        `[D1Pull] Failed to download R2 backup chunk: ${chunkKey}`,
+      );
+    }
+    localPaths.push(localPath);
+  }
+  return hydrateTableFromChunkFiles(targetDbPath, tableName, localPaths);
+}
+
+function pullCanonicalReleasesFromR2(targetDbPath: string): number | null {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), '_r2_canonical_'));
+  try {
+    const chunkedManifestPath = path.join(tempDir, 'canonical-manifest.json');
+    if (
+      downloadR2ObjectToFile(
+        'snapshots/chunks/canonical-manifest.json',
+        chunkedManifestPath,
+      )
+    ) {
+      const manifest = JSON.parse(
+        fs.readFileSync(chunkedManifestPath, 'utf-8'),
+      ) as { chunks?: string[] };
+      if (Array.isArray(manifest?.chunks)) {
+        return pullChunkedR2Table(
+          tempDir,
+          targetDbPath,
+          'canonical_releases',
+          manifest.chunks,
+        );
+      }
+    }
+
+    const legacyCanonicalPath = path.join(tempDir, 'canonical_releases.json');
+    if (
+      !downloadR2ObjectToFile(
+        'snapshots/canonical_releases.json',
+        legacyCanonicalPath,
+      )
+    ) {
       return null;
     }
     return hydrateCanonicalReleasesFromSnapshotFile(
       targetDbPath,
-      tempCanonicalPath,
+      legacyCanonicalPath,
     );
   } finally {
-    if (fs.existsSync(tempCanonicalPath)) {
+    if (fs.existsSync(tempDir)) {
       try {
-        fs.unlinkSync(tempCanonicalPath);
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup error
+      }
+    }
+  }
+}
+
+function pullChunkedCatalogFromR2(
+  targetDbPath: string,
+): { games: number; game_releases: number } | null {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), '_r2_catalog_'));
+  try {
+    const manifestPath = path.join(tempDir, 'catalog-manifest.json');
+    if (
+      !downloadR2ObjectToFile(
+        'snapshots/chunks/catalog-manifest.json',
+        manifestPath,
+      )
+    ) {
+      return null;
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as {
+      tables?: {
+        games?: { chunks?: string[] };
+        game_releases?: { chunks?: string[] };
+      };
+    };
+    const gameChunks = manifest?.tables?.games?.chunks;
+    const relChunks = manifest?.tables?.game_releases?.chunks;
+    if (!Array.isArray(gameChunks) || !Array.isArray(relChunks)) {
+      return null;
+    }
+    const gamesCount = pullChunkedR2Table(
+      tempDir,
+      targetDbPath,
+      'games',
+      gameChunks,
+    );
+    const relsCount = pullChunkedR2Table(
+      tempDir,
+      targetDbPath,
+      'game_releases',
+      relChunks,
+    );
+    return { games: gamesCount, game_releases: relsCount };
+  } finally {
+    if (fs.existsSync(tempDir)) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup error
       }
@@ -177,9 +347,29 @@ async function pullFromR2() {
     tableOrder: TABLE_HYDRATION_ORDER,
   });
 
+  const chunkedCatalogCounts = pullChunkedCatalogFromR2(localDbPath);
+  if (chunkedCatalogCounts !== null) {
+    rowCounts['games'] = chunkedCatalogCounts.games;
+    rowCounts['game_releases'] = chunkedCatalogCounts.game_releases;
+  }
+
   const canonicalCount = pullCanonicalReleasesFromR2(localDbPath);
   if (canonicalCount !== null) {
     rowCounts['canonical_releases'] = canonicalCount;
+  }
+
+  const verifyDb = new Database(localDbPath, { readonly: true });
+  try {
+    const integrity = verifyDb.pragma('integrity_check') as Array<{
+      integrity_check: string;
+    }>;
+    if (integrity?.[0]?.integrity_check !== 'ok') {
+      throw new Error(
+        `[D1Pull] SQLite integrity check failed: ${JSON.stringify(integrity)}`,
+      );
+    }
+  } finally {
+    verifyDb.close();
   }
 
   let totalRestored = 0;

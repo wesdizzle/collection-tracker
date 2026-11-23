@@ -404,14 +404,56 @@ describe('ProfileModalComponent', () => {
 
     component.newRuleType = 'series';
     component.newRuleTarget = 'The Legend of Zelda';
+    component.newRuleRegionScope = 'home';
     component.newRuleIgnored = false;
     component.addRule();
 
     expect(saveSpy).toHaveBeenCalledWith({
       rule_type: 'series',
       target_value: 'The Legend of Zelda',
+      region_scope: 'home',
       is_ignored: false,
       clear_existing_seeking: false,
+    });
+
+    component.newRuleType = 'series';
+    component.newRuleTarget = 'Mother';
+    component.newRuleRegionScope = 'any';
+    component.addRule();
+    expect(saveSpy).toHaveBeenCalledWith({
+      rule_type: 'series',
+      target_value: 'Mother',
+      region_scope: 'any',
+      is_ignored: false,
+      clear_existing_seeking: false,
+    });
+
+    const updateProfileSpy = vi
+      .spyOn(collectionService, 'updateProfile')
+      .mockReturnValue(
+        of({
+          id: 1,
+          username: 'alice',
+          role: 'admin',
+          isPublic: false,
+          homeRegion: 'USA',
+          displayName: null,
+          bio: null,
+          autoSeekRegionScope: 'any',
+          autoSeekReleaseScope: 'all_releases',
+        }),
+      );
+    component.onChangeAutoSeekRegionScope('any');
+    expect(component.autoSeekRegionScope()).toBe('any');
+    expect(component.newRuleRegionScope).toBe('any');
+    expect(updateProfileSpy).toHaveBeenCalledWith({
+      autoSeekRegionScope: 'any',
+    });
+
+    component.onChangeAutoSeekReleaseScope('all_releases');
+    expect(component.autoSeekReleaseScope()).toBe('all_releases');
+    expect(updateProfileSpy).toHaveBeenCalledWith({
+      autoSeekReleaseScope: 'all_releases',
     });
 
     const refreshSpy = vi

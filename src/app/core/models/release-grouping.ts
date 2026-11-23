@@ -11,6 +11,7 @@ import {
   getRomGroupingKey,
   normalizeForLabelMatch,
 } from './title-mappings';
+import { isPackInCompanionDemoRom } from '../../../../shared/source_format';
 
 const COMPANION_CANDIDATE_TITLE_RE =
   /(?:oblivion|skyrim|fallout|dishonored|dragon\s*age|borderlands|killzone|saints\s*row|mafia|outlast|modern\s*warfare|double\s*dash|metroid\s*prime|resident\s*evil|persona|gran\s*turismo|fable|splinter\s*cell|alan\s*wake|bioshock|dead\s*rising|gears\s*of\s*war|mass\s*effect|perfect\s*dark|quake|viva\s*pi)/i;
@@ -64,18 +65,30 @@ export function extractMediaLabel(
   return `Disc ${index + 1}`;
 }
 
+const OWNERSHIP_PRECEDENCE_RANK: Record<OwnershipStatus, number> = {
+  [OwnershipStatus.Owned]: 4,
+  [OwnershipStatus.Ordered]: 3,
+  [OwnershipStatus.PrioritySeeking]: 2,
+  [OwnershipStatus.Seeking]: 1,
+  [OwnershipStatus.Unowned]: 0,
+};
+
+/**
+ * Combines two ownership statuses using explicit domain precedence
+ * (`Owned > Ordered > PrioritySeeking > Seeking > Unowned`) so folding a Seeking
+ * companion disc never demotes an Owned host release.
+ */
+export function mergeOwnershipStatus(
+  a: OwnershipStatus,
+  b: OwnershipStatus,
+): OwnershipStatus {
+  const rankA = OWNERSHIP_PRECEDENCE_RANK[a] ?? 0;
+  const rankB = OWNERSHIP_PRECEDENCE_RANK[b] ?? 0;
+  return rankA >= rankB ? a : b;
+}
+
 function isPackInCompanionDemo(row: CatalogMediaRow): boolean {
-  if (!row.rom_name) return false;
-  return (
-    (row.platform_id === 29 &&
-      /^mega man legends 2.*\(demo\)/i.test(row.rom_name)) ||
-    (row.platform_id === 30 &&
-      /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i.test(
-        row.rom_name,
-      )) ||
-    (row.platform_id === 30 &&
-      /^final fantasy xii\s*\(usa\)\s*\(demo\)/i.test(row.rom_name))
-  );
+  return isPackInCompanionDemoRom(row.platform_id, row.rom_name);
 }
 
 /**
@@ -87,8 +100,18 @@ export function groupCatalogMediaIntoReleases(
   rows: readonly CatalogMediaRow[],
 ): RetailReleaseView[] {
   const groupedMap = new Map<string, RetailReleaseView>();
+  const hostRows: CatalogMediaRow[] = [];
+  const demoRows: CatalogMediaRow[] = [];
+  for (const row of rows) {
+    if (isPackInCompanionDemo(row)) {
+      demoRows.push(row);
+    } else {
+      hostRows.push(row);
+    }
+  }
+  const orderedRows = [...hostRows, ...demoRows];
 
-  for (const g of rows) {
+  for (const g of orderedRows) {
     const romKey = getRomGroupingKey(g.rom_name);
     let baseKey = romKey.startsWith('multi:')
       ? `${g.game_id || g.id}_${romKey}`
@@ -128,10 +151,10 @@ export function groupCatalogMediaIntoReleases(
       });
     } else {
       existing.mediaItems.push(mediaItem);
-      existing.ownership_status = Math.max(
+      existing.ownership_status = mergeOwnershipStatus(
         existing.ownership_status,
         g.ownership_status,
-      ) as OwnershipStatus;
+      );
       existing.play_status = Math.max(
         existing.play_status,
         g.play_status,

@@ -798,6 +798,9 @@ export function normalizeBudgetToken(token: string): string | null {
   return null;
 }
 
+export type AutoSeekReleaseScope = 'one_per_game' | 'all_releases';
+export type AutoSeekRegionScope = 'home' | 'any';
+
 export interface UserProfile {
   id: number;
   email?: string | null;
@@ -808,6 +811,8 @@ export interface UserProfile {
   displayName: string | null;
   bio: string | null;
   autoTrackSeriesOnAdd?: boolean;
+  autoSeekReleaseScope?: AutoSeekReleaseScope;
+  autoSeekRegionScope?: AutoSeekRegionScope;
   trackIndividualMedia?: boolean;
 }
 

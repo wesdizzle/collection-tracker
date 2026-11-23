@@ -159,6 +159,30 @@ describe('d1_cost_guard', () => {
     expect(result.passed).toBe(true);
   });
 
+  it('catches query plan regressions in upcoming IGDB and passive release_date backfill queries when key indexes are missing', () => {
+    const schemaWithoutReleaseDateIdx = createTempPath(
+      'schema_missing_idx',
+      '.sql',
+    );
+    const schemaSql = fs.readFileSync(SCHEMA_SQL_PATH, 'utf8');
+    fs.writeFileSync(
+      schemaWithoutReleaseDateIdx,
+      schemaSql.replace(
+        /CREATE INDEX IF NOT EXISTS idx_game_releases_release_date[^;]*;/i,
+        '',
+      ),
+      'utf8',
+    );
+
+    const result = runCollectionStaticSchemaCostGuard(
+      schemaWithoutReleaseDateIdx,
+    );
+    expect(result.passed).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes('idx_game_releases_release_date')),
+    ).toBe(true);
+  });
+
   it('detects missing oidc_sub column and new indexes via diffSqliteSchema', () => {
     const baselinePath = createTempPath('legacy_baseline', '.db');
     const db = new Database(baselinePath);
