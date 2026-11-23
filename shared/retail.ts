@@ -9,6 +9,8 @@
  * Designed to stay well within Cloudflare Workers Free Tier limits (~20 subrequests per run).
  */
 
+import { stripRetailPreorderAndPlatformTrailer } from './title_matching.js';
+
 export type RetailStoreName = 'VGP' | 'PNP Games';
 
 export interface RetailDealItem {
@@ -207,25 +209,7 @@ export function cleanRetailTitle(rawTitle: string): string {
       ' ',
     );
 
-  // Strip trailing platform names (including PNP's doubled "– PlayStation 5 PS5" or "– Nintendo Switch NSW")
-  const platformPattern =
-    '(?:PlayStation\\s*VR2|PSVR2|PlayStation\\s*VR|PSVR|PlayStation\\s*[12345]|PS[12345]|PlayStation\\s*Vita|PS\\s*Vita|Vita|PlayStation\\s*Portable|PSP|Nintendo\\s*Switch\\s*2?|Switch\\s*2?|NSW2?|Nintendo\\s*3DS|3DS|Nintendo\\s*DS|NDS|DS|Wii\\s*U|Nintendo\\s*Wii|Wii|Xbox\\s*Series\\s*[XS](?:\\|[XS])?|XSX|Xbox\\s*One|XB1|Xbox\\s*360|Sega\\s*Dreamcast|Dreamcast)';
-
-  cleaned = cleaned
-    .replace(
-      new RegExp(
-        `\\s*[-–—]\\s*${platformPattern}(?:\\s*[/|]?\\s*${platformPattern})*\\s*$`,
-        'i',
-      ),
-      '',
-    )
-    .replace(new RegExp(`\\s*\\[${platformPattern}\\]\\s*$`, 'i'), '')
-    .replace(new RegExp(`\\s*\\(${platformPattern}\\)\\s*$`, 'i'), '')
-    .replace(/\s*Standard Edition\s*$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return cleaned;
+  return stripRetailPreorderAndPlatformTrailer(cleaned);
 }
 
 /**

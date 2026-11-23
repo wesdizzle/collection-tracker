@@ -764,21 +764,101 @@ function cleanRawRegionCodes(str: string): string {
 }
 
 /**
+ * Strips leading boutique store catalog prefixes (e.g. "LRG #500: ",
+ * "Limited Run #273: ", "Limited Run #336 & #337: ").
+ */
+export function stripBoutiqueCatalogPrefix(
+  title: string,
+  options: { stripPreOrderPrefix?: boolean } = {},
+): string {
+  if (!title) return '';
+  let out = title;
+  if (options.stripPreOrderPrefix) {
+    out = out.replace(/^\[?\s*pre-?order\s*\]?\s*[:-]?\s*/i, '');
+  }
+  return out
+    .replace(
+      /^(?:LRG|SRG|SLG|Strictly Limited(?:\s+Games)?|Limited Run(?:\s+Games)?)\s*#?\s*\d+(?:\s*(?:&|and|\/|-)\s*#?\s*\d+)?\s*[:-]?\s*/i,
+      '',
+    )
+    .trim();
+}
+
+const LGN_PIPE_PLATFORM_TOKEN =
+  '(?:(?:Nintendo\\s+)?Switch(?:\\s+2)?|NSW2?|PlayStation\\s*[1-5]|PS[1-5]|PlayStation\\s*Vita|PS\\s*Vita|PSVR2?|Xbox\\s+Series\\s+[XS](?:[|/]S)?|Xbox\\s+One|3DS)';
+
+/**
+ * Strips trailing pipe-delimited platform lists emitted in news headlines
+ * (e.g. "Game | PlayStation 5, , Xbox Series X|S") without stripping legitimate
+ * multi-game bundle separators like "Game A | Game B".
+ */
+export function stripLgnPlatformPipeTrailer(title: string): string {
+  if (!title) return '';
+  return title
+    .replace(
+      new RegExp(
+        `\\s*\\|(?:\\s*,|\\s*\\/|\\s*&|\\s+and\\b|\\s+)*(?:${LGN_PIPE_PLATFORM_TOKEN})(?:\\s*,|\\s*\\/|\\s*&|\\s+and\\b|\\s+|${LGN_PIPE_PLATFORM_TOKEN})*$`,
+        'i',
+      ),
+      '',
+    )
+    .replace(/\s*\|\s*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const RETAIL_TRAILING_PLATFORM_PATTERN =
+  '(?:Sony\\s+PlayStation\\s*VR2?|PlayStation\\s*VR2|PSVR2|PlayStation\\s*VR|PSVR|Play(?:Station|sation)\\s*[12345]|PS[12345]|PlayStation\\s*Vita|PS\\s*Vita|Vita|PlayStation\\s*Portable|PSP|Nintendo\\s*Switch\\s*2?|Switch\\s*2?|NSW2?|Nintendo\\s*3DS|3DS|Nintendo\\s*DS|NDS|DS|Wii\\s*U|Nintendo\\s*Wii|Wii|Xbox\\s*Series\\s*[XS](?:\\|[XS])?|XSX|Xbox\\s*One|XB1|Xbox\\s*360|Sega\\s*Dreamcast|Dreamcast)';
+
+/**
+ * Strips trailing preorder/ship-date notices and trailing retail platform
+ * suffixes (including "Sony PlayStation VR" and store typos like "Playsation 5").
+ */
+export function stripRetailPreorderAndPlatformTrailer(title: string): string {
+  if (!title) return '';
+  return title
+    .replace(
+      /\s*(?:[-–—]\s*)?\bPRE-?ORDER(?:\s*[-–—]\s*ESTIMATED\s+SHIP\s+DATE\b.*)?$/i,
+      '',
+    )
+    .replace(/\s*[-–—]?\s*ESTIMATED\s+SHIP\s+DATE\b.*$/i, '')
+    .replace(
+      new RegExp(
+        `\\s*[-–—]\\s*${RETAIL_TRAILING_PLATFORM_PATTERN}(?:\\s*[/|]?\\s*${RETAIL_TRAILING_PLATFORM_PATTERN})*\\s*$`,
+        'i',
+      ),
+      '',
+    )
+    .replace(
+      new RegExp(`\\s*\\[${RETAIL_TRAILING_PLATFORM_PATTERN}\\]\\s*$`, 'i'),
+      '',
+    )
+    .replace(
+      new RegExp(`\\s*\\(${RETAIL_TRAILING_PLATFORM_PATTERN}\\)\\s*$`, 'i'),
+      '',
+    )
+    .replace(/\s*Standard Edition\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Strips common edition suffixes, subtitles, and DLC add-on phrases from titles
  * so base releases can match their canonical cartridge dumps.
  */
 export function stripEditionSuffix(title: string): string {
-  return title
+  const norm = (title || '').replace(/[\u2018\u2019\u201B\u2032`]/g, "'");
+  return norm
     .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes|\d+th anniversary)\s*edition/gi,
+      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|switch\s*2|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*edition/gi,
       '',
     )
     .replace(
-      /\s*-\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|nes)\s*edition/gi,
+      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|switch\s*2|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*edition/gi,
       '',
     )
     .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|deathinitive|warmastered|owltimate|fully yoked)\s+edition/gi,
+      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|deathinitive|warmastered|owltimate|fully yoked|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2)\s+edition/gi,
       '',
     )
     .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
@@ -788,6 +868,291 @@ export function stripEditionSuffix(title: string): string {
     .replace(/\s*\+\s*star-crossed world/gi, '')
     .replace(/\s*\+\s*jamboree tv/gi, '')
     .trim();
+}
+
+const SHEET_TYPO_FIXES: Array<[RegExp, string]> = [
+  [/\btelllate\b/gi, 'telltale'],
+  [/\bantbos\b/gi, 'anthos'],
+  [/\bgamemaster'?s\s+legacy\b/gi, "gamesmaster's legacy"],
+  [/\bstrangers\s+wrath\b/gi, "stranger's wrath"],
+  [/\bdirectors\s+cut\b/gi, "director's cut"],
+  [
+    /\blike\s+a\s+dragon\s+the\s+man\s+who\s+erased\s+his\s+name\b/gi,
+    'like a dragon gaiden: the man who erased his name',
+  ],
+];
+
+/**
+ * Cleans store/feed framing, budget-reissue prefixes, and verified sheet typos
+ * prior to IGDB querying and matching without altering base game semantics.
+ */
+export function cleanTitleForIgdbLookup(rawTitle: string): string {
+  let out = (rawTitle || '')
+    .replace(/[\u2018\u2019\u201B\u2032`]/g, "'")
+    .replace(/[™®]/g, '')
+    .trim();
+  if (!out) return '';
+
+  out = stripBoutiqueCatalogPrefix(out, { stripPreOrderPrefix: true });
+  out = stripLgnPlatformPipeTrailer(out);
+  out = stripRetailPreorderAndPlatformTrailer(out);
+
+  // Strip known retro/budget reissue series prefixes
+  out = out
+    .replace(/^(?:famicom\s+mini(?:\s+series)?\s*\d*\s*[:-]\s*)/i, '')
+    .replace(/^(?:classic\s+nes\s+series\s*[:-]\s*)/i, '')
+    .replace(
+      /^(?:simple\s+(?:1500|2000|2500|ds)\s+series(?:\s+vol\.?\s*\d+)?(?:\s+the\s+[^:-]+)?\s*[:-]\s*)/i,
+      '',
+    )
+    .replace(/^(?:superlite\s+(?:1500|2000)(?:\s+series)?\s*[:-]\s*)/i, '')
+    .replace(/^(?:road\s*&\s*track\s+presents\s*[:-]\s*)/i, '');
+
+  for (const [rx, repl] of SHEET_TYPO_FIXES) {
+    out = out.replace(rx, repl);
+  }
+
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Repeatedly strips stacked physical editions, remaster/remake wrappers, cuts,
+ * and platform-edition suffixes (e.g. "...: Definitive Edition - Nintendo Switch 2 Edition")
+ * down to the canonical IGDB base game title.
+ *
+ * By default (`allowBareSpecial = false`), bare trailing `"Special"` without `"Edition"`
+ * or `" - Special"` is NOT stripped so retro sequels like "Real Bout Fatal Fury Special"
+ * never collapse onto base "Real Bout Fatal Fury". Pass `allowBareSpecial: true` on
+ * modern consoles / Tier 2 candidate wrappers (e.g. "Rune Factory 3 Special").
+ */
+export function stripIgdbEditionWrapper(
+  title: string,
+  options: { allowBareSpecial?: boolean } = {},
+): string {
+  let current = cleanTitleForIgdbLookup(title);
+  if (!current) return '';
+
+  for (let pass = 0; pass < 4; pass++) {
+    const before = current;
+    current = stripEditionSuffix(current);
+    const splitEd = splitTitleEditionSuffix(current);
+    if (
+      splitEd &&
+      splitEd.base.length >= 2 &&
+      !splitEd.suffix.startsWith('+')
+    ) {
+      current = splitEd.base;
+    }
+    current = current
+      .replace(
+        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Year\s+One|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2)\s+Edition$/i,
+        '',
+      )
+      .replace(
+        /\s*(?:[:\-–—|]\s*)?(?:The\s+)?(?:Final\s+Cut|Director'?s?\s+Cut|Extended\s+Cut|HD\s+Remaster(?:ed)?|Remastered|Remake|Game\s+of\s+the\s+Year|GOTY)$/i,
+        '',
+      )
+      .replace(
+        /\s*(?:(?:[:\-–—]\s*|\s+)SE\b)?\s*(?:[:\-–—]\s*|\s+)Complete$/i,
+        '',
+      )
+      .replace(
+        options.allowBareSpecial
+          ? /\s*(?:[:\-–—]\s*|\s+)Special$/i
+          : /\s*(?:[:\-–—]\s+)Special$/i,
+        '',
+      )
+      .replace(/\s+HD$/i, '')
+      .replace(/\s*[:\-–—|]\s*$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (current === before || current.length < 2) break;
+  }
+
+  return current;
+}
+
+const ROMAN_SEQUEL_MAP: Record<string, string> = {
+  ii: '2',
+  iii: '3',
+  iv: '4',
+  vi: '6',
+  vii: '7',
+  viii: '8',
+  ix: '9',
+  xi: '11',
+  xii: '12',
+  xiii: '13',
+  xiv: '14',
+  xv: '15',
+  xvi: '16',
+  xvii: '17',
+  xviii: '18',
+  xix: '19',
+  xx: '20',
+};
+
+function normalizeSafeSequelNumerals(text: string): string {
+  // Never rewrite leading "I" ("I Am Setsuna", "I, Robot") — only normalize "I" -> "1"
+  // when preceded by an explicit sequential noun or at the end after a title word.
+  let out = text
+    .replace(/\b(episode|part|vol\.?|volume|chapter|act|no\.?)\s+i\b/gi, '$1 1')
+    .replace(/\b([a-z]{3,})\s+i\s*$/gi, '$1 1');
+
+  out = out.replace(
+    /\b(ii|iii|iv|vi|vii|viii|ix|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx)\b/gi,
+    (m) => ROMAN_SEQUEL_MAP[m.toLowerCase()] || m,
+  );
+  return out;
+}
+
+/**
+ * Extracts ordered sequel numerals from a game title after filtering out platform
+ * numbers (e.g. Switch 2, PS5, N64, 3DS, Xbox 360) and anniversary counts so
+ * mismatched sequels ("Persona 4" vs "Persona 5") are strictly rejected.
+ */
+export function extractTitleSequelSignature(title: string): string[] {
+  let s = cleanTitleForIgdbLookup(title).toLowerCase();
+  if (!s) return [];
+
+  // Strip parentheticals/brackets and platform designations that carry numbers
+  s = s
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(
+      /\b(?:nintendo\s+switch\s*2|switch\s*2|nsw2|play(?:station|sation)\s*[1-5]|ps[1-5]|psvr2?|3ds|n64|3do|64dd|xbox\s*360|simple\s+(?:1500|2000|2500)|superlite\s+(?:1500|2000))\b/gi,
+      ' ',
+    )
+    .replace(/\b\d+(?:st|nd|rd|th)\s+anniversary\b/gi, ' ');
+
+  s = normalizeSafeSequelNumerals(s);
+  const tokens = s.match(/\b\d+\b/g) || [];
+  return tokens.map((t) => String(parseInt(t, 10)));
+}
+
+/**
+ * Enhanced title normalization specifically for IGDB candidate comparison.
+ * Preserves DAT backward compatibility by leaving `normalizeTitleForMatching`
+ * untouched while resolving safe Roman/Arabic numerals, mid-title platform tags,
+ * apostrophe-s normalization, and preserving version/publisher qualifiers
+ * ("Capcom Version" vs "SNK Version") so distinct editions never collide.
+ */
+export function normalizeForIgdbMatch(title: string): string {
+  let t = cleanTitleForIgdbLookup(title);
+  if (!t) return '';
+
+  // Strip mid-title platform token directly before a subtitle delimiter ("Harvest Moon DS - ...")
+  t = t
+    .replace(
+      /\b(?:ds|3ds|gba|gbc|n64|nes|snes|ps1|ps2|ps3|ps4|ps5|wii(?:\s+u)?|switch(?:\s+2)?|xbox)\s*(?=[:\-–—])/gi,
+      ' ',
+    )
+    .toLowerCase();
+
+  t = t
+    .replace(/[\u2018\u2019\u201B\u2032`]/g, "'")
+    .replace(/'s\b/gi, 's')
+    .replace(/&/g, 'and')
+    .replace(/\$/g, 's')
+    .replace(/oo/g, 'o')
+    .replace(/uu/g, 'u')
+    .replace(/cch/g, 'tch')
+    .replace(/mega\s+man/g, 'megaman')
+    .replace(/pac\s+man/g, 'pacman')
+    .replace(/super\s+mario/g, 'supermario');
+
+  t = normalizeSafeSequelNumerals(t);
+  t = t
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\b(ds|gba|gbc|n64|nes|snes|ps3|ps2|ps1|wii|xbox|3ds)\b$/gi, '')
+    .replace(/\b(the|a|an|and|in|of|for|with|on|at|to|by|or|from)\b/gi, '');
+
+  return t
+    .split(/\s+/)
+    .filter((w) => w.length > 0)
+    .join('');
+}
+
+export interface IgdbMatchVariant {
+  title: string;
+  isTildeHalf: boolean;
+}
+
+/**
+ * Generates ordered, deduplicated title query/comparison variants for IGDB resolution:
+ * cleaned full title, split dual-region ` ~ ` halves, edition-stripped base title,
+ * and `A - B` <-> `B: A` subtitle-swapped variants.
+ */
+export function buildIgdbMatchVariants(
+  rawTitle: string,
+  options: { allowBareSpecial?: boolean } = {},
+): string[] {
+  return buildDetailedIgdbMatchVariants(rawTitle, options).map((v) => v.title);
+}
+
+/**
+ * Variant generator preserving metadata on whether each candidate originated from
+ * a ` ~ ` dual-region split so 1-word generic regional halves cannot match vague aliases.
+ */
+export function buildDetailedIgdbMatchVariants(
+  rawTitle: string,
+  options: { allowBareSpecial?: boolean } = {},
+): IgdbMatchVariant[] {
+  const variants: IgdbMatchVariant[] = [];
+  const seen = new Set<string>();
+  const add = (val: string, isTildeHalf: boolean) => {
+    const trimmed = val.replace(/\s+/g, ' ').trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      variants.push({ title: trimmed, isTildeHalf });
+    }
+  };
+
+  const cleaned = cleanTitleForIgdbLookup(rawTitle);
+  if (!cleaned) return variants;
+
+  const halves = cleaned
+    .split(/\s+~\s+/)
+    .map((h) => h.trim())
+    .filter(Boolean);
+  const hasTilde = halves.length > 1;
+
+  add(cleaned, false);
+  for (const half of halves) {
+    add(half, hasTilde);
+    const singleSplit = splitTitleEditionSuffix(half);
+    if (singleSplit && !singleSplit.suffix.startsWith('+')) {
+      add(singleSplit.base, hasTilde);
+    }
+    const singleStrip = stripEditionSuffix(half);
+    if (singleStrip && singleStrip.length >= 2) {
+      add(singleStrip, hasTilde);
+    }
+    const base = stripIgdbEditionWrapper(half, options);
+    if (base && base.length >= 2) {
+      add(base, hasTilde);
+    }
+
+    // Generate A - B <-> B: A swap for single-separator subtitled releases
+    const sepMatch = half.match(/^([^:–—-]+?)\s*(?::|\s+[-–—]\s+)\s*(.+)$/);
+    if (
+      sepMatch &&
+      !sepMatch[2].includes(' - ') &&
+      !sepMatch[2].includes(': ')
+    ) {
+      const a = sepMatch[1].trim();
+      const b = sepMatch[2].trim();
+      if (a.length >= 3 && b.length >= 3) {
+        add(`${b}: ${a}`, hasTilde);
+      }
+    }
+  }
+
+  return variants;
 }
 
 const NON_ENGLISH_EDITION_RE =

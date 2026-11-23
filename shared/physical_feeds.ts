@@ -15,6 +15,10 @@
  */
 
 import { DEFAULT_CAD_TO_USD_RATE, decodeHtmlEntities } from './retail.js';
+import {
+  stripBoutiqueCatalogPrefix,
+  stripLgnPlatformPipeTrailer,
+} from './title_matching.js';
 
 export interface ShopifyProductItem {
   id?: number | string;
@@ -311,14 +315,11 @@ export function cleanBoutiqueTitle(
     lowerRaw.includes('preorder') ||
     lowerRaw.includes('pre order');
 
-  let title = rawTitle;
-
   // 1. Strip store catalogue prefixes:
-  // e.g. "LRG #500: ", "SRG#120 - ", "SLG #45: ", "PRE-ORDER: ", "[PRE-ORDER]"
-  title = title
-    .replace(/^\[?\s*pre-?order\s*\]?\s*[:-]?\s*/i, '')
-    .replace(/^(?:LRG|SRG|SLG|Strictly Limited)\s*#?\s*\d+\s*[:-]?\s*/i, '')
-    .trim();
+  // e.g. "LRG #500: ", "Limited Run #273: ", "SRG#120 - ", "SLG #45: ", "PRE-ORDER: ", "[PRE-ORDER]"
+  let title = stripBoutiqueCatalogPrefix(rawTitle, {
+    stripPreOrderPrefix: true,
+  });
 
   // 2. Identify region from parentheticals/brackets or trailing delimiters
   let matchedRegion: string | null = null;
@@ -702,19 +703,21 @@ function stripWpHtml(html?: string): string {
 function stripLgnNewsFraming(rawTitle: string): string {
   const platToken =
     '(?:(?:Nintendo\\s+)?Switch(?:\\s+2)?|NSW2?|PlayStation\\s*[1-5]|PS[1-5]|PlayStation\\s*Vita|PS\\s*Vita|PSVR2?|Xbox\\s+Series\\s+[XS](?:[|/]S)?|Xbox\\s+One|3DS)';
-  return rawTitle
-    .replace(
-      /^(?:limited\s+run\s+games|super\s+rare\s+games|strictly\s+limited(?:\s+games)?|red\s+art\s+games|vgnysoft|eastasiasoft|play[- ]?asia|first\s+press\s+games|nis\s+america|serenity\s+forge|fangamer|iam8bit|clear\s+river\s+games|silver\s+lining(?:\s+direct|\s+interactive)?)\s+(?:announces?|reveals?|launches?|opens?\s+pre[- ]?orders?\s+for)\s+/i,
-      '',
-    )
-    .replace(
-      /\s+(?:gets?|receives?|is\s+getting|announced\s+for)\s+(?:a\s+)?(?:physical\s+(?:release|edition|version)|pre[- ]?orders?)\b.*$/i,
-      '',
-    )
-    .replace(
-      /\s+(?:physical\s+(?:release|edition|version)\s+(?:announced|revealed|now\s+available|up\s+for\s+pre[- ]?order))\b.*$/i,
-      '',
-    )
+  return stripLgnPlatformPipeTrailer(
+    rawTitle
+      .replace(
+        /^(?:limited\s+run\s+games|super\s+rare\s+games|strictly\s+limited(?:\s+games)?|red\s+art\s+games|vgnysoft|eastasiasoft|play[- ]?asia|first\s+press\s+games|nis\s+america|serenity\s+forge|fangamer|iam8bit|clear\s+river\s+games|silver\s+lining(?:\s+direct|\s+interactive)?)\s+(?:announces?|reveals?|launches?|opens?\s+pre[- ]?orders?\s+for)\s+/i,
+        '',
+      )
+      .replace(
+        /\s+(?:gets?|receives?|is\s+getting|announced\s+for)\s+(?:a\s+)?(?:physical\s+(?:release|edition|version)|pre[- ]?orders?)\b.*$/i,
+        '',
+      )
+      .replace(
+        /\s+(?:physical\s+(?:release|edition|version)\s+(?:announced|revealed|now\s+available|up\s+for\s+pre[- ]?order))\b.*$/i,
+        '',
+      ),
+  )
     .replace(
       new RegExp(
         `\\s+(?:on|for)\\s+${platToken}(?:\\s*(?:,|\\/|&|\\band\\b)\\s*${platToken})*\\s*$`,

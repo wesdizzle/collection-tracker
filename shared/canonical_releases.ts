@@ -728,6 +728,7 @@ export function deduplicateDatReleases(
   rawReleases: Array<{
     name: string;
     roms: Array<{ name: string; crc?: string | null; serial?: string | null }>;
+    category?: string | null;
     publisher?: string | null;
     serial?: string | null;
   }>,
@@ -741,7 +742,7 @@ export function deduplicateDatReleases(
 
     const romName = primaryRom.name;
 
-    if (isIgnoredFormatRelease(rel.name, romName, platformId)) {
+    if (isIgnoredFormatRelease(rel.name, romName, platformId, rel.category)) {
       continue;
     }
 

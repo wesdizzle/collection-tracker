@@ -43,10 +43,12 @@ import worker, {
   syncWorkerAmiiboCatalog,
   syncWorkerBoutiquePreOrders,
   syncWorkerBroadCatalogPopulation,
+  syncWorkerIgdbSeriesAndCanonical,
   syncWorkerLaunchDayNotifications,
   syncWorkerNsCollectors,
   syncWorkerRetailDeals,
   syncWorkerRetailPreOrders,
+  syncWorkerUnmatchedIgdbRetry,
   syncWorkerWatchedSeriesDiscovery,
   applyReactiveSeriesAutoTracking,
   evaluateTrackingRulesForNewGames,
@@ -5865,6 +5867,561 @@ describe('Worker API Logic', () => {
             )
             .all(rfGame.stable_id) as Array<{ id: string; region: string }>;
           expect(rfReleases.map((r) => r.id)).toEqual(['9503-1', '9503-2']);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('buildIgdbSearchTokens and 3-tier selectStrictIgdbMatch enforce sequel parity, tilde/edition guards, ambiguity rejection, and benign Tier 3 matching', async () => {
+        // Numeral & tilde token extraction
+        expect(
+          buildIgdbSearchTokens('My Little Pony 2: Friendship Adventure'),
+        ).not.toContain('2');
+        expect(buildIgdbSearchTokens('Tomb Raider II')).toContain('II');
+        expect(
+          buildIgdbSearchTokens(
+            'Real Bout Garou Densetsu ~ Real Bout Fatal Fury',
+          ),
+        ).toEqual(['Fatal', 'Real', 'Bout', 'Fury']);
+
+        // Sequel parity + pronoun I safety
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 1, name: 'Persona 5', platforms: [130] }],
+            normalizeTitleForMatching('Persona 4'),
+            130,
+            { rawTitle: 'Persona 4' },
+          ),
+        ).toBeNull();
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 2, name: 'I Am Setsuna', platforms: [130] }],
+            normalizeTitleForMatching('I Am Setsuna'),
+            130,
+            { rawTitle: 'I Am Setsuna' },
+          )?.id,
+        ).toBe(2);
+
+        // Preserve Capcom vs SNK version qualifiers
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                id: 3,
+                name: 'SNK vs. Capcom: Card Fighters Clash - SNK Version',
+                platforms: [120],
+              },
+            ],
+            normalizeTitleForMatching(
+              'SNK vs. Capcom: Card Fighters Clash - Capcom Version',
+            ),
+            120,
+            {
+              rawTitle: 'SNK vs. Capcom: Card Fighters Clash - Capcom Version',
+            },
+          ),
+        ).toBeNull();
+
+        // Block 1-word regional tilde split matching vague alt names
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                id: 4,
+                name: 'Wall-Defender',
+                alternative_names: [{ name: 'Capture' }],
+                platforms: [59],
+              },
+            ],
+            normalizeTitleForMatching('Flag Capture ~ Capture'),
+            59,
+            { rawTitle: 'Flag Capture ~ Capture' },
+          ),
+        ).toBeNull();
+
+        // Retro bare Special stays distinct; modern bare Special matches base game
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 5, name: 'Real Bout Fatal Fury', platforms: [136] }],
+            normalizeTitleForMatching('Real Bout Fatal Fury Special'),
+            136,
+            { rawTitle: 'Real Bout Fatal Fury Special' },
+          ),
+        ).toBeNull();
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 6, name: 'Rune Factory 3', platforms: [130] }],
+            normalizeTitleForMatching('Rune Factory 3 Special'),
+            130,
+            { rawTitle: 'Rune Factory 3 Special' },
+          )?.id,
+        ).toBe(6);
+
+        // Tier 2 ambiguity (>1) rejection vs DLC category filtering (category: 1 excluded)
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                id: 10,
+                name: 'Starship: Deluxe Edition',
+                platforms: [130],
+                category: 0,
+              },
+              {
+                id: 11,
+                name: 'Starship: Definitive Edition',
+                platforms: [130],
+                category: 0,
+              },
+            ],
+            normalizeTitleForMatching('Starship'),
+            130,
+            { rawTitle: 'Starship' },
+          ),
+        ).toBeNull();
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                id: 10,
+                name: 'Starship: Deluxe Edition',
+                platforms: [130],
+                game_type: 0,
+              },
+              {
+                id: 12,
+                name: 'Starship: Definitive Edition',
+                platforms: [130],
+                game_type: 1,
+              },
+            ],
+            normalizeTitleForMatching('Starship'),
+            130,
+            { rawTitle: 'Starship' },
+          )?.id,
+        ).toBe(10);
+
+        // Tier 3a: allowlist subtitles match; distinct subtitled sequels reject
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 20, name: 'Doom II: Hell on Earth', platforms: [24] }],
+            normalizeTitleForMatching('Doom II'),
+            24,
+            { rawTitle: 'Doom II' },
+          )?.id,
+        ).toBe(20);
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 21, name: 'Ghost Recon 2: Summit Strike', platforms: [11] }],
+            normalizeTitleForMatching('Ghost Recon 2'),
+            11,
+            { rawTitle: 'Ghost Recon 2' },
+          ),
+        ).toBeNull();
+
+        // Tier 3b: cascading benign query taglines match; distinct spin-offs reject
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 30, name: 'The Hobbit', platforms: [24] }],
+            normalizeTitleForMatching(
+              'The Hobbit - The Prelude to the Lord of the Rings',
+            ),
+            24,
+            { rawTitle: 'The Hobbit - The Prelude to the Lord of the Rings' },
+          )?.id,
+        ).toBe(30);
+        expect(
+          selectStrictIgdbMatch(
+            [{ id: 31, name: 'Minecraft: Story Mode', platforms: [41] }],
+            normalizeTitleForMatching(
+              'Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure',
+            ),
+            41,
+            {
+              rawTitle:
+                'Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure',
+            },
+          )?.id,
+        ).toBe(31);
+        for (const [qTitle, candName, plat] of [
+          [
+            'Phineas and Ferb - Across the 2nd Dimension',
+            'Phineas and Ferb',
+            20,
+          ],
+          ['Carnival Games - MiniGolf', 'Carnival Games', 5],
+          ['Command & Conquer - Red Alert', 'Command & Conquer', 7],
+        ] as const) {
+          expect(
+            selectStrictIgdbMatch(
+              [{ id: 99, name: candName, platforms: [plat] }],
+              normalizeTitleForMatching(qTitle),
+              plat,
+              { rawTitle: qTitle },
+            ),
+          ).toBeNull();
+        }
+
+        // fetchIgdbMetadataForTitles runs ~ and benign subtitle retry passes
+        stubIgdbFetch({
+          'The Hobbit': [{ id: 248450, name: 'The Hobbit', platforms: [24] }],
+          'Minecraft - Story Mode': [
+            { id: 8339, name: 'Minecraft: Story Mode', platforms: [41] },
+          ],
+          'Hunt & Score': [
+            {
+              id: 40723,
+              name: 'A Game of Concentration',
+              alternative_names: [{ name: 'Hunt & Score' }],
+              platforms: [59],
+            },
+          ],
+        });
+        try {
+          const metaMap = await fetchIgdbMetadataForTitles(mockEnv, [
+            {
+              key: 'hobbit',
+              title: 'The Hobbit - The Prelude to the Lord of the Rings',
+              normalizedTitle: 'hobbitpreludelordrings',
+              igdbPlatformId: 24,
+            },
+            {
+              key: 'mcsm',
+              title:
+                'Minecraft - Story Mode - A Telltale Games Series - The Complete Adventure',
+              normalizedTitle:
+                'minecraftstorymodetelltalegamesseriescompleteadventure',
+              igdbPlatformId: 41,
+            },
+            {
+              key: 'hunt',
+              title: 'Hunt & Score ~ Memory Match',
+              normalizedTitle: 'huntscorememorymatch',
+              igdbPlatformId: 59,
+            },
+          ]);
+          expect(metaMap.get('hobbit')?.igdb_id).toBe(248450);
+          expect(metaMap.get('mcsm')?.igdb_id).toBe(8339);
+          expect(metaMap.get('hunt')?.igdb_id).toBe(40723);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerIgdbSeriesAndCanonical passively backfills summary, image_url, genres, and igdb_url while preserving /covers/ assets and manually_verified rows', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, summary, genres, manually_verified)
+          VALUES
+            (9601, '9601', 'Chrono Trigger', 15, 1111, NULL, NULL, NULL, 0),
+            (9602, '9602', 'PlayStation VR Demo Disc', 51, 2222, '/covers/playstation-vr-demo-disc-playstation-4.jpg', 'Curated summary', 'Demo Compilation', 1);
+        `);
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.includes('id.twitch.tv')) {
+              return Response.json({ access_token: 'tok', expires_in: 3600 });
+            }
+            if (url.includes('api.igdb.com/v4/games')) {
+              return Response.json([
+                {
+                  id: 1111,
+                  url: 'https://www.igdb.com/games/chrono-trigger',
+                  summary: 'Time-traveling RPG classic.',
+                  cover: { image_id: 'co1111' },
+                  genres: [{ name: 'Role-playing (RPG)' }],
+                  collections: [{ name: 'Chrono' }],
+                },
+                {
+                  id: 2222,
+                  url: 'https://www.igdb.com/games/psvr-demo',
+                  summary: 'IGDB overwrite attempt.',
+                  cover: { image_id: 'co2222' },
+                  genres: [{ name: 'Shooter' }],
+                },
+              ]);
+            }
+            return new Response('[]', { status: 200 });
+          });
+
+        try {
+          await syncWorkerIgdbSeriesAndCanonical(mockEnv, { batchSize: 100 });
+          const g1 = db
+            .prepare(
+              'SELECT summary, image_url, genres, igdb_url FROM games WHERE stable_id = 9601',
+            )
+            .get() as {
+            summary: string | null;
+            image_url: string | null;
+            genres: string | null;
+            igdb_url: string | null;
+          };
+          expect(g1.summary).toBe('Time-traveling RPG classic.');
+          expect(g1.image_url).toBe(
+            'https://images.igdb.com/igdb/image/upload/t_cover_big/co1111.jpg',
+          );
+          expect(g1.genres).toBe('Role-playing (RPG)');
+          expect(g1.igdb_url).toBe('https://www.igdb.com/games/chrono-trigger');
+
+          const g2 = db
+            .prepare(
+              'SELECT summary, image_url, genres, igdb_url FROM games WHERE stable_id = 9602',
+            )
+            .get() as {
+            summary: string | null;
+            image_url: string | null;
+            genres: string | null;
+            igdb_url: string | null;
+          };
+          expect(g2.image_url).toBe(
+            '/covers/playstation-vr-demo-disc-playstation-4.jpg',
+          );
+          expect(g2.summary).toBe('Curated summary');
+          expect(g2.genres).toBe('Demo Compilation');
+          expect(g2.igdb_url).toBe('https://www.igdb.com/games/psvr-demo');
+        } finally {
+          fetchSpy.mockRestore();
+        }
+      });
+
+      it('syncWorkerUnmatchedIgdbRetry prioritizes user-tracked unmatched games, skips duplicate sibling igdb_ids, sets cooldown, scans catalog PK tail, and enforces daily write budget', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, manually_verified)
+          VALUES
+            (9701, '9701', 'Chrono Trigger', 15, NULL, 0),
+            (9702, '9702', 'EarthBound Duplicate', 15, NULL, 0),
+            (9703, '9703', 'EarthBound Canonical', 15, 5555, 0),
+            (9704, '9704', 'Secret of Mana', 15, NULL, 0);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES
+            ('9701-1', 9701, 'USA'),
+            ('9702-1', 9702, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+          VALUES
+            (1, '9701-1', 1),
+            (1, '9702-1', 1);
+        `);
+
+        stubIgdbFetch({
+          'Chrono Trigger': [
+            {
+              id: 1111,
+              name: 'Chrono Trigger',
+              url: 'https://www.igdb.com/games/chrono-trigger',
+              summary: 'SNES RPG',
+              cover: { image_id: 'co_ct' },
+              genres: [{ name: 'RPG' }],
+              platforms: [19],
+            },
+          ],
+          'EarthBound Duplicate': [
+            {
+              id: 5555,
+              name: 'EarthBound',
+              platforms: [19],
+              alternative_names: [{ name: 'EarthBound Duplicate' }],
+            },
+          ],
+          'Secret of Mana': [
+            {
+              id: 3333,
+              name: 'Secret of Mana',
+              url: 'https://www.igdb.com/games/secret-of-mana',
+              summary: 'Action RPG',
+              cover: { image_id: 'co_som' },
+              platforms: [19],
+            },
+          ],
+        });
+
+        try {
+          // Run 1: Phase 1 tracked pass updates 9701, skips 9702 sibling collision
+          const run1 = await syncWorkerUnmatchedIgdbRetry(mockEnv, {
+            batchSize: 10,
+          });
+          expect(run1.phase).toBe('tracked');
+          expect(run1.updatedCount).toBe(1);
+          expect(run1.skippedDuplicates).toBe(1);
+
+          const g9701 = db
+            .prepare(
+              'SELECT igdb_id, summary FROM games WHERE stable_id = 9701',
+            )
+            .get() as { igdb_id: number | null; summary: string | null };
+          expect(g9701).toEqual({ igdb_id: 1111, summary: 'SNES RPG' });
+
+          const g9702 = db
+            .prepare('SELECT igdb_id FROM games WHERE stable_id = 9702')
+            .get() as { igdb_id: number | null };
+          expect(g9702.igdb_id).toBeNull();
+
+          const cdRow = db
+            .prepare(
+              "SELECT value FROM sync_state WHERE key = 'igdb_retry_tracked_cooldown_until'",
+            )
+            .get() as { value: string } | undefined;
+          expect(Number(cdRow?.value)).toBeGreaterThan(Date.now() - 1000);
+
+          // Run 2: Tracked cooldown active -> transitions to catalog tail and updates 9704
+          const run2 = await syncWorkerUnmatchedIgdbRetry(mockEnv, {
+            batchSize: 10,
+          });
+          expect(run2.phase).toBe('catalog');
+          expect(run2.updatedCount).toBeGreaterThanOrEqual(1);
+          const g9704 = db
+            .prepare('SELECT igdb_id FROM games WHERE stable_id = 9704')
+            .get() as { igdb_id: number | null };
+          expect(g9704.igdb_id).toBe(3333);
+
+          // Budget exhaustion short-circuits cleanly
+          const today = new Date().toISOString().slice(0, 10);
+          db.prepare(
+            `INSERT INTO sync_state (key, value) VALUES ('igdb_retry_daily_writes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          ).run(JSON.stringify({ date: today, writes: 15000 }));
+          const capped = await syncWorkerUnmatchedIgdbRetry(mockEnv);
+          expect(capped.phase).toBe('budget_exhausted');
+          expect(capped.writesUsed).toBe(0);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerBroadCatalogPopulation attaches packin_host_normalized_title without phantom standalone, persists also_released_as, and bidirectionally links CANONICAL_BUNDLES', async () => {
+        const tbNorm = normalizeTitleForMatching(
+          'The Misadventures of Tron Bonne',
+        );
+        const bayo1Norm = normalizeTitleForMatching('Bayonetta');
+        const bayo2Norm = normalizeTitleForMatching('Bayonetta 2');
+
+        db.exec(`
+          UPDATE platforms SET igdb_id = 7 WHERE id = 29;
+          UPDATE platforms SET igdb_id = 41 WHERE id = 24;
+          UPDATE platforms SET igdb_id = 5 WHERE id = 22;
+          INSERT INTO canonical_releases (
+            id, platform_id, raw_title, normalized_title, region, also_released_as,
+            packin_host_normalized_title, rom_name, rom_crc, is_verified_physical
+          ) VALUES
+            (9901, 29, 'Mega Man Legends 2 (USA) (Demo)', '${normalizeTitleForMatching('Mega Man Legends 2')}', 'USA', NULL, '${tbNorm}', 'Mega Man Legends 2 (USA) (Demo).cue', 'PACKIN01', 1),
+            (9902, 29, 'Misadventures of Tron Bonne, The (USA)', '${tbNorm}', 'USA', 'Greatest Hits', NULL, 'Misadventures of Tron Bonne, The (USA).cue', 'TBHOST01', 1),
+            (9903, 24, 'Bayonetta (USA)', '${bayo1Norm}', 'USA', NULL, NULL, 'Bayonetta (USA).wux', 'BAYO1001', 1),
+            (9904, 24, 'Bayonetta 2 (USA)', '${bayo2Norm}', 'USA', NULL, NULL, 'Bayonetta 2 (USA).wux', 'BAYO2001', 1),
+            (9905, 24, 'Rodea the Sky Soldier (USA)', '${normalizeTitleForMatching('Rodea the Sky Soldier')}', 'USA', NULL, NULL, 'Rodea the Sky Soldier (USA).wux', 'RODEA24', 1),
+            (9906, 22, 'Rodea the Sky Soldier (USA)', '${normalizeTitleForMatching('Rodea the Sky Soldier')}', 'USA', NULL, NULL, 'Rodea the Sky Soldier (USA).iso', 'RODEA22', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9900');
+        `);
+
+        const { igdbBodies } = stubIgdbFetch({
+          'Misadventures of Tron Bonne': [
+            {
+              id: 8801,
+              name: 'The Misadventures of Tron Bonne',
+              platforms: [7],
+            },
+          ],
+          Bayonetta: [{ id: 8802, name: 'Bayonetta', platforms: [41] }],
+          'Bayonetta 2': [{ id: 8803, name: 'Bayonetta 2', platforms: [41] }],
+          'Rodea the Sky Soldier': [
+            {
+              id: 8804,
+              name: 'Rodea the Sky Soldier',
+              platforms: [41, 5],
+            },
+          ],
+        });
+
+        try {
+          const seedRes = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(seedRes.ingestedGames).toBe(5);
+
+          // Pack-in demo did not create a standalone game or trigger a separate IGDB query
+          const mml2Standalone = db
+            .prepare(
+              "SELECT stable_id FROM games WHERE title LIKE 'Mega Man Legends 2%'",
+            )
+            .get();
+          expect(mml2Standalone).toBeUndefined();
+          expect(igdbBodies.join('\n')).not.toContain('Legends');
+
+          // Host game received both primary + pack-in releases and also_released_as
+          const tbGame = db
+            .prepare('SELECT stable_id FROM games WHERE igdb_id = 8801')
+            .get() as { stable_id: number };
+          const tbRels = db
+            .prepare(
+              'SELECT rom_name, also_released_as FROM game_releases WHERE game_id = ? ORDER BY rom_name ASC',
+            )
+            .all(tbGame.stable_id) as Array<{
+            rom_name: string;
+            also_released_as: string | null;
+          }>;
+          expect(tbRels).toEqual([
+            {
+              rom_name: 'Mega Man Legends 2 (USA) (Demo).cue',
+              also_released_as: null,
+            },
+            {
+              rom_name: 'Misadventures of Tron Bonne, The (USA).cue',
+              also_released_as: 'Greatest Hits',
+            },
+          ]);
+
+          // Child Bayonetta (ingested first) got bidirectionally linked when Bayonetta 2 arrived
+          const bayo2Game = db
+            .prepare('SELECT stable_id FROM games WHERE igdb_id = 8803')
+            .get() as { stable_id: number };
+          const bayo1Game = db
+            .prepare(
+              'SELECT bundle_parent_id, bundle_disc_number FROM games WHERE igdb_id = 8802',
+            )
+            .get() as {
+            bundle_parent_id: number | null;
+            bundle_disc_number: number | null;
+          };
+          expect(bayo1Game).toEqual({
+            bundle_parent_id: bayo2Game.stable_id,
+            bundle_disc_number: 2,
+          });
+
+          // Parent Rodea (Wii U) ingested before child Rodea (Wii) also links child
+          const rodeaParent = db
+            .prepare(
+              'SELECT stable_id FROM games WHERE platform_id = 24 AND igdb_id = 8804',
+            )
+            .get() as { stable_id: number };
+          const rodeaChild = db
+            .prepare(
+              'SELECT bundle_parent_id, bundle_disc_number FROM games WHERE platform_id = 22 AND igdb_id = 8804',
+            )
+            .get() as {
+            bundle_parent_id: number | null;
+            bundle_disc_number: number | null;
+          };
+          expect(rodeaChild).toEqual({
+            bundle_parent_id: rodeaParent.stable_id,
+            bundle_disc_number: 2,
+          });
+
+          // Pack-in-only slice (without primary host release) neither creates a phantom game nor queries IGDB
+          db.exec(`
+            INSERT INTO canonical_releases (
+              id, platform_id, raw_title, normalized_title, region,
+              packin_host_normalized_title, rom_name, rom_crc, is_verified_physical
+            ) VALUES (
+              9907, 29, 'Mega Man Legends 2 (USA) (Demo)', '${normalizeTitleForMatching('Mega Man Legends 2')}', 'USA',
+              'unmatchedhosttitle', 'Mega Man Legends 2 (USA) (Demo).cue', 'PACKIN02', 1
+            );
+          `);
+          const preBodiesCount = igdbBodies.length;
+          const packInOnlyRes = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(packInOnlyRes.ingestedGames).toBe(0);
+          expect(igdbBodies.length).toBe(preBodiesCount);
+          const phantom = db
+            .prepare(
+              "SELECT stable_id FROM games WHERE title LIKE 'Mega Man Legends 2%'",
+            )
+            .get();
+          expect(phantom).toBeUndefined();
         } finally {
           vi.unstubAllGlobals();
         }

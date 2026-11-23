@@ -21,6 +21,7 @@ export interface DatRom {
 export interface DatRelease {
   name: string; // The game/release name in the DAT file
   roms: DatRom[];
+  category?: string;
   publisher?: string;
   serial?: string;
 }
@@ -130,9 +131,18 @@ function parseXmlDat(fileContent: string, filePath: string): DatFileContent {
       continue;
     }
 
+    const rawCategory = Array.isArray(rawGame.category)
+      ? rawGame.category[0]
+      : rawGame.category;
+    const category =
+      rawCategory && String(rawCategory).trim()
+        ? String(rawCategory).trim()
+        : undefined;
+
     releases.push({
       name: gameName,
       roms,
+      category,
       publisher: rawGame.publisher
         ? String(rawGame.publisher).trim()
         : undefined,
@@ -189,6 +199,12 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
 
     const gameSerialMatch = block.match(/(?:^|\n|\r)\s*serial\s*"([^"]+)"/i);
     const gameSerial = gameSerialMatch ? gameSerialMatch[1].trim() : undefined;
+    const gameCategoryMatch = block.match(
+      /(?:^|\n|\r)\s*category\s+"([^"]+)"/i,
+    );
+    const gameCategory = gameCategoryMatch
+      ? gameCategoryMatch[1].trim()
+      : undefined;
 
     const romMatches = block.matchAll(
       /rom\s*\(\s*name\s*"([^"]+)"(?:\s+size\s+(\d+))?(?:\s+crc\s+([a-f0-9]+))?(?:\s+md5\s+([a-f0-9]+))?(?:\s+sha1\s+([a-f0-9]+))?(?:[^)]*serial\s*"([^"]+)")?/gi,
@@ -214,6 +230,7 @@ function parseClrMameProDat(fileContent: string): DatFileContent {
       releases.push({
         name: gameName,
         roms,
+        category: gameCategory,
         serial: gameSerial,
       });
     }

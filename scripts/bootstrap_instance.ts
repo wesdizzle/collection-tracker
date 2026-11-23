@@ -14,13 +14,15 @@
  * What this local bootstrap script seeds:
  *   1. Declarative schema + 55 platforms + 41 toy_series (`migrations/schema.sql`)
  *   2. 547 permanently retired Skylanders & Starlink toys (`migrations/seed_retired_toys.sql`)
- *   3. Canonical DATs & offline verification sources (`dats/`, `data/sources/` -> `canonical_releases`)
+ *   3. Curated static retail games excluded by IGDB (`migrations/seed_curated_games.sql`)
+ *   4. Canonical DATs & offline verification sources (`dats/`, `data/sources/` -> `canonical_releases`)
  *
  * Usage:
  *   npm run db:bootstrap
  *   npm run db:bootstrap -- --download-dats
  *   npm run db:bootstrap -- --remote --phase=schema
  *   npm run db:bootstrap -- --remote --phase=retired-toys
+ *   npm run db:bootstrap -- --remote --phase=curated-games
  *   npm run db:bootstrap -- --remote --phase=dats --platform=19 --max-writes=50000
  */
 
@@ -39,7 +41,7 @@ export interface BootstrapOptions {
   downloadDats?: boolean;
   skipDatsSync?: boolean;
   remote?: boolean;
-  phase?: 'all' | 'schema' | 'retired-toys' | 'dats';
+  phase?: 'all' | 'schema' | 'retired-toys' | 'curated-games' | 'dats';
   platformId?: number;
   maxWrites?: number;
 }
@@ -49,6 +51,7 @@ export interface BootstrapResult {
   platformsCount: number;
   toySeriesCount: number;
   retiredToysCount: number;
+  curatedGamesCount: number;
   canonicalReleasesCount: number;
 }
 
@@ -78,6 +81,11 @@ export async function bootstrapInstance(
     rootDir,
     'migrations',
     'seed_retired_toys.sql',
+  );
+  const curatedGamesPath = path.join(
+    rootDir,
+    'migrations',
+    'seed_curated_games.sql',
   );
   const datsDir = path.join(rootDir, 'dats');
 
@@ -150,6 +158,25 @@ export async function bootstrapInstance(
       }
     }
 
+    if (
+      (phase === 'all' || phase === 'curated-games') &&
+      fs.existsSync(curatedGamesPath)
+    ) {
+      console.log(
+        '5. Seeding curated non-IGDB retail releases (migrations/seed_curated_games.sql)...',
+      );
+      const curatedSql = fs.readFileSync(curatedGamesPath, 'utf8');
+      db.exec(curatedSql);
+      if (options.remote && phase === 'curated-games') {
+        runWithD1CostGuard({
+          sqlFilePath: curatedGamesPath,
+          maxWrites: options.maxWrites ?? 5000,
+          confirm: true,
+          isDryRun: false,
+        });
+      }
+    }
+
     const platformsCount = (
       db.prepare('SELECT COUNT(*) as c FROM platforms WHERE id != 0').get() as {
         c: number;
@@ -165,6 +192,13 @@ export async function bootstrapInstance(
         )
         .get() as { c: number }
     ).c;
+    const curatedGamesCount = (
+      db
+        .prepare(
+          "SELECT COUNT(*) as c FROM games WHERE platform_id = 51 AND title LIKE 'PlayStation VR Demo Disc%'",
+        )
+        .get() as { c: number }
+    ).c;
     const canonicalReleasesCount = (
       db.prepare('SELECT COUNT(*) as c FROM canonical_releases').get() as {
         c: number;
@@ -175,6 +209,7 @@ export async function bootstrapInstance(
     console.log(`  Platforms:          ${platformsCount}`);
     console.log(`  Toy Series:         ${toySeriesCount}`);
     console.log(`  Retired Toys:       ${retiredToysCount}`);
+    console.log(`  Curated Games:      ${curatedGamesCount}`);
     console.log(`  Canonical Releases: ${canonicalReleasesCount}`);
 
     return {
@@ -182,6 +217,7 @@ export async function bootstrapInstance(
       platformsCount,
       toySeriesCount,
       retiredToysCount,
+      curatedGamesCount,
       canonicalReleasesCount,
     };
   } finally {

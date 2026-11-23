@@ -588,22 +588,72 @@ export function extractDiscLabel(
   return discNumberPart || subtitlePart || null;
 }
 
+export const IGNORED_REDUMP_CATEGORIES = new Set<string>([
+  'coverdiscs',
+  'demos',
+  'multimedia',
+  'applications',
+  'video',
+  'preproduction',
+  'audio',
+]);
+
 /**
- * Determines whether a release or ROM should be ignored based on global or platform-specific rules.
+ * Matches the three retail boxed PlayStation VR Demo Disc volumes (1.0, 2.0, 3)
+ * cataloged under PS4 `<category>Demos</category>` in Redump DATs despite being
+ * official physical retail PSVR pack-in box discs.
+ */
+export function isCuratedPsvrDemoDiscTitle(
+  title: string | null | undefined,
+): boolean {
+  if (!title) return false;
+  const cleaned = title
+    .trim()
+    .replace(/\.(?:iso|cue|bin|chd|pkg|zip|7z)$/i, '')
+    .trim();
+  return /^playstation\s+vr\s+demo\s+disc(?:\s+(?:2(?:\.0)?|3))?(?:\s*(?:\([^)]*\)|\[[^\]]*\]))*$/i.test(
+    cleaned,
+  );
+}
+
+/**
+ * Determines whether a release or ROM should be ignored based on global,
+ * authoritative Redump `<category>`, or platform-specific rules.
  *
  * @param releaseName The clean release title.
  * @param romName The ROM filename.
  * @param platformId The platform ID.
+ * @param datCategory Optional Redump XML `<category>` tag value.
  * @returns True if the release is ignored, false otherwise.
  */
 export function isIgnoredFormatRelease(
   releaseName: string,
   romName: string,
   platformId?: number,
+  datCategory?: string | null,
 ): boolean {
   // Retail pack-in bonus discs (e.g. Mega Man Legends 2 Demo inside Tron Bonne) are legitimate commercial media
   if (findRetailPackInDisc(romName)) {
     return false;
+  }
+
+  // The three retail boxed PSVR Demo Discs belong on PlayStation VR (51),
+  // never duplicated under PlayStation 4 (34).
+  if (
+    isCuratedPsvrDemoDiscTitle(releaseName) ||
+    isCuratedPsvrDemoDiscTitle(romName)
+  ) {
+    if (platformId === 51) return false;
+    if (platformId === 34) return true;
+  }
+
+  // Honor authoritative Redump XML <category> classification (retaining Games,
+  // Add-Ons, Bonus Discs, Educational, and unclassified entries).
+  if (
+    datCategory &&
+    IGNORED_REDUMP_CATEGORIES.has(datCategory.trim().toLowerCase())
+  ) {
+    return true;
   }
 
   const romLower = romName.toLowerCase();
@@ -647,6 +697,33 @@ export function isIgnoredFormatRelease(
     /\b(?:test\s+cartridge|64dd\s+hardware\s+test|aging\s+cassette|nitro-eva|ntr\s+aging)\b/i.test(
       combined,
     )
+  ) {
+    return true;
+  }
+
+  // Virtual Genesis Lock-On combination ROMs (combining Sonic & Knuckles + Sonic 1/2/3)
+  if (
+    /\bsonic\s*(?:&|and)\s*knuckles\s*\+/i.test(combined) ||
+    (/\+\s*.+\(lock-on(?:\s+combination)?\)/i.test(combined) &&
+      (platformId === undefined || platformId === 37))
+  ) {
+    return true;
+  }
+
+  // Explicit optical Video CD / CD-i Video parenthetical tags
+  if (/\((?:cd-i\s+|digital\s+)?video\)/i.test(combined)) {
+    return true;
+  }
+
+  // Conservative multi-word non-parenthetical demos, magazine coverdiscs, and cheat utilities
+  const nonParenNoiseRegex =
+    /\b(?:interactive\s+multi-?game\s+demo\s+disc|interactive\s+cd\s+sampler|playstation\s+underground|jampack|kiosk\s+demo|demo\s+disc|trial\s+disc|preview\s+disc|preview\s+trailer|official\s+(?:u\.?s\.?\s+)?playstation\s+magazine|playstation\s+official\s+magazine|official\s+xbox\s+magazine|famitsu\s+wave|dengeki\s+playstation|dreamcast\s+magazine|action\s+replay|gameshark|codebreaker|swap\s+magic|xploder|memory\s+card\s+manager)\b/i;
+  if (
+    nonParenNoiseRegex.test(relLower) ||
+    nonParenNoiseRegex.test(romLower) ||
+    /^(?:exclusive\s+movie)\s*[-:]/i.test(relLower.trim()) ||
+    /\bgift\s+fossil\b/i.test(relLower) ||
+    /\s+-\s+bonus\s+content$/i.test(relLower.trim())
   ) {
     return true;
   }

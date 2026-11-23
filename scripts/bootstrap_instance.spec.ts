@@ -30,6 +30,7 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
     expect(result.platformsCount).toBe(55);
     expect(result.toySeriesCount).toBe(41);
     expect(result.retiredToysCount).toBe(547);
+    expect(result.curatedGamesCount).toBe(3);
 
     const db = new Database(dbPath, { readonly: true });
     const skylanders = (
@@ -42,10 +43,34 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
         .prepare("SELECT COUNT(*) as c FROM toys WHERE line = 'Starlink'")
         .get() as { c: number }
     ).c;
+    const curatedPsvr = db
+      .prepare(
+        "SELECT title, platform_id, image_url, manually_verified FROM games WHERE platform_id = 51 AND title LIKE 'PlayStation VR Demo Disc%' ORDER BY title ASC",
+      )
+      .all() as Array<{
+      title: string;
+      platform_id: number;
+      image_url: string;
+      manually_verified: number;
+    }>;
     db.close();
 
     expect(skylanders).toBe(512);
     expect(starlink).toBe(35);
+    expect(curatedPsvr).toHaveLength(3);
+    for (const row of curatedPsvr) {
+      expect(row.platform_id).toBe(51);
+      expect(row.image_url).toMatch(/^\/covers\/playstation-vr-demo-disc/);
+      expect(row.manually_verified).toBe(1);
+    }
+
+    // Re-running curated-games phase stays idempotent
+    const rerun = await bootstrapInstance({
+      dbPath,
+      phase: 'curated-games',
+      skipDatsSync: true,
+    });
+    expect(rerun.curatedGamesCount).toBe(3);
   });
 
   it('hydrates canonical_releases from a companion R2 snapshot JSON file into local SQLite', async () => {

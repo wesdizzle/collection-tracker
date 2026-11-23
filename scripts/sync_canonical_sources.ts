@@ -40,7 +40,10 @@ import {
   classifyCartridgeBudgetWithRecords,
 } from './lib/budget_sources.js';
 import { findRetailPackInDisc } from '../shared/special_labels.js';
-import { extractDiscLabel } from '../shared/source_format.js';
+import {
+  extractDiscLabel,
+  isCuratedPsvrDemoDiscTitle,
+} from '../shared/source_format.js';
 import { normalizeTitleForMatching } from '../shared/title_matching.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
 import { loadNeoGeoReleases } from './lib/sources/neogeo.js';
@@ -313,332 +316,367 @@ export async function syncCanonicalSources(
       allowedPlatformIds.has(r.platform_id),
     );
 
+    const syncDatReleasesForPlatform = (
+      plat: PlatformRecord,
+      rawDatReleases: ReturnType<typeof parseDatFile>['releases'],
+    ) => {
+      processedPlatformIds.add(plat.id);
+      platformsProcessed = processedPlatformIds.size;
+      const rawCount = rawDatReleases.length;
+      totalRawCount += rawCount;
+
+      const deduplicated = deduplicateDatReleases(plat.id, rawDatReleases);
+      totalDeduplicatedCount += deduplicated.length;
+
+      for (const rel of deduplicated) {
+        if (!rel.packin_host_normalized_title) {
+          const packIn = findRetailPackInDisc(rel.rom_name || rel.raw_title);
+          if (packIn) {
+            rel.packin_host_normalized_title = packIn.hostGameNormTitle;
+          }
+        }
+
+        if (budgetRecords.length > 0) {
+          const isUpdatedEdition =
+            /welcome\s*amiibo|edition|plus|\+|deluxe|director'?s cut|game of the year|goty/i.test(
+              rel.raw_title,
+            );
+          const dateKey = `${rel.normalized_title}::${(rel.region || '').toLowerCase()}`;
+          const relDate =
+            datesMap.get(dateKey) || datesMap.get(rel.normalized_title) || null;
+
+          const classification = classifyCartridgeBudgetWithRecords(
+            budgetRecords,
+            {
+              platformId: plat.id,
+              gameTitle: rel.raw_title,
+              region: rel.region,
+              physicalReleaseDate: relDate,
+              isUpdatedEdition,
+            },
+          );
+
+          if (classification.isBudget) {
+            if (classification.isBudgetOnly && classification.budgetLabel) {
+              if (!rel.variants) {
+                rel.variants = classification.budgetLabel;
+              } else if (
+                !rel.variants
+                  .toLowerCase()
+                  .includes(classification.budgetLabel.toLowerCase())
+              ) {
+                rel.variants = `${rel.variants}, ${classification.budgetLabel}`;
+              }
+            } else if (
+              !classification.isBudgetOnly &&
+              classification.alsoReleasedAs
+            ) {
+              rel.also_released_as = classification.alsoReleasedAs;
+            }
+          }
+        }
+      }
+
+      const existingRows = existingStmt.all(plat.id) as Array<{
+        id: number;
+        raw_title: string;
+        normalized_title: string;
+        region: string | null;
+        variants: string | null;
+        also_released_as: string | null;
+        packin_host_normalized_title: string | null;
+        redump_disc_id: number | null;
+        rom_name: string | null;
+        rom_crc: string | null;
+        serial_code: string | null;
+        barcode: string | null;
+        publisher: string | null;
+        source: string;
+        is_verified_physical: number;
+      }>;
+
+      const existingByKey = new Map<string, typeof existingRows>();
+      const existingByCrc = new Map<string, typeof existingRows>();
+      const existingByGroup = new Map<string, typeof existingRows>();
+      for (const row of existingRows) {
+        const key = `${row.rom_name || ''}::${row.raw_title}::${row.region || ''}`;
+        const list = existingByKey.get(key) || [];
+        list.push(row);
+        existingByKey.set(key, list);
+
+        if (row.rom_crc) {
+          const crcKey = row.rom_crc.toLowerCase();
+          const crcList = existingByCrc.get(crcKey) || [];
+          crcList.push(row);
+          existingByCrc.set(crcKey, crcList);
+        }
+
+        const discLabel = extractDiscLabel(row.rom_name) || 'Single';
+        const groupKey = `${row.normalized_title}::${row.region || 'World'}::${row.variants || 'Standard'}::${discLabel}`;
+        const grpList = existingByGroup.get(groupKey) || [];
+        grpList.push(row);
+        existingByGroup.set(groupKey, grpList);
+      }
+
+      const seenExistingIds = new Set<number>();
+      const matchedExistingByIndex = new Map<
+        number,
+        (typeof existingRows)[number]
+      >();
+
+      // Pass 1: Claim exact (rom_name, raw_title, region) matches first
+      for (let idx = 0; idx < deduplicated.length; idx++) {
+        const rel = deduplicated[idx];
+        const key = `${rel.rom_name || ''}::${rel.raw_title}::${rel.region || ''}`;
+        const candidates = (existingByKey.get(key) || []).filter(
+          (r) => !seenExistingIds.has(r.id),
+        );
+        if (candidates.length > 0) {
+          const romCrcVal = rel.rom_crc || null;
+          const match =
+            candidates.find((r) => r.rom_crc === romCrcVal) || candidates[0];
+          matchedExistingByIndex.set(idx, match);
+          seenExistingIds.add(match.id);
+        }
+      }
+
+      // Pass 2: Fallback match by identical CRC or (normalized_title, region, variants, discLabel)
+      for (let idx = 0; idx < deduplicated.length; idx++) {
+        if (matchedExistingByIndex.has(idx)) continue;
+        const rel = deduplicated[idx];
+        const romCrcVal = rel.rom_crc ? rel.rom_crc.toLowerCase() : null;
+        let fallbackMatch: (typeof existingRows)[number] | undefined;
+
+        if (romCrcVal) {
+          const crcCandidates = (existingByCrc.get(romCrcVal) || []).filter(
+            (r) => !seenExistingIds.has(r.id),
+          );
+          fallbackMatch =
+            crcCandidates.find(
+              (r) => r.normalized_title === rel.normalized_title,
+            ) || crcCandidates[0];
+        }
+
+        if (!fallbackMatch) {
+          const discLabel = extractDiscLabel(rel.rom_name) || 'Single';
+          const groupKey = `${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}::${discLabel}`;
+          const grpCandidates = (existingByGroup.get(groupKey) || []).filter(
+            (r) => !seenExistingIds.has(r.id),
+          );
+          fallbackMatch = grpCandidates[0];
+        }
+
+        if (fallbackMatch) {
+          matchedExistingByIndex.set(idx, fallbackMatch);
+          seenExistingIds.add(fallbackMatch.id);
+        }
+      }
+
+      let platInserted = 0;
+      let platUpdated = 0;
+      let platDeleted = 0;
+
+      for (let idx = 0; idx < deduplicated.length; idx++) {
+        const rel = deduplicated[idx];
+        const romCrcVal = rel.rom_crc || null;
+        const existing = matchedExistingByIndex.get(idx);
+
+        const regionVal = rel.region || null;
+        const variantsVal = rel.variants || null;
+        const alsoReleasedVal = rel.also_released_as || null;
+        const packinVal = rel.packin_host_normalized_title || null;
+        const redumpIdVal = rel.redump_disc_id || null;
+        const romNameVal = rel.rom_name || null;
+        const serialVal = rel.serial_code || null;
+        const barcodeVal = rel.barcode || null;
+        const publisherVal = rel.publisher || null;
+        const verifiedVal = rel.is_verified_physical ?? 1;
+
+        if (!existing) {
+          if (insertStmt) {
+            insertStmt.run(
+              plat.id,
+              rel.raw_title,
+              rel.normalized_title,
+              regionVal,
+              variantsVal,
+              alsoReleasedVal,
+              packinVal,
+              redumpIdVal,
+              romNameVal,
+              romCrcVal,
+              serialVal,
+              barcodeVal,
+              publisherVal,
+              verifiedVal,
+            );
+          }
+          sqlStatements.push(
+            `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${plat.id}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(alsoReleasedVal)}, ${escapeSql(packinVal)}, ${escapeSql(redumpIdVal)}, ${escapeSql(romNameVal)}, ${escapeSql(romCrcVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, 'dat', ${verifiedVal});`,
+          );
+          insertedCount++;
+          platInserted++;
+        } else {
+          const hasDiff =
+            existing.raw_title !== rel.raw_title ||
+            existing.normalized_title !== rel.normalized_title ||
+            existing.region !== regionVal ||
+            existing.variants !== variantsVal ||
+            existing.also_released_as !== alsoReleasedVal ||
+            existing.packin_host_normalized_title !== packinVal ||
+            existing.redump_disc_id !== redumpIdVal ||
+            existing.rom_name !== romNameVal ||
+            existing.rom_crc !== romCrcVal ||
+            existing.serial_code !== serialVal ||
+            existing.barcode !== barcodeVal ||
+            existing.publisher !== publisherVal ||
+            existing.is_verified_physical !== verifiedVal;
+
+          if (hasDiff) {
+            if (updateStmt) {
+              updateStmt.run(
+                rel.raw_title,
+                rel.normalized_title,
+                regionVal,
+                variantsVal,
+                alsoReleasedVal,
+                packinVal,
+                redumpIdVal,
+                romNameVal,
+                romCrcVal,
+                serialVal,
+                barcodeVal,
+                publisherVal,
+                verifiedVal,
+                existing.id,
+              );
+            }
+            const whereClause = existing.rom_name
+              ? `WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)}`
+              : `WHERE id = ${existing.id}`;
+            sqlStatements.push(
+              `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
+            );
+            if (
+              (existing.rom_name !== romNameVal ||
+                existing.rom_crc !== romCrcVal) &&
+              hasLinkedReleaseStmt.get(existing.id)
+            ) {
+              if (updateLinkedReleaseRomStmt) {
+                updateLinkedReleaseRomStmt.run(
+                  romNameVal,
+                  romCrcVal,
+                  existing.id,
+                );
+              }
+              const linkedWhere = romNameVal
+                ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
+                : `WHERE canonical_release_id = ${existing.id}`;
+              sqlStatements.push(
+                `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
+              );
+            }
+            updatedCount++;
+            platUpdated++;
+          }
+        }
+      }
+
+      const rowsToDelete = existingRows.filter(
+        (existing) => !seenExistingIds.has(existing.id),
+      );
+      const romsToDelete = rowsToDelete
+        .map((r) => r.rom_name)
+        .filter((r): r is string => Boolean(r));
+      const idsWithoutRom = rowsToDelete
+        .filter((r) => !r.rom_name)
+        .map((r) => r.id);
+
+      const UNLINK_CHUNK = 50;
+      for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
+        const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
+        );
+      }
+      for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
+        const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
+        );
+      }
+
+      for (const existing of rowsToDelete) {
+        if (hasLinkedReleaseStmt.get(existing.id) && unlinkReleaseStmt) {
+          unlinkReleaseStmt.run(existing.id);
+        }
+        if (deleteStmt) {
+          deleteStmt.run(existing.id);
+        }
+        if (existing.rom_name) {
+          sqlStatements.push(
+            `DELETE FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)};`,
+          );
+        } else {
+          sqlStatements.push(
+            `DELETE FROM canonical_releases WHERE id = ${existing.id};`,
+          );
+        }
+        deletedCount++;
+        platDeleted++;
+      }
+
+      console.log(
+        `  [${plat.display_name || plat.name}] ${rawCount} raw -> ${deduplicated.length} canonical (+${platInserted} new, ~${platUpdated} updated, -${platDeleted} removed)`,
+      );
+    };
+
     const runSyncLoop = () => {
       if (runAllSources || selectedSources.has('dats')) {
+        const psvrTargetPlatform = targetPlatforms.find((p) => p.id === 51);
+        let psvrRoutedFromPs4 = false;
+
         for (const plat of targetPlatforms) {
           if (plat.id === 26 || plat.id === 27) {
             continue; // Switch 1 & 2 handled via Nintendo Revised & r/NSCollectors
           }
 
+          if (plat.id === 51 && !psvrRoutedFromPs4) {
+            const ownDat = findDatFileForPlatform(db, 51);
+            if (!ownDat) {
+              const ps4Dat = findDatFileForPlatform(db, 34);
+              if (ps4Dat) {
+                const ps4Parsed = parseDatFile(ps4Dat.filePath);
+                const psvrEntries = ps4Parsed.releases.filter((r) =>
+                  isCuratedPsvrDemoDiscTitle(r.name),
+                );
+                if (psvrEntries.length > 0) {
+                  syncDatReleasesForPlatform(plat, psvrEntries);
+                }
+              }
+              continue;
+            }
+          }
+
           const datInfo = findDatFileForPlatform(db, plat.id);
           if (!datInfo) continue;
 
-          processedPlatformIds.add(plat.id);
-          platformsProcessed = processedPlatformIds.size;
-          const { filePath } = datInfo;
-          const parsed = parseDatFile(filePath);
-          const rawCount = parsed.releases.length;
-          totalRawCount += rawCount;
-
-          const deduplicated = deduplicateDatReleases(plat.id, parsed.releases);
-          totalDeduplicatedCount += deduplicated.length;
-
-          for (const rel of deduplicated) {
-            if (!rel.packin_host_normalized_title) {
-              const packIn = findRetailPackInDisc(
-                rel.rom_name || rel.raw_title,
-              );
-              if (packIn) {
-                rel.packin_host_normalized_title = packIn.hostGameNormTitle;
-              }
-            }
-
-            if (budgetRecords.length > 0) {
-              const isUpdatedEdition =
-                /welcome\s*amiibo|edition|plus|\+|deluxe|director'?s cut|game of the year|goty/i.test(
-                  rel.raw_title,
-                );
-              const dateKey = `${rel.normalized_title}::${(rel.region || '').toLowerCase()}`;
-              const relDate =
-                datesMap.get(dateKey) ||
-                datesMap.get(rel.normalized_title) ||
-                null;
-
-              const classification = classifyCartridgeBudgetWithRecords(
-                budgetRecords,
-                {
-                  platformId: plat.id,
-                  gameTitle: rel.raw_title,
-                  region: rel.region,
-                  physicalReleaseDate: relDate,
-                  isUpdatedEdition,
-                },
-              );
-
-              if (classification.isBudget) {
-                if (classification.isBudgetOnly && classification.budgetLabel) {
-                  if (!rel.variants) {
-                    rel.variants = classification.budgetLabel;
-                  } else if (
-                    !rel.variants
-                      .toLowerCase()
-                      .includes(classification.budgetLabel.toLowerCase())
-                  ) {
-                    rel.variants = `${rel.variants}, ${classification.budgetLabel}`;
-                  }
-                } else if (
-                  !classification.isBudgetOnly &&
-                  classification.alsoReleasedAs
-                ) {
-                  rel.also_released_as = classification.alsoReleasedAs;
-                }
-              }
-            }
-          }
-
-          const existingRows = existingStmt.all(plat.id) as Array<{
-            id: number;
-            raw_title: string;
-            normalized_title: string;
-            region: string | null;
-            variants: string | null;
-            also_released_as: string | null;
-            packin_host_normalized_title: string | null;
-            redump_disc_id: number | null;
-            rom_name: string | null;
-            rom_crc: string | null;
-            serial_code: string | null;
-            barcode: string | null;
-            publisher: string | null;
-            source: string;
-            is_verified_physical: number;
-          }>;
-
-          const existingByKey = new Map<string, typeof existingRows>();
-          const existingByCrc = new Map<string, typeof existingRows>();
-          const existingByGroup = new Map<string, typeof existingRows>();
-          for (const row of existingRows) {
-            const key = `${row.rom_name || ''}::${row.raw_title}::${row.region || ''}`;
-            const list = existingByKey.get(key) || [];
-            list.push(row);
-            existingByKey.set(key, list);
-
-            if (row.rom_crc) {
-              const crcKey = row.rom_crc.toLowerCase();
-              const crcList = existingByCrc.get(crcKey) || [];
-              crcList.push(row);
-              existingByCrc.set(crcKey, crcList);
-            }
-
-            const discLabel = extractDiscLabel(row.rom_name) || 'Single';
-            const groupKey = `${row.normalized_title}::${row.region || 'World'}::${row.variants || 'Standard'}::${discLabel}`;
-            const grpList = existingByGroup.get(groupKey) || [];
-            grpList.push(row);
-            existingByGroup.set(groupKey, grpList);
-          }
-
-          const seenExistingIds = new Set<number>();
-          const matchedExistingByIndex = new Map<
-            number,
-            (typeof existingRows)[number]
-          >();
-
-          // Pass 1: Claim exact (rom_name, raw_title, region) matches first
-          for (let idx = 0; idx < deduplicated.length; idx++) {
-            const rel = deduplicated[idx];
-            const key = `${rel.rom_name || ''}::${rel.raw_title}::${rel.region || ''}`;
-            const candidates = (existingByKey.get(key) || []).filter(
-              (r) => !seenExistingIds.has(r.id),
+          const parsed = parseDatFile(datInfo.filePath);
+          if (plat.id === 34) {
+            const psvrEntries = parsed.releases.filter((r) =>
+              isCuratedPsvrDemoDiscTitle(r.name),
             );
-            if (candidates.length > 0) {
-              const romCrcVal = rel.rom_crc || null;
-              const match =
-                candidates.find((r) => r.rom_crc === romCrcVal) ||
-                candidates[0];
-              matchedExistingByIndex.set(idx, match);
-              seenExistingIds.add(match.id);
-            }
-          }
-
-          // Pass 2: Fallback match by identical CRC or (normalized_title, region, variants, discLabel)
-          for (let idx = 0; idx < deduplicated.length; idx++) {
-            if (matchedExistingByIndex.has(idx)) continue;
-            const rel = deduplicated[idx];
-            const romCrcVal = rel.rom_crc ? rel.rom_crc.toLowerCase() : null;
-            let fallbackMatch: (typeof existingRows)[number] | undefined;
-
-            if (romCrcVal) {
-              const crcCandidates = (existingByCrc.get(romCrcVal) || []).filter(
-                (r) => !seenExistingIds.has(r.id),
-              );
-              fallbackMatch =
-                crcCandidates.find(
-                  (r) => r.normalized_title === rel.normalized_title,
-                ) || crcCandidates[0];
-            }
-
-            if (!fallbackMatch) {
-              const discLabel = extractDiscLabel(rel.rom_name) || 'Single';
-              const groupKey = `${rel.normalized_title}::${rel.region || 'World'}::${rel.variants || 'Standard'}::${discLabel}`;
-              const grpCandidates = (
-                existingByGroup.get(groupKey) || []
-              ).filter((r) => !seenExistingIds.has(r.id));
-              fallbackMatch = grpCandidates[0];
-            }
-
-            if (fallbackMatch) {
-              matchedExistingByIndex.set(idx, fallbackMatch);
-              seenExistingIds.add(fallbackMatch.id);
-            }
-          }
-
-          let platInserted = 0;
-          let platUpdated = 0;
-          let platDeleted = 0;
-
-          for (let idx = 0; idx < deduplicated.length; idx++) {
-            const rel = deduplicated[idx];
-            const romCrcVal = rel.rom_crc || null;
-            const existing = matchedExistingByIndex.get(idx);
-
-            const regionVal = rel.region || null;
-            const variantsVal = rel.variants || null;
-            const alsoReleasedVal = rel.also_released_as || null;
-            const packinVal = rel.packin_host_normalized_title || null;
-            const redumpIdVal = rel.redump_disc_id || null;
-            const romNameVal = rel.rom_name || null;
-            const serialVal = rel.serial_code || null;
-            const barcodeVal = rel.barcode || null;
-            const publisherVal = rel.publisher || null;
-            const verifiedVal = rel.is_verified_physical ?? 1;
-
-            if (!existing) {
-              if (insertStmt) {
-                insertStmt.run(
-                  plat.id,
-                  rel.raw_title,
-                  rel.normalized_title,
-                  regionVal,
-                  variantsVal,
-                  alsoReleasedVal,
-                  packinVal,
-                  redumpIdVal,
-                  romNameVal,
-                  romCrcVal,
-                  serialVal,
-                  barcodeVal,
-                  publisherVal,
-                  verifiedVal,
-                );
-              }
-              sqlStatements.push(
-                `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, redump_disc_id, rom_name, rom_crc, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${plat.id}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(alsoReleasedVal)}, ${escapeSql(packinVal)}, ${escapeSql(redumpIdVal)}, ${escapeSql(romNameVal)}, ${escapeSql(romCrcVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, 'dat', ${verifiedVal});`,
-              );
-              insertedCount++;
-              platInserted++;
-            } else {
-              const hasDiff =
-                existing.raw_title !== rel.raw_title ||
-                existing.normalized_title !== rel.normalized_title ||
-                existing.region !== regionVal ||
-                existing.variants !== variantsVal ||
-                existing.also_released_as !== alsoReleasedVal ||
-                existing.packin_host_normalized_title !== packinVal ||
-                existing.redump_disc_id !== redumpIdVal ||
-                existing.rom_name !== romNameVal ||
-                existing.rom_crc !== romCrcVal ||
-                existing.serial_code !== serialVal ||
-                existing.barcode !== barcodeVal ||
-                existing.publisher !== publisherVal ||
-                existing.is_verified_physical !== verifiedVal;
-
-              if (hasDiff) {
-                if (updateStmt) {
-                  updateStmt.run(
-                    rel.raw_title,
-                    rel.normalized_title,
-                    regionVal,
-                    variantsVal,
-                    alsoReleasedVal,
-                    packinVal,
-                    redumpIdVal,
-                    romNameVal,
-                    romCrcVal,
-                    serialVal,
-                    barcodeVal,
-                    publisherVal,
-                    verifiedVal,
-                    existing.id,
-                  );
-                }
-                const whereClause = existing.rom_name
-                  ? `WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)}`
-                  : `WHERE id = ${existing.id}`;
-                sqlStatements.push(
-                  `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
-                );
-                if (
-                  (existing.rom_name !== romNameVal ||
-                    existing.rom_crc !== romCrcVal) &&
-                  hasLinkedReleaseStmt.get(existing.id)
-                ) {
-                  if (updateLinkedReleaseRomStmt) {
-                    updateLinkedReleaseRomStmt.run(
-                      romNameVal,
-                      romCrcVal,
-                      existing.id,
-                    );
-                  }
-                  const linkedWhere = romNameVal
-                    ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
-                    : `WHERE canonical_release_id = ${existing.id}`;
-                  sqlStatements.push(
-                    `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
-                  );
-                }
-                updatedCount++;
-                platUpdated++;
-              }
-            }
-          }
-
-          const rowsToDelete = existingRows.filter(
-            (existing) => !seenExistingIds.has(existing.id),
-          );
-          const romsToDelete = rowsToDelete
-            .map((r) => r.rom_name)
-            .filter((r): r is string => Boolean(r));
-          const idsWithoutRom = rowsToDelete
-            .filter((r) => !r.rom_name)
-            .map((r) => r.id);
-
-          const UNLINK_CHUNK = 50;
-          for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
-            const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
-            sqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
+            const ps4Entries = parsed.releases.filter(
+              (r) => !isCuratedPsvrDemoDiscTitle(r.name),
             );
-          }
-          for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
-            const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
-            sqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
-            );
-          }
-
-          for (const existing of rowsToDelete) {
-            if (hasLinkedReleaseStmt.get(existing.id) && unlinkReleaseStmt) {
-              unlinkReleaseStmt.run(existing.id);
+            syncDatReleasesForPlatform(plat, ps4Entries);
+            if (psvrTargetPlatform && psvrEntries.length > 0) {
+              syncDatReleasesForPlatform(psvrTargetPlatform, psvrEntries);
+              psvrRoutedFromPs4 = true;
             }
-            if (deleteStmt) {
-              deleteStmt.run(existing.id);
-            }
-            if (existing.rom_name) {
-              sqlStatements.push(
-                `DELETE FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name = ${escapeSql(existing.rom_name)};`,
-              );
-            } else {
-              sqlStatements.push(
-                `DELETE FROM canonical_releases WHERE id = ${existing.id};`,
-              );
-            }
-            deletedCount++;
-            platDeleted++;
+          } else {
+            syncDatReleasesForPlatform(plat, parsed.releases);
           }
-
-          console.log(
-            `  [${plat.display_name || plat.name}] ${rawCount} raw -> ${deduplicated.length} canonical (+${platInserted} new, ~${platUpdated} updated, -${platDeleted} removed)`,
-          );
         }
       }
 

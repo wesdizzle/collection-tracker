@@ -174,6 +174,42 @@ game (
     expect(roms[2].crc).toBe('378237e5');
   });
 
+  it('should extract category from XML <category> tags and ClrMamePro category fields', () => {
+    const xml = `<?xml version="1.0"?>
+<datafile>
+    <header>
+        <name>Sony - PlayStation 4</name>
+    </header>
+    <game name="Bloodborne (USA)">
+        <category>Games</category>
+        <rom name="Bloodborne (USA).iso" size="1024" crc="aa11bb22"/>
+    </game>
+    <game name="PlayStation VR Demo Disc (USA)">
+        <category>Demos</category>
+        <rom name="PlayStation VR Demo Disc (USA).iso" size="1024" crc="cc33dd44"/>
+    </game>
+</datafile>`;
+    fs.writeFileSync(tempFilePath, xml, 'utf-8');
+    const xmlResult = parseDatFile(tempFilePath);
+    expect(xmlResult.releases).toHaveLength(2);
+    expect(xmlResult.releases[0].category).toBe('Games');
+    expect(xmlResult.releases[1].category).toBe('Demos');
+
+    const clr = `clrmamepro (
+	name "Sony - PlayStation"
+)
+
+game (
+	name "Official U.S. PlayStation Magazine Demo Disc 12 (USA)"
+	category "Coverdiscs"
+	rom ( name "OPM12.cue" size 512 crc 11223344 )
+)`;
+    fs.writeFileSync(tempFilePath, clr, 'utf-8');
+    const clrResult = parseDatFile(tempFilePath);
+    expect(clrResult.releases).toHaveLength(1);
+    expect(clrResult.releases[0].category).toBe('Coverdiscs');
+  });
+
   it('should throw error on invalid DAT file missing datafile root and clrmamepro header', () => {
     const xml = `<?xml version="1.0"?>
 <invalid>

@@ -2,7 +2,7 @@
  * Unit Tests for Multi-Source Canonical Synchronization Utility
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -144,5 +144,68 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
     expect(rerun.updatedCount).toBe(0);
     expect(rerun.deletedCount).toBe(0);
     expect(rerun.linkedNonDatReleases).toBe(0);
+  });
+
+  it('filters ignored Redump <category> releases and routes PSVR Demo Discs from PS4 (34) DAT onto PSVR (51)', async () => {
+    const datsDir = path.join(tmpDir, 'dats');
+    fs.mkdirSync(datsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(datsDir, 'Sony - PlayStation 4.dat'),
+      `<?xml version="1.0"?>
+<datafile>
+  <header>
+    <name>Sony - PlayStation 4</name>
+  </header>
+  <game name="Bloodborne (USA)">
+    <category>Games</category>
+    <rom name="Bloodborne (USA).iso" size="1000" crc="aa112233"/>
+  </game>
+  <game name="Some Promotional Demo (USA)">
+    <category>Demos</category>
+    <rom name="Some Promotional Demo (USA).iso" size="1000" crc="bb112233"/>
+  </game>
+  <game name="PlayStation VR Demo Disc (USA)">
+    <category>Demos</category>
+    <rom name="PlayStation VR Demo Disc (USA).iso" size="1000" crc="6742a37b"/>
+  </game>
+  <game name="PlayStation VR Demo Disc 2.0 (USA)">
+    <category>Demos</category>
+    <rom name="PlayStation VR Demo Disc 2.0 (USA).iso" size="1000" crc="6c5cb267"/>
+  </game>
+</datafile>`,
+      'utf8',
+    );
+
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tmpDir);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 200 })),
+    );
+
+    try {
+      await syncCanonicalSources({
+        db,
+        sources: ['dats'],
+        sourcesDir,
+        dryRun: false,
+        skipReconcile: true,
+        sqlOutputPath,
+      });
+
+      const rows = db
+        .prepare(
+          'SELECT platform_id, raw_title FROM canonical_releases ORDER BY platform_id ASC, raw_title ASC',
+        )
+        .all() as Array<{ platform_id: number; raw_title: string }>;
+
+      expect(rows).toEqual([
+        { platform_id: 34, raw_title: 'Bloodborne' },
+        { platform_id: 51, raw_title: 'PlayStation VR Demo Disc' },
+        { platform_id: 51, raw_title: 'PlayStation VR Demo Disc 2.0' },
+      ]);
+    } finally {
+      cwdSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -17,6 +17,7 @@ import {
   extractRegions,
   extractVariants,
   extractDiscLabel,
+  IGNORED_REDUMP_CATEGORIES,
   isIgnoredFormatRelease,
 } from './source_format.js';
 import {
@@ -1140,6 +1141,151 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           (s) => s.id === 'pokemon-colosseum-bonus-usa',
         ),
       ).toBe(true);
+    });
+  });
+
+  describe('Redump category filtering, PSVR routing, and conservative noise guards', () => {
+    it('ignores non-game Redump categories while preserving Games, Add-Ons, Bonus Discs, Educational, and unclassified entries', () => {
+      for (const cat of IGNORED_REDUMP_CATEGORIES) {
+        expect(
+          isIgnoredFormatRelease(
+            'Sample Release (USA)',
+            'Sample Release (USA).iso',
+            29,
+            cat,
+          ),
+        ).toBe(true);
+      }
+
+      for (const keepCat of [
+        'Games',
+        'Add-Ons',
+        'Bonus Discs',
+        'Educational',
+      ]) {
+        expect(
+          isIgnoredFormatRelease(
+            'Sample Release (USA)',
+            'Sample Release (USA).iso',
+            29,
+            keepCat,
+          ),
+        ).toBe(false);
+      }
+      expect(
+        isIgnoredFormatRelease(
+          'Sample Release (USA)',
+          'Sample Release (USA).iso',
+          29,
+          null,
+        ),
+      ).toBe(false);
+    });
+
+    it('allows curated boxed PSVR Demo Discs on PSVR (51) and ignores them on PS4 (34)', () => {
+      for (const title of [
+        'PlayStation VR Demo Disc (USA)',
+        'PlayStation VR Demo Disc 2.0 (USA)',
+        'PlayStation VR Demo Disc 3 (USA)',
+      ]) {
+        expect(isIgnoredFormatRelease(title, `${title}.iso`, 51, 'Demos')).toBe(
+          false,
+        );
+        expect(isIgnoredFormatRelease(title, `${title}.iso`, 34, 'Demos')).toBe(
+          true,
+        );
+      }
+    });
+
+    it('ignores Genesis Lock-On combination ROMs, explicit CD-i Video tags, and non-parenthetical noise without dropping real games', () => {
+      expect(
+        isIgnoredFormatRelease(
+          'Sonic & Knuckles + Sonic The Hedgehog 3 (World) (Lock-On Combination)',
+          'Sonic & Knuckles + Sonic The Hedgehog 3.md',
+          37,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Back to the Future (Europe) (Video)',
+          'Back to the Future (Europe) (Video).cue',
+          28,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Fossil Fighters - Gift Fossil - Air (USA)',
+          'Fossil Fighters - Gift Fossil - Air (USA).nds',
+          21,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Official U.S. PlayStation Magazine Demo Disc 01 (USA)',
+          'OPM01.cue',
+          29,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Action Replay Max (USA)',
+          'Action Replay Max (USA).iso',
+          30,
+        ),
+      ).toBe(true);
+
+      // Legitimate games & curated pack-ins must remain preserved
+      expect(
+        isIgnoredFormatRelease(
+          'Trials Fusion (USA)',
+          'Trials Fusion (USA).iso',
+          34,
+        ),
+      ).toBe(false);
+      expect(
+        isIgnoredFormatRelease(
+          'Demolition Derby (USA)',
+          'Demolition Derby (USA).bin',
+          29,
+        ),
+      ).toBe(false);
+      expect(
+        isIgnoredFormatRelease(
+          'Hotel Mario (USA)',
+          'Hotel Mario (USA).cue',
+          28,
+        ),
+      ).toBe(false);
+      expect(
+        isIgnoredFormatRelease(
+          'Mega Man Legends 2 (USA) (Demo)',
+          'Mega Man Legends 2 (USA) (Demo).cue',
+          29,
+          'Demos',
+        ),
+      ).toBe(false);
+    });
+
+    it('drops ignored Redump <category> releases during deduplicateDatReleases', () => {
+      const result = deduplicateDatReleases(34, [
+        {
+          name: 'Bloodborne (USA)',
+          category: 'Games',
+          roms: [{ name: 'Bloodborne (USA).iso', crc: 'aa112233' }],
+        },
+        {
+          name: 'Some Kiosk Sampler (USA)',
+          category: 'Demos',
+          roms: [
+            {
+              name: 'Some Kiosk Sampler (USA).iso',
+              crc: 'bb112233',
+            },
+          ],
+        },
+      ]);
+      expect(result).toHaveLength(1);
+      expect(result[0].raw_title).toBe('Bloodborne');
     });
   });
 });

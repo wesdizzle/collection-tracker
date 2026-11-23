@@ -6,6 +6,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeTitleForMatching,
+  normalizeForIgdbMatch,
+  cleanTitleForIgdbLookup,
+  stripIgdbEditionWrapper,
+  extractTitleSequelSignature,
+  buildIgdbMatchVariants,
+  buildDetailedIgdbMatchVariants,
   titlesMatch,
   gameMatchesReleaseWithAlternatives,
   isCompilationOrBundleTitle,
@@ -1128,6 +1134,80 @@ describe('Title Matching Strategies', () => {
           'Pokémon Gold Version',
         ),
       ).toBe('Pokémon Gold Version');
+    });
+  });
+
+  describe('IGDB Title Cleaning, Sequel Parity & Variant Matching', () => {
+    it('cleans boutique prefixes, retail pre-order trailers, budget series prefixes, and verified typos', () => {
+      expect(
+        cleanTitleForIgdbLookup(
+          'Limited Run #273: Astonishia Story - Playsation 5 PREORDER - ESTIMATED SHIP DATE FEB 11 2027',
+        ),
+      ).toBe('Astonishia Story');
+      expect(cleanTitleForIgdbLookup('Classic NES Series: Metroid')).toBe(
+        'Metroid',
+      );
+      expect(
+        cleanTitleForIgdbLookup('Harvest Moon: The Winds of Antbos Complete'),
+      ).toBe('Harvest Moon: The Winds of anthos Complete');
+      expect(
+        cleanTitleForIgdbLookup('Like a Dragon The Man Who Erased His Name'),
+      ).toBe('like a dragon gaiden: the man who erased his name');
+    });
+
+    it('strips stacked physical edition wrappers without collapsing retro bare Special sequels', () => {
+      expect(
+        stripIgdbEditionWrapper(
+          'Xenoblade Chronicles X: Definitive Edition - Nintendo Switch 2 Edition',
+        ),
+      ).toBe('Xenoblade Chronicles X');
+
+      expect(stripIgdbEditionWrapper('Real Bout Fatal Fury Special')).toBe(
+        'Real Bout Fatal Fury Special',
+      );
+      expect(
+        stripIgdbEditionWrapper('Rune Factory 3 Special', {
+          allowBareSpecial: true,
+        }),
+      ).toBe('Rune Factory 3');
+    });
+
+    it('enforces sequel numeral parity while ignoring platform version numbers and leading pronoun I', () => {
+      expect(extractTitleSequelSignature('Persona 4')).toEqual(['4']);
+      expect(extractTitleSequelSignature('Persona 5')).toEqual(['5']);
+      expect(
+        extractTitleSequelSignature('Super Mario World II - Nintendo Switch 2'),
+      ).toEqual(['2']);
+      expect(
+        extractTitleSequelSignature('Metroid Prime 4 - PlayStation 5 PS5'),
+      ).toEqual(['4']);
+      expect(extractTitleSequelSignature('Xbox 360 Controller Demo')).toEqual(
+        [],
+      );
+      expect(extractTitleSequelSignature('I Am Setsuna')).toEqual([]);
+    });
+
+    it('preserves distinct version qualifiers in normalizeForIgdbMatch and marks tilde split variants', () => {
+      expect(
+        normalizeForIgdbMatch(
+          'SNK vs. Capcom: Card Fighters Clash - Capcom Version',
+        ),
+      ).not.toBe(
+        normalizeForIgdbMatch(
+          'SNK vs. Capcom: Card Fighters Clash - SNK Version',
+        ),
+      );
+      expect(normalizeForIgdbMatch('Harvest Moon DS: Sunshine Islands')).toBe(
+        normalizeForIgdbMatch('Harvest Moon: Sunshine Islands'),
+      );
+
+      expect(buildIgdbMatchVariants('Shifting Gears - Road Trip')).toContain(
+        'Road Trip: Shifting Gears',
+      );
+      const detailed = buildDetailedIgdbMatchVariants('Flag Capture ~ Capture');
+      expect(detailed.some((v) => v.title === 'Capture' && v.isTildeHalf)).toBe(
+        true,
+      );
     });
   });
 });

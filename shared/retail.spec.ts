@@ -44,6 +44,14 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(cleanRetailTitle('Super Mario Odyssey - Nintendo Switch')).toBe(
         'Super Mario Odyssey',
       );
+      expect(
+        cleanRetailTitle(
+          'Astonishia Story - Playsation 5 PREORDER - ESTIMATED SHIP DATE FEB 11 2027',
+        ),
+      ).toBe('Astonishia Story');
+      expect(cleanRetailTitle('Job Simulator - Sony PlayStation VR')).toBe(
+        'Job Simulator',
+      );
 
       expect(cleanRetailTitle('Halo Infinite - Xbox Series X')).toBe(
         'Halo Infinite',

@@ -17,6 +17,18 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(lrg.platformId).toBe(35);
       expect(lrg.isGame).toBe(true);
 
+      const lrgFull = cleanBoutiqueTitle(
+        'Limited Run #273: Oddworld: Stranger Wrath (PlayStation Vita)',
+      );
+      expect(lrgFull.cleanTitle).toBe('Oddworld: Stranger Wrath');
+      expect(lrgFull.platformId).toBe(33);
+
+      const multiNum = cleanBoutiqueTitle(
+        'Limited Run #336 & #337: Double Pack Collection (Nintendo Switch)',
+      );
+      expect(multiNum.cleanTitle).toBe('Double Pack Collection');
+      expect(multiNum.platformId).toBe(26);
+
       const srg = cleanBoutiqueTitle('SRG#120: Tinykin (Switch)');
       expect(srg.cleanTitle).toBe('Tinykin');
       expect(srg.platformId).toBe(26);
@@ -459,6 +471,30 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
               excerpt: { rendered: '<p>Everything released this week.</p>' },
               categories: [4],
             },
+            {
+              id: 504,
+              date_gmt: '2026-11-22T10:00:00',
+              link: 'https://limitedgamenews.com/2026/11/sektori/',
+              title: {
+                rendered: 'Tenebris Somnia | PlayStation 5, , Xbox Series X|S',
+              },
+              excerpt: {
+                rendered: '<p>Console physical release announced.</p>',
+              },
+              categories: [3],
+            },
+            {
+              id: 505,
+              date_gmt: '2026-11-22T11:00:00',
+              link: 'https://limitedgamenews.com/2026/11/bundle/',
+              title: {
+                rendered: 'Castlevania Collection | Konami Classics (Switch)',
+              },
+              excerpt: {
+                rendered: '<p>Double pack physical edition.</p>',
+              },
+              categories: [4],
+            },
           ],
         });
       });
@@ -466,7 +502,7 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       const items = await fetchLimitedGameNewsReleases(
         mockFetch as unknown as typeof fetch,
       );
-      expect(items).toHaveLength(3);
+      expect(items).toHaveLength(6);
       expect(items[0].store).toBe('Limited Game News');
       expect(items[0].cleanTitle).toBe('Castlevania Dominus Collection');
       expect(items.slice(0, 2).map((i) => i.platformId)).toEqual([26, 35]);
@@ -474,6 +510,16 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(items[2].cleanTitle).toBe('Shiren the Wanderer');
       expect(items[2].platformId).toBe(27);
       expect(items[2].region).toBe('Asia');
+
+      expect(items[3].cleanTitle).toBe('Tenebris Somnia');
+      expect(items[3].platformId).toBe(35);
+      expect(items[4].cleanTitle).toBe('Tenebris Somnia');
+      expect(items[4].platformId).toBe(50);
+
+      expect(items[5].cleanTitle).toBe(
+        'Castlevania Collection | Konami Classics',
+      );
+      expect(items[5].platformId).toBe(26);
     });
   });
 });
