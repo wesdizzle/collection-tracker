@@ -11,6 +11,8 @@ import {
   isDigitalFluffTitle,
   hasEraDiscrepancy,
   findCanonicalBundle,
+  normalizeRegionTokens,
+  regionsOverlap,
   CanonicalRelease,
 } from './canonical_releases.js';
 import {
@@ -1286,6 +1288,23 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       ]);
       expect(result).toHaveLength(1);
       expect(result[0].raw_title).toBe('Bloodborne');
+    });
+  });
+
+  describe('normalizeRegionTokens & regionsOverlap', () => {
+    it('normalizes regional aliases and matches overlapping multi-region strings without equating Japan with Asia', () => {
+      expect(Array.from(normalizeRegionTokens('US / PAL / CERO'))).toEqual([
+        'USA',
+        'Europe',
+        'Japan',
+      ]);
+      expect(regionsOverlap('Europe, Australia', 'Europe')).toBe(true);
+      expect(regionsOverlap('USA, Europe', 'UK')).toBe(true);
+      expect(regionsOverlap('North America', 'ESRB')).toBe(true);
+      expect(regionsOverlap('World', 'Japan')).toBe(true);
+      expect(regionsOverlap(null, 'USA')).toBe(true);
+      expect(regionsOverlap('Japan', 'Asia')).toBe(false);
+      expect(regionsOverlap('USA', 'Europe')).toBe(false);
     });
   });
 });

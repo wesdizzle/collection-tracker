@@ -833,3 +833,109 @@ export function deduplicateDatReleases(
 
   return Array.from(releaseMap.values());
 }
+
+const REGION_OVERLAP_ALIAS_MAP: Record<string, string> = {
+  us: 'USA',
+  usa: 'USA',
+  na: 'USA',
+  'north america': 'USA',
+  'ntsc-u': 'USA',
+  esrb: 'USA',
+  americas: 'USA',
+  eu: 'Europe',
+  eur: 'Europe',
+  europe: 'Europe',
+  pal: 'Europe',
+  uk: 'Europe',
+  'united kingdom': 'Europe',
+  pegi: 'Europe',
+  jp: 'Japan',
+  jpn: 'Japan',
+  japan: 'Japan',
+  'ntsc-j': 'Japan',
+  cero: 'Japan',
+  au: 'Australia',
+  aus: 'Australia',
+  australia: 'Australia',
+  nz: 'New Zealand',
+  'new zealand': 'New Zealand',
+  kr: 'Korea',
+  kor: 'Korea',
+  korea: 'Korea',
+  as: 'Asia',
+  asi: 'Asia',
+  sea: 'Asia',
+  asia: 'Asia',
+  asian: 'Asia',
+  cn: 'China',
+  chn: 'China',
+  china: 'China',
+  tw: 'Taiwan',
+  twn: 'Taiwan',
+  taiwan: 'Taiwan',
+  hk: 'Hong Kong',
+  'hong kong': 'Hong Kong',
+  ca: 'Canada',
+  canada: 'Canada',
+  fr: 'France',
+  france: 'France',
+  de: 'Germany',
+  germany: 'Germany',
+  es: 'Spain',
+  spain: 'Spain',
+  it: 'Italy',
+  italy: 'Italy',
+  nl: 'Netherlands',
+  netherlands: 'Netherlands',
+  br: 'Brazil',
+  brazil: 'Brazil',
+  world: 'World',
+  ww: 'World',
+  global: 'World',
+  'region free': 'World',
+  regionfree: 'World',
+};
+
+/**
+ * Splits a comma/slash-delimited region string into normalized canonical region tokens.
+ */
+export function normalizeRegionTokens(
+  region: string | null | undefined,
+): Set<string> {
+  const out = new Set<string>();
+  if (!region) return out;
+  for (const part of region.split(/[,/]+/)) {
+    const cleaned = part.trim();
+    if (!cleaned || cleaned === '-' || cleaned.toLowerCase() === 'n/a') {
+      continue;
+    }
+    const mapped = REGION_OVERLAP_ALIAS_MAP[cleaned.toLowerCase()];
+    out.add(mapped || cleaned.toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * Returns true if two release region strings overlap once normalized (or if either
+ * represents an unspecified/`World` region), avoiding false exact-string misses such
+ * as `"Europe"` vs `"Europe, Australia"` or `"USA, Europe"` vs `"USA"`.
+ */
+export function regionsOverlap(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const setA = normalizeRegionTokens(a);
+  const setB = normalizeRegionTokens(b);
+  if (
+    setA.size === 0 ||
+    setB.size === 0 ||
+    setA.has('World') ||
+    setB.has('World')
+  ) {
+    return true;
+  }
+  for (const tok of setA) {
+    if (setB.has(tok)) return true;
+  }
+  return false;
+}

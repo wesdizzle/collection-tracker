@@ -53,6 +53,7 @@ import worker, {
   syncWorkerNsCollectors,
   syncWorkerRetailDeals,
   syncWorkerRetailPreOrders,
+  syncWorkerSwitchRevisions,
   syncWorkerUnmatchedIgdbRetry,
   syncWorkerWatchedSeriesDiscovery,
   applyReactiveSeriesAutoTracking,
@@ -5410,6 +5411,106 @@ describe('Worker API Logic', () => {
             )
             .get(usaRel.id) as { ownership_status: number };
           expect(trackingRow.ownership_status).toBe(2);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerSwitchRevisions links unlinked Switch 2 standard release in place for Rev 00 without duplicating', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (9202, 'metroid-prime-4-sw2', 'Metroid Prime 4: Beyond', 27);
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('9202-1', 9202, 'USA');
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_case, has_manual)
+          VALUES (1, '9202-1', 1, 1, 1);
+        `);
+
+        const sw2Csv = [
+          'Game,Revision,Version,Download,Size,Region,Code,Publisher',
+          'Metroid Prime 4: Beyond,00,1.0.1,No,,USA,LN-XXXXX-USA-0,Nintendo',
+          ',01,1.1.0,No,,USA,LN-XXXXX-USA-1,Nintendo',
+        ].join('\n');
+
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.includes('gid=561582322')) {
+              return new Response(sw2Csv, { status: 200 });
+            }
+            return new Response('Game,Revision\n', { status: 200 });
+          });
+
+        try {
+          const res = await syncWorkerSwitchRevisions(mockEnv);
+          expect(res.addedCanonical).toBeGreaterThanOrEqual(2);
+
+          const rels = db
+            .prepare(
+              'SELECT id, region, variants, canonical_release_id FROM game_releases WHERE game_id = 9202 ORDER BY id',
+            )
+            .all() as Array<{
+            id: string;
+            region: string;
+            variants: string | null;
+            canonical_release_id: number | null;
+          }>;
+          expect(rels).toHaveLength(2);
+          const rev00 = rels.find((r) => r.id === '9202-1');
+          const rev01 = rels.find((r) => r.variants === 'Rev 01 (v1.1.0)');
+          expect(rev00?.variants).toBe('Rev 00 (v1.0.1)');
+          expect(rev00?.canonical_release_id).toBeTruthy();
+          expect(rev01?.canonical_release_id).toBeTruthy();
+
+          const dirtyRow = db
+            .prepare(
+              `SELECT value FROM sync_state WHERE key = '${CATALOG_CHUNKS_DIRTY_KEY}'`,
+            )
+            .get() as { value: string } | undefined;
+          expect(dirtyRow?.value).toBe('1');
+        } finally {
+          fetchSpy.mockRestore();
+        }
+      });
+
+      it('syncWorkerBroadCatalogPopulation links unlinked stub releases in place across overlapping normalized regions', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id)
+          VALUES (9203, 'ps4-overlap-stub', 'Overlap Stub Game', 34);
+          INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+          VALUES ('9203-1', 9203, 'Europe', NULL);
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical)
+          VALUES (9550, 34, 'Overlap Stub Game', '${normalizeTitleForMatching('Overlap Stub Game')}', 'Europe, Australia', 'Overlap Stub Game (Europe, Australia).iso', 'deadbeef', 'dat', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9549');
+        `);
+
+        stubIgdbFetch({});
+        try {
+          const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(res.skipped).toBe(false);
+          expect(res.ingestedGames).toBe(0);
+          expect(res.ingestedReleases).toBe(0);
+          expect(res.cursor).toBe(9550);
+
+          const rels = db
+            .prepare(
+              'SELECT id, region, rom_name, rom_crc, canonical_release_id FROM game_releases WHERE game_id = 9203',
+            )
+            .all() as Array<{
+            id: string;
+            region: string;
+            rom_name: string | null;
+            rom_crc: string | null;
+            canonical_release_id: number | null;
+          }>;
+          expect(rels).toHaveLength(1);
+          expect(rels[0].id).toBe('9203-1');
+          expect(rels[0].canonical_release_id).toBe(9550);
+          expect(rels[0].rom_name).toBe(
+            'Overlap Stub Game (Europe, Australia).iso',
+          );
+          expect(rels[0].rom_crc).toBe('deadbeef');
         } finally {
           vi.unstubAllGlobals();
         }

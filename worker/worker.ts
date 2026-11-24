@@ -77,6 +77,7 @@ import {
   CANONICAL_BUNDLES,
   detectPhysicalReleaseStatus,
   findCanonicalBundle,
+  regionsOverlap,
   CanonicalRelease,
 } from '../shared/canonical_releases';
 import {
@@ -12437,9 +12438,15 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
       }
     }
 
-    const existingRelSet = new Set<string>();
     const existingRelIdsByGame = new Map<number, Set<string>>();
-    const unlinkedByGameReg = new Map<string, string>();
+    const verifiedByGame = new Map<
+      number,
+      Array<{ region: string | null; variants: string | null }>
+    >();
+    const unlinkedByGame = new Map<
+      number,
+      Array<{ id: string; region: string | null; variants: string | null }>
+    >();
     for (const gr of existingGameRelsRes.results || []) {
       let idSet = existingRelIdsByGame.get(gr.game_id);
       if (!idSet) {
@@ -12447,11 +12454,18 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         existingRelIdsByGame.set(gr.game_id, idSet);
       }
       idSet.add(gr.id);
-      existingRelSet.add(
-        `${gr.game_id}::${gr.region || 'World'}::${gr.variants || 'Standard'}`,
-      );
-      if (!gr.variants && !gr.canonical_release_id) {
-        unlinkedByGameReg.set(`${gr.game_id}::${gr.region || 'USA'}`, gr.id);
+      if (gr.canonical_release_id || gr.variants) {
+        const vList = verifiedByGame.get(gr.game_id) || [];
+        vList.push({ region: gr.region || 'World', variants: gr.variants });
+        verifiedByGame.set(gr.game_id, vList);
+      } else {
+        const uList = unlinkedByGame.get(gr.game_id) || [];
+        uList.push({
+          id: gr.id,
+          region: gr.region || 'USA',
+          variants: gr.variants,
+        });
+        unlinkedByGame.set(gr.game_id, uList);
       }
     }
 
@@ -12470,22 +12484,42 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
       for (const cr of crs) {
         const reg = cr.region || 'World';
         if (reg === 'World') continue;
-        const relKey = `${g.stable_id}::${reg}::${cr.variants || 'Standard'}`;
-        if (existingRelSet.has(relKey)) continue;
+        const targetVar = (cr.variants || 'Standard').trim();
+        const verifiedList = verifiedByGame.get(g.stable_id) || [];
+        const alreadyCovered = verifiedList.some(
+          (v) =>
+            regionsOverlap(v.region, reg) &&
+            (v.variants || 'Standard').trim() === targetVar,
+        );
+        if (alreadyCovered) continue;
 
-        const unlinkedRelId = unlinkedByGameReg.get(`${g.stable_id}::${reg}`);
-        if (unlinkedRelId && (cr.variants || '').startsWith('Rev 000')) {
-          existingRelSet.add(relKey);
-          unlinkedByGameReg.delete(`${g.stable_id}::${reg}`);
+        const unlinkedList = unlinkedByGame.get(g.stable_id) || [];
+        const unlinkedIdx = unlinkedList.findIndex(
+          (u) => !u.variants && regionsOverlap(u.region, reg),
+        );
+        const hasVerifiedInRegion = verifiedList.some((v) =>
+          regionsOverlap(v.region, reg),
+        );
+        if (
+          unlinkedIdx >= 0 &&
+          (/^Rev\s+0{2,3}\b/i.test(cr.variants || '') || !hasVerifiedInRegion)
+        ) {
+          const [claimed] = unlinkedList.splice(unlinkedIdx, 1);
+          verifiedList.push({
+            region: claimed.region || reg,
+            variants: cr.variants,
+          });
+          verifiedByGame.set(g.stable_id, verifiedList);
           gameStatements.push(
             env.DB.prepare(
               'UPDATE game_releases SET variants = ?, canonical_release_id = ? WHERE id = ?',
-            ).bind(cr.variants, cr.id, unlinkedRelId),
+            ).bind(cr.variants, cr.id, claimed.id),
           );
           continue;
         }
 
-        existingRelSet.add(relKey);
+        verifiedList.push({ region: reg, variants: cr.variants });
+        verifiedByGame.set(g.stable_id, verifiedList);
         let idSet = existingRelIdsByGame.get(g.stable_id);
         if (!idSet) {
           idSet = new Set<string>();
@@ -12508,6 +12542,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
   }
   if (gameStatements.length > 0) {
     await markDbDirty(env);
+    await markCatalogChunksDirty(env);
   }
   if (added > 0 || updated > 0 || deleted > 0) {
     await markCanonicalReleasesDirty(env);
@@ -16574,6 +16609,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   let ingestedGamesCount = 0;
   let ingestedReleasesCount = 0;
   let igdbMatchedCount = 0;
+  let anyReleasesChanged = false;
   let nextCursor = currentCursor;
   let nextGameStableId: number | null = null;
 
@@ -16712,15 +16748,17 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       platformLaunchDateById.get(group.platform_id) ?? null;
 
     if (existingGame) {
-      // Attach any newly discovered regional or revision releases past the cursor to the existing game
+      // Attach any newly discovered regional or revision releases past the cursor to the existing game,
+      // preferring to link matching unlinked stub rows in place rather than inserting duplicate releases.
       const existingRelRes = await env.DB.prepare(
-        'SELECT id, region, variants, rom_crc, canonical_release_id FROM game_releases WHERE game_id = ?',
+        'SELECT id, region, variants, rom_name, rom_crc, canonical_release_id FROM game_releases WHERE game_id = ?',
       )
         .bind(existingGame.stable_id)
         .all<{
           id: string;
           region: string | null;
           variants: string | null;
+          rom_name: string | null;
           rom_crc: string | null;
           canonical_release_id: number | null;
         }>();
@@ -16730,31 +16768,70 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           .map((r) => r.canonical_release_id)
           .filter((id): id is number => id !== null && id !== undefined),
       );
-      const existingRegionVariantKeys = new Set(
-        existingRels.map(
-          (r) =>
-            `${(r.region || '').trim()}::${(r.variants || 'Standard').trim()}`,
-        ),
-      );
       const existingCrcs = new Set(
         existingRels
           .map((r) => (r.rom_crc || '').trim().toUpperCase())
           .filter(Boolean),
       );
+      const verifiedOrNamedRels = existingRels.filter(
+        (r) => r.canonical_release_id != null || Boolean(r.rom_name),
+      );
+      const unlinkedRels = existingRels.filter(
+        (r) => r.canonical_release_id == null && !r.rom_name,
+      );
 
-      const newCanonicalRels = canonicalRels.filter((cr) => {
-        if (cr.id <= currentCursor) return false;
-        if (existingCanonicalIds.has(cr.id)) return false;
+      type PlannedReleaseOp =
+        | { kind: 'link'; unlinkedId: string; cr: CanonicalGroupReleaseRow }
+        | { kind: 'insert'; cr: CanonicalGroupReleaseRow };
+      const releaseOps: PlannedReleaseOp[] = [];
+
+      for (const cr of canonicalRels) {
+        if (cr.id <= currentCursor) continue;
+        if (existingCanonicalIds.has(cr.id)) continue;
         const crCrc = (cr.rom_crc || '').trim().toUpperCase();
-        if (crCrc && existingCrcs.has(crCrc)) return false;
+        if (crCrc && existingCrcs.has(crCrc)) continue;
         const crReg = (cr.region || 'USA').trim();
         const crVar = (cr.variants || 'Standard').trim();
-        if (existingRegionVariantKeys.has(`${crReg}::${crVar}`)) return false;
-        return true;
-      });
 
-      if (newCanonicalRels.length > 0) {
-        const estimatedNewRelWrites = newCanonicalRels.length * 7;
+        const unlinkedIdx = unlinkedRels.findIndex(
+          (ur) =>
+            regionsOverlap(ur.region, crReg) &&
+            (!ur.variants || ur.variants.trim() === crVar),
+        );
+        if (unlinkedIdx >= 0) {
+          const [claimed] = unlinkedRels.splice(unlinkedIdx, 1);
+          verifiedOrNamedRels.push({
+            ...claimed,
+            region: claimed.region || crReg,
+            variants: claimed.variants || cr.variants || null,
+            canonical_release_id: cr.id,
+          });
+          if (crCrc) existingCrcs.add(crCrc);
+          releaseOps.push({ kind: 'link', unlinkedId: claimed.id, cr });
+          continue;
+        }
+
+        const alreadyCovered = verifiedOrNamedRels.some(
+          (vr) =>
+            regionsOverlap(vr.region, crReg) &&
+            (vr.variants || 'Standard').trim() === crVar,
+        );
+        if (alreadyCovered) continue;
+
+        verifiedOrNamedRels.push({
+          id: `pending-${cr.id}`,
+          region: crReg,
+          variants: cr.variants || null,
+          rom_name: cr.rom_name || null,
+          rom_crc: cr.rom_crc || null,
+          canonical_release_id: cr.id,
+        });
+        if (crCrc) existingCrcs.add(crCrc);
+        releaseOps.push({ kind: 'insert', cr });
+      }
+
+      if (releaseOps.length > 0) {
+        const estimatedNewRelWrites = releaseOps.length * 7;
         if (
           tickWritesUsed > 0 &&
           tickWritesUsed + estimatedNewRelWrites > tickWriteBudget
@@ -16769,13 +16846,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           id: string;
           region: string | null;
         }> = [];
+        let insertedHere = 0;
 
-        for (let i = 0; i < newCanonicalRels.length; i++) {
-          const cr = newCanonicalRels[i];
-          const relSlug = nextSequentialReleaseId(
-            existingGame.stable_id,
-            usedRelSlugs,
-          );
+        for (const op of releaseOps) {
+          const cr = op.cr;
           const relRegion = cr.region || 'USA';
           const relReleaseDate = igdbMeta
             ? resolveIgdbPlatformReleaseDate(
@@ -16786,7 +16860,36 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                 igdbMeta.first_release_date,
               )
             : null;
+          if (op.kind === 'link') {
+            relStatements.push(
+              env.DB.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?,
+                     variants = COALESCE(variants, ?),
+                     also_released_as = COALESCE(also_released_as, ?),
+                     rom_name = COALESCE(rom_name, ?),
+                     rom_crc = COALESCE(rom_crc, ?),
+                     release_date = COALESCE(release_date, ?)
+                 WHERE id = ? AND canonical_release_id IS NULL`,
+              ).bind(
+                cr.id,
+                cr.variants || null,
+                cr.also_released_as || null,
+                cr.rom_name || null,
+                cr.rom_crc || null,
+                relReleaseDate,
+                op.unlinkedId,
+              ),
+            );
+            continue;
+          }
+
+          const relSlug = nextSequentialReleaseId(
+            existingGame.stable_id,
+            usedRelSlugs,
+          );
           addedReleasesForExisting.push({ id: relSlug, region: relRegion });
+          insertedHere++;
           relStatements.push(
             env.DB.prepare(
               `INSERT INTO game_releases (
@@ -16809,28 +16912,31 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
         if (relStatements.length > 0) {
           await env.DB.batch(relStatements);
+          anyReleasesChanged = true;
         }
 
-        const existingCanonicalSeries =
-          existingGame.canonical_series ||
-          computeGameCanonicalSeries({
-            title: existingGame.title,
-            collections: existingGame.collections ?? undefined,
-            franchises: existingGame.franchises ?? undefined,
+        if (addedReleasesForExisting.length > 0) {
+          const existingCanonicalSeries =
+            existingGame.canonical_series ||
+            computeGameCanonicalSeries({
+              title: existingGame.title,
+              collections: existingGame.collections ?? undefined,
+              franchises: existingGame.franchises ?? undefined,
+            });
+          newlyIngestedForTracking.push({
+            stableId: existingGame.stable_id,
+            platformId: existingGame.platform_id,
+            canonicalSeries: existingCanonicalSeries,
+            seriesTrackable: isSeriesTrackable({
+              title: existingGame.title,
+              collections: existingGame.collections,
+              franchises: existingGame.franchises,
+            }),
+            releases: addedReleasesForExisting,
           });
-        newlyIngestedForTracking.push({
-          stableId: existingGame.stable_id,
-          platformId: existingGame.platform_id,
-          canonicalSeries: existingCanonicalSeries,
-          seriesTrackable: isSeriesTrackable({
-            title: existingGame.title,
-            collections: existingGame.collections,
-            franchises: existingGame.franchises,
-          }),
-          releases: addedReleasesForExisting,
-        });
+        }
         tickWritesUsed += estimatedNewRelWrites;
-        ingestedReleasesCount += newCanonicalRels.length;
+        ingestedReleasesCount += insertedHere;
       }
 
       nextCursor = Math.max(nextCursor, group.maxSliceId);
@@ -17131,6 +17237,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     tickWritesUsed += ruleWrites;
     invalidateSeriesScanCache();
     await markDbDirty(env);
+    await markCatalogChunksDirty(env);
+  } else if (anyReleasesChanged) {
+    await markDbDirty(env);
+    await markCatalogChunksDirty(env);
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
