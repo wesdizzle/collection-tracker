@@ -261,19 +261,36 @@ export async function syncCanonicalSources(
       WHERE id = ?
     `);
 
+    const grCols = new Set(
+      (db.pragma('table_info(game_releases)') as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+    const hasDenormalizedCols = grCols.has('verified_source');
+    const unlinkSetSql = hasDenormalizedCols
+      ? 'canonical_release_id = NULL, verified_source = NULL, serial_code = NULL, canonical_title = NULL, publisher = NULL'
+      : 'canonical_release_id = NULL';
+
     const hasLinkedReleaseStmt = db.prepare(
       `SELECT 1 FROM game_releases WHERE canonical_release_id = ? LIMIT 1`,
     );
     const unlinkReleaseStmt = isDryRun
       ? null
       : db.prepare(
-          `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id = ?`,
+          `UPDATE game_releases SET ${unlinkSetSql} WHERE canonical_release_id = ?`,
         );
     const updateLinkedReleaseRomStmt = isDryRun
       ? null
-      : db.prepare(
-          `UPDATE game_releases SET rom_name = ?, rom_crc = ? WHERE canonical_release_id = ?`,
-        );
+      : hasDenormalizedCols
+        ? db.prepare(
+            `UPDATE game_releases
+             SET rom_name = ?, rom_crc = ?, verified_source = 'dat',
+                 serial_code = ?, canonical_title = ?, publisher = ?
+             WHERE canonical_release_id = ?`,
+          )
+        : db.prepare(
+            `UPDATE game_releases SET rom_name = ?, rom_crc = ? WHERE canonical_release_id = ?`,
+          );
     const deleteStmt = isDryRun
       ? null
       : db.prepare(`DELETE FROM canonical_releases WHERE id = ?`);
@@ -561,24 +578,48 @@ export async function syncCanonicalSources(
             sqlStatements.push(
               `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, also_released_as = ${escapeSql(alsoReleasedVal)}, packin_host_normalized_title = ${escapeSql(packinVal)}, redump_disc_id = ${escapeSql(redumpIdVal)}, rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
             );
+            const romChanged =
+              existing.rom_name !== romNameVal ||
+              existing.rom_crc !== romCrcVal;
+            const denormChanged =
+              hasDenormalizedCols &&
+              (existing.raw_title !== rel.raw_title ||
+                existing.serial_code !== serialVal ||
+                existing.publisher !== publisherVal);
             if (
-              (existing.rom_name !== romNameVal ||
-                existing.rom_crc !== romCrcVal) &&
+              (romChanged || denormChanged) &&
               hasLinkedReleaseStmt.get(existing.id)
             ) {
               if (updateLinkedReleaseRomStmt) {
-                updateLinkedReleaseRomStmt.run(
-                  romNameVal,
-                  romCrcVal,
-                  existing.id,
-                );
+                if (hasDenormalizedCols) {
+                  updateLinkedReleaseRomStmt.run(
+                    romNameVal,
+                    romCrcVal,
+                    serialVal,
+                    rel.raw_title,
+                    publisherVal,
+                    existing.id,
+                  );
+                } else {
+                  updateLinkedReleaseRomStmt.run(
+                    romNameVal,
+                    romCrcVal,
+                    existing.id,
+                  );
+                }
               }
               const linkedWhere = romNameVal
                 ? `WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSql(romNameVal)} AND platform_id = ${plat.id} LIMIT 1)`
                 : `WHERE canonical_release_id = ${existing.id}`;
-              sqlStatements.push(
-                `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
-              );
+              if (hasDenormalizedCols) {
+                sqlStatements.push(
+                  `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)}, verified_source = 'dat', serial_code = ${escapeSql(serialVal)}, canonical_title = ${escapeSql(rel.raw_title)}, publisher = ${escapeSql(publisherVal)} ${linkedWhere};`,
+                );
+              } else {
+                sqlStatements.push(
+                  `UPDATE game_releases SET rom_name = ${escapeSql(romNameVal)}, rom_crc = ${escapeSql(romCrcVal)} ${linkedWhere};`,
+                );
+              }
             }
             updatedCount++;
             platUpdated++;
@@ -600,13 +641,13 @@ export async function syncCanonicalSources(
       for (let i = 0; i < romsToDelete.length; i += UNLINK_CHUNK) {
         const chunk = romsToDelete.slice(i, i + UNLINK_CHUNK);
         sqlStatements.push(
-          `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
+          `UPDATE game_releases SET ${unlinkSetSql} WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${plat.id} AND rom_name IN (${chunk.map((r) => escapeSql(r)).join(', ')}));`,
         );
       }
       for (let i = 0; i < idsWithoutRom.length; i += UNLINK_CHUNK) {
         const chunk = idsWithoutRom.slice(i, i + UNLINK_CHUNK);
         sqlStatements.push(
-          `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (${chunk.join(', ')});`,
+          `UPDATE game_releases SET ${unlinkSetSql} WHERE canonical_release_id IN (${chunk.join(', ')});`,
         );
       }
 
@@ -845,9 +886,50 @@ export async function syncCanonicalSources(
             `);
         const repointReleaseStmt = isDryRun
           ? null
-          : db.prepare(
-              `UPDATE game_releases SET canonical_release_id = ? WHERE canonical_release_id = ?`,
+          : hasDenormalizedCols
+            ? db.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?, verified_source = ?, serial_code = ?, canonical_title = ?, publisher = ?
+                 WHERE canonical_release_id = ?`,
+              )
+            : db.prepare(
+                `UPDATE game_releases SET canonical_release_id = ? WHERE canonical_release_id = ?`,
+              );
+        const propagateLinkedDenormStmt =
+          isDryRun || !hasDenormalizedCols
+            ? null
+            : db.prepare(
+                `UPDATE game_releases
+                 SET verified_source = ?, serial_code = ?, canonical_title = ?, publisher = ?
+                 WHERE canonical_release_id = ?
+                   AND (
+                     verified_source IS NOT ?
+                     OR serial_code IS NOT ?
+                     OR canonical_title IS NOT ?
+                     OR publisher IS NOT ?
+                   )`,
+              );
+        const emitLinkedDenormPropagation = (target: IndexedCanonicalRow) => {
+          if (!hasDenormalizedCols || target.id <= 0) return;
+          if (!hasLinkedReleaseStmt.get(target.id)) return;
+          if (propagateLinkedDenormStmt) {
+            propagateLinkedDenormStmt.run(
+              target.source,
+              target.serial_code,
+              target.raw_title,
+              target.publisher,
+              target.id,
+              target.source,
+              target.serial_code,
+              target.raw_title,
+              target.publisher,
             );
+          }
+          const updatedWhere = buildCanonicalNaturalWhere(target);
+          sqlStatements.push(
+            `UPDATE game_releases SET verified_source = ${escapeSql(target.source)}, serial_code = ${escapeSql(target.serial_code)}, canonical_title = ${escapeSql(target.raw_title)}, publisher = ${escapeSql(target.publisher)} WHERE canonical_release_id = (SELECT id FROM canonical_releases WHERE ${updatedWhere} ORDER BY id ASC LIMIT 1) AND (verified_source IS NOT ${escapeSql(target.source)} OR serial_code IS NOT ${escapeSql(target.serial_code)} OR canonical_title IS NOT ${escapeSql(target.raw_title)} OR publisher IS NOT ${escapeSql(target.publisher)});`,
+          );
+        };
         const syncedNonDatPlatforms = new Set<number>();
         const upgradedIds = new Set<number>();
         const enrichedKeyGuard = new Set<string>();
@@ -945,6 +1027,7 @@ export async function syncCanonicalSources(
             if (addSerial) target.serial_code = addSerial;
             if (addBarcode) target.barcode = addBarcode;
             if (addPublisher) target.publisher = addPublisher;
+            emitLinkedDenormPropagation(target);
             updatedCount++;
             srcUpdated++;
           };
@@ -1036,6 +1119,10 @@ export async function syncCanonicalSources(
                 sqlStatements.push(
                   `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} WHERE id = (SELECT id FROM canonical_releases WHERE ${preUpdateWhere} ORDER BY id ASC LIMIT 1);`,
                 );
+                const prevDenormDiff =
+                  existing.raw_title !== rel.raw_title ||
+                  existing.serial_code !== serialVal ||
+                  existing.publisher !== publisherVal;
                 existing.raw_title = rel.raw_title;
                 existing.normalized_title = rel.normalized_title;
                 existing.region = regionVal;
@@ -1044,6 +1131,9 @@ export async function syncCanonicalSources(
                 existing.barcode = barcodeVal;
                 existing.publisher = publisherVal;
                 existing.is_verified_physical = verifiedVal;
+                if (prevDenormDiff) {
+                  emitLinkedDenormPropagation(existing);
+                }
                 const poolMatch = platPool.rows.find(
                   (r) => r.id === existing!.id,
                 );
@@ -1108,6 +1198,7 @@ export async function syncCanonicalSources(
                 crossMatch.barcode = mergedBarcode;
                 crossMatch.publisher = mergedPublisher;
                 crossMatch.is_verified_physical = verifiedVal;
+                emitLinkedDenormPropagation(crossMatch);
                 indexRowIntoPlatPool(platPool.byKey, crossMatch);
                 updatedCount++;
                 srcUpdated++;
@@ -1174,18 +1265,35 @@ export async function syncCanonicalSources(
             const hasLinks = Boolean(hasLinkedReleaseStmt.get(obsolete.id));
             if (repointTarget) {
               if (hasLinks && repointReleaseStmt && repointTarget.id > 0) {
-                repointReleaseStmt.run(repointTarget.id, obsolete.id);
+                if (hasDenormalizedCols) {
+                  repointReleaseStmt.run(
+                    repointTarget.id,
+                    repointTarget.source,
+                    repointTarget.serial_code,
+                    repointTarget.raw_title,
+                    repointTarget.publisher,
+                    obsolete.id,
+                  );
+                } else {
+                  repointReleaseStmt.run(repointTarget.id, obsolete.id);
+                }
               }
               const targetWhere = buildCanonicalNaturalWhere(repointTarget);
-              sqlStatements.push(
-                `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE ${targetWhere} ORDER BY id ASC LIMIT 1) WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
-              );
+              if (hasDenormalizedCols) {
+                sqlStatements.push(
+                  `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE ${targetWhere} ORDER BY id ASC LIMIT 1), verified_source = ${escapeSql(repointTarget.source)}, serial_code = ${escapeSql(repointTarget.serial_code)}, canonical_title = ${escapeSql(repointTarget.raw_title)}, publisher = ${escapeSql(repointTarget.publisher)} WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
+                );
+              } else {
+                sqlStatements.push(
+                  `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE ${targetWhere} ORDER BY id ASC LIMIT 1) WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
+                );
+              }
             } else {
               if (hasLinks && unlinkReleaseStmt) {
                 unlinkReleaseStmt.run(obsolete.id);
               }
               sqlStatements.push(
-                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
+                `UPDATE game_releases SET ${unlinkSetSql} WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
               );
             }
 
@@ -1305,13 +1413,25 @@ export async function syncCanonicalSources(
 
           const linkStmt = isDryRun
             ? null
-            : db.prepare(
-                `UPDATE game_releases
-                 SET canonical_release_id = ?,
-                     variants = COALESCE(variants, ?),
-                     barcode = COALESCE(barcode, ?)
-                 WHERE id = ? AND canonical_release_id IS NULL`,
-              );
+            : hasDenormalizedCols
+              ? db.prepare(
+                  `UPDATE game_releases
+                   SET canonical_release_id = ?,
+                       variants = COALESCE(variants, ?),
+                       barcode = COALESCE(barcode, ?),
+                       verified_source = ?,
+                       serial_code = ?,
+                       canonical_title = ?,
+                       publisher = ?
+                   WHERE id = ? AND canonical_release_id IS NULL`,
+                )
+              : db.prepare(
+                  `UPDATE game_releases
+                   SET canonical_release_id = ?,
+                       variants = COALESCE(variants, ?),
+                       barcode = COALESCE(barcode, ?)
+                   WHERE id = ? AND canonical_release_id IS NULL`,
+                );
 
           for (const gr of unlinkedReleases) {
             const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
@@ -1372,11 +1492,30 @@ export async function syncCanonicalSources(
 
             const best = candidates[0];
             if (linkStmt) {
-              linkStmt.run(best.id, best.variants, best.barcode, gr.id);
+              if (hasDenormalizedCols) {
+                linkStmt.run(
+                  best.id,
+                  best.variants,
+                  best.barcode,
+                  best.source,
+                  best.serial_code,
+                  best.raw_title,
+                  best.publisher,
+                  gr.id,
+                );
+              } else {
+                linkStmt.run(best.id, best.variants, best.barcode, gr.id);
+              }
             }
-            sqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} AND ${sqlNullableEquals('variants', best.variants)} ORDER BY id ASC LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}) WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
-            );
+            if (hasDenormalizedCols) {
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} AND ${sqlNullableEquals('variants', best.variants)} ORDER BY id ASC LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}), verified_source = ${escapeSql(best.source)}, serial_code = ${escapeSql(best.serial_code)}, canonical_title = ${escapeSql(best.raw_title)}, publisher = ${escapeSql(best.publisher)} WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
+              );
+            } else {
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} AND ${sqlNullableEquals('variants', best.variants)} ORDER BY id ASC LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}) WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
+              );
+            }
             linkedNonDatReleases++;
           }
         }
@@ -1389,13 +1528,26 @@ export async function syncCanonicalSources(
       syncTx();
       db.pragma('foreign_keys = ON');
 
-      db.prepare(
-        `UPDATE game_releases
-         SET also_released_as = COALESCE(also_released_as, (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
-             variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
-         WHERE canonical_release_id IS NOT NULL
-           AND (also_released_as IS NULL OR variants IS NULL)`,
-      ).run();
+      if (hasDenormalizedCols) {
+        db.prepare(
+          `UPDATE game_releases
+           SET also_released_as = COALESCE(also_released_as, (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
+               variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
+               verified_source = (SELECT source FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               serial_code = (SELECT serial_code FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               canonical_title = (SELECT raw_title FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               publisher = (SELECT publisher FROM canonical_releases WHERE id = game_releases.canonical_release_id)
+           WHERE canonical_release_id IS NOT NULL`,
+        ).run();
+      } else {
+        db.prepare(
+          `UPDATE game_releases
+           SET also_released_as = COALESCE(also_released_as, (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
+               variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
+           WHERE canonical_release_id IS NOT NULL
+             AND (also_released_as IS NULL OR variants IS NULL)`,
+        ).run();
+      }
     } else {
       runSyncLoop();
     }

@@ -93,7 +93,11 @@ CREATE TABLE IF NOT EXISTS game_releases (
     canonical_release_id INTEGER REFERENCES canonical_releases (id),
     barcode TEXT,
     also_released_as TEXT,
-    image_url TEXT
+    image_url TEXT,
+    verified_source TEXT,
+    serial_code TEXT,
+    canonical_title TEXT,
+    publisher TEXT
 );
 
 CREATE TABLE IF NOT EXISTS toys (

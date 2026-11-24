@@ -4084,6 +4084,10 @@ async function insertCatalogGameWithReleases(
       releaseDate?: string | null;
       canonicalReleaseId?: number | null;
       barcode?: string | null;
+      verifiedSource?: string | null;
+      serialCode?: string | null;
+      canonicalTitle?: string | null;
+      publisher?: string | null;
     }>;
   },
 ): Promise<{
@@ -4170,8 +4174,9 @@ async function insertCatalogGameWithReleases(
     relStatements.push(
       env.DB.prepare(
         `INSERT INTO game_releases (
-           id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode,
+           verified_source, serial_code, canonical_title, publisher
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`,
       ).bind(
         relId,
@@ -4183,6 +4188,10 @@ async function insertCatalogGameWithReleases(
         rel.releaseDate ?? null,
         rel.canonicalReleaseId ?? null,
         rel.barcode ?? null,
+        rel.verifiedSource ?? null,
+        rel.serialCode ?? null,
+        rel.canonicalTitle ?? null,
+        rel.publisher ?? null,
       ),
     );
   }
@@ -12322,7 +12331,11 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
   await env.DB.prepare(
     `
     UPDATE game_releases
-    SET canonical_release_id = NULL
+    SET canonical_release_id = NULL,
+        verified_source = NULL,
+        serial_code = NULL,
+        canonical_title = NULL,
+        publisher = NULL
     WHERE canonical_release_id IN (
       SELECT id FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'dat'
     )
@@ -12339,7 +12352,11 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     const ph = chunk.map(() => '?').join(',');
     await env.DB.prepare(
       `UPDATE game_releases
-       SET canonical_release_id = NULL
+       SET canonical_release_id = NULL,
+           verified_source = NULL,
+           serial_code = NULL,
+           canonical_title = NULL,
+           publisher = NULL
        WHERE canonical_release_id IN (
          SELECT id FROM canonical_releases
          WHERE platform_id IN (26, 27) AND source = 'nintendo_revised' AND normalized_title IN (${ph})
@@ -12407,6 +12424,22 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
           'UPDATE canonical_releases SET raw_title = ?, serial_code = ? WHERE id = ?',
         ).bind(rel.raw_title, rel.serial_code || null, existing.id),
       );
+      statements.push(
+        env.DB.prepare(
+          `UPDATE game_releases
+           SET verified_source = 'nintendo_revised',
+               canonical_title = ?,
+               serial_code = ?
+           WHERE canonical_release_id = ?
+             AND (verified_source IS NOT 'nintendo_revised' OR canonical_title IS NOT ? OR serial_code IS NOT ?)`,
+        ).bind(
+          rel.raw_title,
+          rel.serial_code || null,
+          existing.id,
+          rel.raw_title,
+          rel.serial_code || null,
+        ),
+      );
       updated++;
     }
   }
@@ -12453,7 +12486,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
   if (added > 0 || updated > 0) {
     const [allCanonicalRes, existingGameRelsRes] = await Promise.all([
       env.DB.prepare(
-        "SELECT id, platform_id, raw_title, normalized_title, region, variants FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'nintendo_revised'",
+        "SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, publisher, source FROM canonical_releases WHERE platform_id IN (26, 27) AND source = 'nintendo_revised'",
       ).all<{
         id: number;
         platform_id: number;
@@ -12461,6 +12494,9 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         normalized_title: string;
         region: string | null;
         variants: string | null;
+        serial_code: string | null;
+        publisher: string | null;
+        source: string;
       }>(),
       env.DB.prepare(
         'SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.canonical_release_id FROM game_releases gr JOIN games g ON g.stable_id = gr.game_id WHERE g.platform_id IN (26, 27)',
@@ -12574,8 +12610,18 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
           verifiedByGame.set(g.stable_id, verifiedList);
           gameStatements.push(
             env.DB.prepare(
-              'UPDATE game_releases SET variants = ?, canonical_release_id = ? WHERE id = ?',
-            ).bind(cr.variants, cr.id, claimed.id),
+              `UPDATE game_releases
+               SET variants = ?, canonical_release_id = ?, verified_source = ?, serial_code = ?, canonical_title = ?, publisher = ?
+               WHERE id = ?`,
+            ).bind(
+              cr.variants,
+              cr.id,
+              cr.source,
+              cr.serial_code,
+              cr.raw_title,
+              cr.publisher,
+              claimed.id,
+            ),
           );
           continue;
         }
@@ -12590,10 +12636,23 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         const relId = nextSequentialReleaseId(g.stable_id, idSet);
         gameStatements.push(
           env.DB.prepare(
-            `INSERT INTO game_releases (id, game_id, region, variants, canonical_release_id)
-             VALUES (?, ?, ?, ?, ?)
+            `INSERT INTO game_releases (
+               id, game_id, region, variants, canonical_release_id,
+               verified_source, serial_code, canonical_title, publisher
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO NOTHING`,
-          ).bind(relId, g.stable_id, reg, cr.variants, cr.id),
+          ).bind(
+            relId,
+            g.stable_id,
+            reg,
+            cr.variants,
+            cr.id,
+            cr.source,
+            cr.serial_code,
+            cr.raw_title,
+            cr.publisher,
+          ),
         );
       }
     }
@@ -12927,6 +12986,10 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
             variants: cr.variants || null,
             releaseDate: entry.releaseDate ?? null,
             canonicalReleaseId: canonicalId,
+            verifiedSource: cr.source ?? null,
+            serialCode: cr.serial_code ?? null,
+            canonicalTitle: cr.raw_title ?? null,
+            publisher: cr.publisher ?? null,
           },
         ],
       });
@@ -13040,7 +13103,11 @@ async function applyWorkerCanonicalHierarchyMerge(
   writesUsed: number;
 }> {
   const byPlatKey = new Map<string, WorkerCanonicalMergeRow[]>();
+  const rowsById = new Map<number, WorkerCanonicalMergeRow>();
   const indexRow = (row: WorkerCanonicalMergeRow) => {
+    if (row.id > 0) {
+      rowsById.set(row.id, row);
+    }
     const keys = new Set<string>([
       row.normalized_title,
       ...buildCanonicalLinkerMatchKeys(row.raw_title),
@@ -13152,6 +13219,14 @@ async function applyWorkerCanonicalHierarchyMerge(
           ),
         );
         mutatedExistingIds.add(sameSourceLoose.id);
+        sameSourceLoose.raw_title = rel.raw_title;
+        sameSourceLoose.normalized_title = rel.normalized_title;
+        sameSourceLoose.region = regionVal;
+        sameSourceLoose.variants = variantsVal;
+        sameSourceLoose.serial_code = serialVal ?? sameSourceLoose.serial_code;
+        sameSourceLoose.barcode = barcodeVal ?? sameSourceLoose.barcode;
+        sameSourceLoose.publisher = publisherVal ?? sameSourceLoose.publisher;
+        sameSourceLoose.is_verified_physical = verifiedVal;
         writesUsed += 5;
         enrichedCanonical++;
       }
@@ -13286,23 +13361,56 @@ async function applyWorkerCanonicalHierarchyMerge(
 
   let linkedCanonicalMutated = false;
   if (mutatedExistingIds.size > 0) {
+    const propagateStmts: D1PreparedStatement[] = [];
     const mutatedArr = Array.from(mutatedExistingIds);
     for (let i = 0; i < mutatedArr.length; i += 40) {
       const chunk = mutatedArr.slice(i, i + 40);
       const ph = chunk.map(() => '?').join(',');
       try {
-        const linkedHit = await env.DB.prepare(
-          `SELECT 1 FROM game_releases WHERE canonical_release_id IN (${ph}) LIMIT 1`,
+        const linkedHits = await env.DB.prepare(
+          `SELECT DISTINCT canonical_release_id FROM game_releases WHERE canonical_release_id IN (${ph})`,
         )
           .bind(...chunk)
-          .first();
-        if (linkedHit) {
+          .all<{ canonical_release_id: number }>();
+        for (const hit of linkedHits.results || []) {
           linkedCanonicalMutated = true;
-          break;
+          const mutatedRow = rowsById.get(hit.canonical_release_id);
+          if (!mutatedRow) continue;
+          if (writesUsed + 7 > options.maxWriteBudget) continue;
+          propagateStmts.push(
+            env.DB.prepare(
+              `UPDATE game_releases
+               SET verified_source = ?,
+                   serial_code = ?,
+                   canonical_title = ?,
+                   publisher = ?
+               WHERE canonical_release_id = ?
+                 AND (
+                   verified_source IS NOT ?
+                   OR serial_code IS NOT ?
+                   OR canonical_title IS NOT ?
+                   OR publisher IS NOT ?
+                 )`,
+            ).bind(
+              mutatedRow.source,
+              mutatedRow.serial_code,
+              mutatedRow.raw_title,
+              mutatedRow.publisher,
+              hit.canonical_release_id,
+              mutatedRow.source,
+              mutatedRow.serial_code,
+              mutatedRow.raw_title,
+              mutatedRow.publisher,
+            ),
+          );
+          writesUsed += 7;
         }
       } catch {
         // Ignore in minimal test mocks
       }
+    }
+    for (let i = 0; i < propagateStmts.length; i += 100) {
+      await env.DB.batch(propagateStmts.slice(i, i + 100));
     }
   }
 
@@ -13383,9 +13491,22 @@ async function applyWorkerCanonicalHierarchyMerge(
           `UPDATE game_releases
            SET canonical_release_id = ?,
                variants = COALESCE(variants, ?),
-               barcode = COALESCE(barcode, ?)
+               barcode = COALESCE(barcode, ?),
+               verified_source = ?,
+               serial_code = ?,
+               canonical_title = ?,
+               publisher = ?
            WHERE id = ? AND canonical_release_id IS NULL`,
-        ).bind(best.id, best.variants, best.barcode, gr.id),
+        ).bind(
+          best.id,
+          best.variants,
+          best.barcode,
+          best.source,
+          best.serial_code,
+          best.raw_title,
+          best.publisher,
+          gr.id,
+        ),
       );
       writesUsed += 7;
       linkedReleases++;
@@ -16964,7 +17085,7 @@ export async function syncWorkerWatchedSeriesDiscovery(
       const chunk = candidateNormTitles.slice(i, i + 80);
       const ph = chunk.map(() => '?').join(',');
       const res = await env.DB.prepare(
-        `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, is_verified_physical
+        `SELECT id, platform_id, raw_title, normalized_title, region, variants, rom_name, rom_crc, serial_code, publisher, source, is_verified_physical
          FROM canonical_releases
          WHERE normalized_title IN (${ph})`,
       )
@@ -17125,6 +17246,10 @@ export async function syncWorkerWatchedSeriesDiscovery(
                 romCrc: cr.rom_crc || null,
                 releaseDate: platReleaseDate,
                 canonicalReleaseId: cr.id,
+                verifiedSource: cr.source ?? null,
+                serialCode: cr.serial_code ?? null,
+                canonicalTitle: cr.raw_title ?? null,
+                publisher: cr.publisher ?? null,
               }))
             : [
                 {
@@ -17550,11 +17675,13 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       rom_name: string | null;
       rom_crc: string | null;
       serial_code: string | null;
+      publisher: string | null;
+      source: string | null;
     };
     // Fetch verified canonical releases via two indexed queries (primary title + pack-in host)
     const [allRelRes, packInRelRes] = await Promise.all([
       env.DB.prepare(
-        `SELECT id, raw_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code
+        `SELECT id, raw_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code, publisher, source
          FROM canonical_releases
          WHERE platform_id = ?
            AND normalized_title = ?
@@ -17566,7 +17693,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         .bind(group.platform_id, group.normalized_title)
         .all<CanonicalGroupReleaseRow>(),
       env.DB.prepare(
-        `SELECT id, raw_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code
+        `SELECT id, raw_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code, publisher, source
          FROM canonical_releases
          WHERE platform_id = ?
            AND packin_host_normalized_title = ?
@@ -17758,7 +17885,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                      also_released_as = COALESCE(also_released_as, ?),
                      rom_name = COALESCE(rom_name, ?),
                      rom_crc = COALESCE(rom_crc, ?),
-                     release_date = COALESCE(release_date, ?)
+                     release_date = COALESCE(release_date, ?),
+                     verified_source = ?,
+                     serial_code = ?,
+                     canonical_title = ?,
+                     publisher = ?
                  WHERE id = ? AND canonical_release_id IS NULL`,
               ).bind(
                 cr.id,
@@ -17767,6 +17898,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                 cr.rom_name || null,
                 cr.rom_crc || null,
                 relReleaseDate,
+                cr.source || null,
+                cr.serial_code || null,
+                cr.raw_title || null,
+                cr.publisher || null,
                 op.unlinkedId,
               ),
             );
@@ -17782,8 +17917,9 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           relStatements.push(
             env.DB.prepare(
               `INSERT INTO game_releases (
-                 id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id,
+                 verified_source, serial_code, canonical_title, publisher
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO NOTHING`,
             ).bind(
               relSlug,
@@ -17795,6 +17931,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
               cr.rom_crc || null,
               relReleaseDate,
               cr.id,
+              cr.source || null,
+              cr.serial_code || null,
+              cr.raw_title || null,
+              cr.publisher || null,
             ),
           );
         }
@@ -18066,8 +18206,9 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       relStatements.push(
         env.DB.prepare(
           `INSERT INTO game_releases (
-             id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id,
+             verified_source, serial_code, canonical_title, publisher
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO NOTHING`,
         ).bind(
           relSlug,
@@ -18079,6 +18220,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           cr.rom_crc || null,
           relReleaseDate,
           cr.id,
+          cr.source || null,
+          cr.serial_code || null,
+          cr.raw_title || null,
+          cr.publisher || null,
         ),
       );
     }

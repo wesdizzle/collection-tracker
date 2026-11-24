@@ -48,6 +48,10 @@ export interface ReconcileResult {
     romCrc: string | null;
     variants?: string | null;
     alsoReleasedAs?: string | null;
+    verifiedSource?: string | null;
+    serialCode?: string | null;
+    canonicalTitle?: string | null;
+    publisher?: string | null;
   }>;
 }
 
@@ -376,6 +380,10 @@ export interface CorruptedRomAuditItem {
   newCanonicalReleaseId: number | null;
   newRomName: string | null;
   newRomCrc: string | null;
+  newVerifiedSource?: string | null;
+  newSerialCode?: string | null;
+  newCanonicalTitle?: string | null;
+  newPublisher?: string | null;
 }
 
 export interface CorruptedRomAuditOptions {
@@ -472,8 +480,12 @@ export function auditAndRepairCorruptedRoms(
   const hasGameMeta = gamesCols.has('metadata_json');
   const hasGameBundle = gamesCols.has('bundle_parent_id');
   const hasGrAlso = grCols.has('also_released_as');
+  const hasGrDenormalized = grCols.has('verified_source');
   const hasCrVerified = crCols.has('is_verified_physical');
   const hasCrAlso = crCols.has('also_released_as');
+  const hasCrSource = crCols.has('source');
+  const hasCrSerial = crCols.has('serial_code');
+  const hasCrPublisher = crCols.has('publisher');
 
   const platformFilter =
     options.platformId !== undefined
@@ -677,7 +689,10 @@ export function auditAndRepairCorruptedRoms(
 
   const findCanonicalStmt = db.prepare(
     `SELECT id, raw_title, region, rom_name, rom_crc,
-            ${hasCrAlso ? 'also_released_as' : 'NULL AS also_released_as'}
+            ${hasCrAlso ? 'also_released_as' : 'NULL AS also_released_as'},
+            ${hasCrSource ? 'source' : "'dat' AS source"},
+            ${hasCrSerial ? 'serial_code' : 'NULL AS serial_code'},
+            ${hasCrPublisher ? 'publisher' : 'NULL AS publisher'}
      FROM canonical_releases
      WHERE platform_id = ?
        AND normalized_title IN (?, ?)
@@ -714,6 +729,9 @@ export function auditAndRepairCorruptedRoms(
       rom_name: string | null;
       rom_crc: string | null;
       also_released_as: string | null;
+      source: string | null;
+      serial_code: string | null;
+      publisher: string | null;
     }>;
 
     const usedCanonIds = usedCanonicalIdsByGame.get(row.game_id);
@@ -763,10 +781,20 @@ export function auditAndRepairCorruptedRoms(
         newCanonicalReleaseId: best.id,
         newRomName: best.rom_name,
         newRomCrc: best.rom_crc,
+        newVerifiedSource: best.source || 'dat',
+        newSerialCode: best.serial_code ?? null,
+        newCanonicalTitle: best.raw_title,
+        newPublisher: best.publisher ?? null,
       });
-      sqlStatements.push(
-        `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSqlValue(best.rom_name)}, rom_crc = ${escapeSqlValue(best.rom_crc)} WHERE id = ${escapeSqlValue(row.release_id)};`,
-      );
+      if (hasGrDenormalized) {
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSqlValue(best.rom_name)}, rom_crc = ${escapeSqlValue(best.rom_crc)}, verified_source = ${escapeSqlValue(best.source || 'dat')}, serial_code = ${escapeSqlValue(best.serial_code ?? null)}, canonical_title = ${escapeSqlValue(best.raw_title)}, publisher = ${escapeSqlValue(best.publisher ?? null)} WHERE id = ${escapeSqlValue(row.release_id)};`,
+        );
+      } else {
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSqlValue(best.rom_name)}, rom_crc = ${escapeSqlValue(best.rom_crc)} WHERE id = ${escapeSqlValue(row.release_id)};`,
+        );
+      }
     } else {
       clearedCount++;
       flagged.push({
@@ -784,10 +812,20 @@ export function auditAndRepairCorruptedRoms(
         newCanonicalReleaseId: null,
         newRomName: null,
         newRomCrc: null,
+        newVerifiedSource: null,
+        newSerialCode: null,
+        newCanonicalTitle: null,
+        newPublisher: null,
       });
-      sqlStatements.push(
-        `UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ${escapeSqlValue(row.release_id)};`,
-      );
+      if (hasGrDenormalized) {
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL, verified_source = NULL, serial_code = NULL, canonical_title = NULL, publisher = NULL WHERE id = ${escapeSqlValue(row.release_id)};`,
+        );
+      } else {
+        sqlStatements.push(
+          `UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ${escapeSqlValue(row.release_id)};`,
+        );
+      }
     }
   }
 
@@ -798,21 +836,42 @@ export function auditAndRepairCorruptedRoms(
   }
 
   if (!isDryRun && flagged.length > 0) {
-    const repairStmt = db.prepare(
-      'UPDATE game_releases SET canonical_release_id = ?, rom_name = ?, rom_crc = ? WHERE id = ?',
-    );
-    const clearStmt = db.prepare(
-      'UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ?',
-    );
+    const repairStmt = hasGrDenormalized
+      ? db.prepare(
+          'UPDATE game_releases SET canonical_release_id = ?, rom_name = ?, rom_crc = ?, verified_source = ?, serial_code = ?, canonical_title = ?, publisher = ? WHERE id = ?',
+        )
+      : db.prepare(
+          'UPDATE game_releases SET canonical_release_id = ?, rom_name = ?, rom_crc = ? WHERE id = ?',
+        );
+    const clearStmt = hasGrDenormalized
+      ? db.prepare(
+          'UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL, verified_source = NULL, serial_code = NULL, canonical_title = NULL, publisher = NULL WHERE id = ?',
+        )
+      : db.prepare(
+          'UPDATE game_releases SET canonical_release_id = NULL, rom_name = NULL, rom_crc = NULL WHERE id = ?',
+        );
     const tx = db.transaction(() => {
       for (const item of flagged) {
         if (item.action === 'repaired') {
-          repairStmt.run(
-            item.newCanonicalReleaseId,
-            item.newRomName,
-            item.newRomCrc,
-            item.releaseId,
-          );
+          if (hasGrDenormalized) {
+            repairStmt.run(
+              item.newCanonicalReleaseId,
+              item.newRomName,
+              item.newRomCrc,
+              item.newVerifiedSource ?? 'dat',
+              item.newSerialCode ?? null,
+              item.newCanonicalTitle ?? null,
+              item.newPublisher ?? null,
+              item.releaseId,
+            );
+          } else {
+            repairStmt.run(
+              item.newCanonicalReleaseId,
+              item.newRomName,
+              item.newRomCrc,
+              item.releaseId,
+            );
+          }
         } else {
           clearStmt.run(item.releaseId);
         }
@@ -872,6 +931,9 @@ export function reconcileGameReleasesWithCanonical(
     const hasGrAlsoPre = grTableInfoPre.some(
       (c) => c.name === 'also_released_as',
     );
+    const hasGrDenormPre = grTableInfoPre.some(
+      (c) => c.name === 'verified_source',
+    );
     const crTableInfoPre = db.pragma(
       'table_info(canonical_releases)',
     ) as Array<{
@@ -880,9 +942,21 @@ export function reconcileGameReleasesWithCanonical(
     const hasCrAlsoPre = crTableInfoPre.some(
       (c) => c.name === 'also_released_as',
     );
+    const hasCrSourcePre = crTableInfoPre.some((c) => c.name === 'source');
+    const hasCrSerialPre = crTableInfoPre.some((c) => c.name === 'serial_code');
+    const hasCrPublisherPre = crTableInfoPre.some(
+      (c) => c.name === 'publisher',
+    );
     const selectCrAlsoPre = hasCrAlsoPre
       ? 'also_released_as'
       : 'NULL as also_released_as';
+    const selectCrSourcePre = hasCrSourcePre ? 'source' : "'dat' as source";
+    const selectCrSerialPre = hasCrSerialPre
+      ? 'serial_code'
+      : 'NULL as serial_code';
+    const selectCrPublisherPre = hasCrPublisherPre
+      ? 'publisher'
+      : 'NULL as publisher';
 
     const gamesColsPre = new Set(
       (db.pragma('table_info(games)') as Array<{ name: string }>).map(
@@ -921,10 +995,10 @@ export function reconcileGameReleasesWithCanonical(
 
     if (unlinkedWithRom.length > 0) {
       const findByRomStmt = db.prepare(
-        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
+        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
       );
       const findByCrcStmt = db.prepare(
-        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
+        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
       );
       const isCanonicalUsedOnGameStmt = db.prepare(
         `SELECT 1 FROM game_releases WHERE game_id = ? AND canonical_release_id = ? AND id != ? LIMIT 1`,
@@ -940,6 +1014,9 @@ export function reconcileGameReleasesWithCanonical(
               rom_crc: string | null;
               variants: string | null;
               also_released_as: string | null;
+              source: string | null;
+              serial_code: string | null;
+              publisher: string | null;
             }
           | undefined;
 
@@ -967,8 +1044,32 @@ export function reconcileGameReleasesWithCanonical(
             },
           )
         ) {
+          const matchSource = match.source || 'dat';
           if (!isDryRun) {
-            if (hasGrAlsoPre) {
+            if (hasGrDenormPre && hasGrAlsoPre) {
+              db.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                     variants = COALESCE(variants, ?),
+                     also_released_as = COALESCE(also_released_as, ?),
+                     verified_source = ?,
+                     serial_code = ?,
+                     canonical_title = ?,
+                     publisher = ?
+                 WHERE id = ?`,
+              ).run(
+                match.id,
+                match.rom_name,
+                match.rom_crc,
+                match.variants,
+                match.also_released_as,
+                matchSource,
+                match.serial_code,
+                match.raw_title,
+                match.publisher,
+                gr.id,
+              );
+            } else if (hasGrAlsoPre) {
               db.prepare(
                 `UPDATE game_releases
                  SET canonical_release_id = ?, rom_name = ?, rom_crc = ?,
@@ -998,20 +1099,39 @@ export function reconcileGameReleasesWithCanonical(
               );
             }
           }
-          relinkSqlStatements.push(
-            `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}) WHERE id = ${escapeSqlGlobal(gr.id)};`,
-          );
+          if (hasGrDenormPre) {
+            relinkSqlStatements.push(
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}), verified_source = ${escapeSqlGlobal(matchSource)}, serial_code = ${escapeSqlGlobal(match.serial_code)}, canonical_title = ${escapeSqlGlobal(match.raw_title)}, publisher = ${escapeSqlGlobal(match.publisher)} WHERE id = ${escapeSqlGlobal(gr.id)};`,
+            );
+          } else {
+            relinkSqlStatements.push(
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}) WHERE id = ${escapeSqlGlobal(gr.id)};`,
+            );
+          }
         }
       }
     }
 
     if (!isDryRun && hasGrAlsoPre && hasCrAlsoPre) {
-      db.prepare(
-        `UPDATE game_releases
-         SET also_released_as = (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id),
-             variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
-         WHERE canonical_release_id IS NOT NULL`,
-      ).run();
+      if (hasGrDenormPre) {
+        db.prepare(
+          `UPDATE game_releases
+           SET also_released_as = (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id)),
+               verified_source = (SELECT ${hasCrSourcePre ? 'source' : "'dat'"} FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               serial_code = (SELECT ${hasCrSerialPre ? 'serial_code' : 'NULL'} FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               canonical_title = (SELECT raw_title FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               publisher = (SELECT ${hasCrPublisherPre ? 'publisher' : 'NULL'} FROM canonical_releases WHERE id = game_releases.canonical_release_id)
+           WHERE canonical_release_id IS NOT NULL`,
+        ).run();
+      } else {
+        db.prepare(
+          `UPDATE game_releases
+           SET also_released_as = (SELECT also_released_as FROM canonical_releases WHERE id = game_releases.canonical_release_id),
+               variants = COALESCE(game_releases.variants, (SELECT variants FROM canonical_releases WHERE id = game_releases.canonical_release_id))
+           WHERE canonical_release_id IS NOT NULL`,
+        ).run();
+      }
     }
   } catch {
     // canonical_releases table may be unpopulated in test mocks
@@ -1143,6 +1263,12 @@ export function reconcileGameReleasesWithCanonical(
   }
 
   // Query all canonical DAT releases
+  const grTableInfoMain = db.pragma('table_info(game_releases)') as Array<{
+    name: string;
+  }>;
+  const hasGrDenormMain = grTableInfoMain.some(
+    (c) => c.name === 'verified_source',
+  );
   const crTableInfo = db.pragma('table_info(canonical_releases)') as Array<{
     name: string;
   }>;
@@ -1150,15 +1276,25 @@ export function reconcileGameReleasesWithCanonical(
   const hasCrPackin = crTableInfo.some(
     (c) => c.name === 'packin_host_normalized_title',
   );
+  const hasCrMainSource = crTableInfo.some((c) => c.name === 'source');
+  const hasCrMainSerial = crTableInfo.some((c) => c.name === 'serial_code');
+  const hasCrMainPublisher = crTableInfo.some((c) => c.name === 'publisher');
   const selectAlso = hasCrAlso
     ? 'also_released_as'
     : 'NULL as also_released_as';
   const selectPackin = hasCrPackin
     ? 'packin_host_normalized_title'
     : 'NULL as packin_host_normalized_title';
+  const selectMainSource = hasCrMainSource ? 'source' : "'dat' as source";
+  const selectMainSerial = hasCrMainSerial
+    ? 'serial_code'
+    : 'NULL as serial_code';
+  const selectMainPublisher = hasCrMainPublisher
+    ? 'publisher'
+    : 'NULL as publisher';
 
   const datQuery = `
-    SELECT id, platform_id, raw_title, normalized_title, region, variants, ${selectAlso}, ${selectPackin}, rom_name, rom_crc
+    SELECT id, platform_id, raw_title, normalized_title, region, variants, ${selectAlso}, ${selectPackin}, ${selectMainSource}, ${selectMainSerial}, ${selectMainPublisher}, rom_name, rom_crc
     FROM canonical_releases
     WHERE source = 'dat' AND rom_name IS NOT NULL
     ${datPlatformFilter}
@@ -1173,6 +1309,9 @@ export function reconcileGameReleasesWithCanonical(
     variants: string | null;
     also_released_as: string | null;
     packin_host_normalized_title: string | null;
+    source: string | null;
+    serial_code: string | null;
+    publisher: string | null;
     rom_name: string;
     rom_crc: string | null;
   }>;
@@ -1331,6 +1470,10 @@ export function reconcileGameReleasesWithCanonical(
       romCrc: best.rom_crc,
       variants: best.variants,
       alsoReleasedAs: best.also_released_as,
+      verifiedSource: best.source || 'dat',
+      serialCode: best.serial_code ?? null,
+      canonicalTitle: best.raw_title,
+      publisher: best.publisher ?? null,
     });
 
     updatesByPlatform[rel.platform_id] =
@@ -1338,6 +1481,10 @@ export function reconcileGameReleasesWithCanonical(
 
     const escapeSql = (s: string | null) =>
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
+    const bestSource = best.source || 'dat';
+    const bestDenormSetSql = hasGrDenormMain
+      ? `, verified_source = ${escapeSql(bestSource)}, serial_code = ${escapeSql(best.serial_code ?? null)}, canonical_title = ${escapeSql(best.raw_title)}, publisher = ${escapeSql(best.publisher ?? null)}`
+      : '';
 
     if (newId !== rel.id) {
       let hasUserRef = false;
@@ -1353,9 +1500,15 @@ export function reconcileGameReleasesWithCanonical(
         // user_game_releases table may not exist in minimal test mocks
       }
       if (hasUserRef) {
-        sqlStatements.push(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode, also_released_as, image_url) SELECT ${escapeSql(newId)}, game_id, region, COALESCE(variants, ${escapeSql(best.variants)}), ${escapeSql(best.rom_name)}, ${escapeSql(best.rom_crc)}, release_date, ${best.id}, barcode, COALESCE(also_released_as, ${escapeSql(best.also_released_as)}), image_url FROM game_releases WHERE id = ${escapeSql(rel.id)};`,
-        );
+        if (hasGrDenormMain) {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode, also_released_as, image_url, verified_source, serial_code, canonical_title, publisher) SELECT ${escapeSql(newId)}, game_id, region, COALESCE(variants, ${escapeSql(best.variants)}), ${escapeSql(best.rom_name)}, ${escapeSql(best.rom_crc)}, release_date, ${best.id}, barcode, COALESCE(also_released_as, ${escapeSql(best.also_released_as)}), image_url, ${escapeSql(bestSource)}, ${escapeSql(best.serial_code ?? null)}, ${escapeSql(best.raw_title)}, ${escapeSql(best.publisher ?? null)} FROM game_releases WHERE id = ${escapeSql(rel.id)};`,
+          );
+        } else {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode, also_released_as, image_url) SELECT ${escapeSql(newId)}, game_id, region, COALESCE(variants, ${escapeSql(best.variants)}), ${escapeSql(best.rom_name)}, ${escapeSql(best.rom_crc)}, release_date, ${best.id}, barcode, COALESCE(also_released_as, ${escapeSql(best.also_released_as)}), image_url FROM game_releases WHERE id = ${escapeSql(rel.id)};`,
+          );
+        }
         sqlStatements.push(
           `UPDATE user_game_releases SET release_id = ${escapeSql(newId)} WHERE release_id = ${escapeSql(rel.id)};`,
         );
@@ -1364,12 +1517,12 @@ export function reconcileGameReleasesWithCanonical(
         );
       } else {
         sqlStatements.push(
-          `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)};`,
+          `UPDATE game_releases SET id = ${escapeSql(newId)}, canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)})${bestDenormSetSql} WHERE id = ${escapeSql(rel.id)};`,
         );
       }
     } else {
       sqlStatements.push(
-        `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)}) WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
+        `UPDATE game_releases SET canonical_release_id = ${best.id}, rom_name = ${escapeSql(best.rom_name)}, rom_crc = ${escapeSql(best.rom_crc)}, variants = COALESCE(variants, ${escapeSql(best.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSql(best.also_released_as)})${bestDenormSetSql} WHERE id = ${escapeSql(rel.id)} AND (rom_name IS NULL OR rom_name != ${escapeSql(best.rom_name)});`,
       );
     }
 
@@ -1390,22 +1543,47 @@ export function reconcileGameReleasesWithCanonical(
       for (const sibling of siblingDiscs) {
         usedSet.add(sibling.rom_name);
         const siblingId = allocateSeqReleaseId(rel.game_id);
-        sqlStatements.push(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)});`,
-        );
-        if (!isDryRun) {
-          db.prepare(
-            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).run(
-            siblingId,
-            rel.game_id,
-            sibling.id,
-            sibling.region || rel.region,
-            sibling.variants || rel.variants,
-            sibling.also_released_as,
-            sibling.rom_name,
-            sibling.rom_crc,
+        const sibSource = sibling.source || 'dat';
+        if (hasGrDenormMain) {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)}, ${escapeSql(sibSource)}, ${escapeSql(sibling.serial_code ?? null)}, ${escapeSql(sibling.raw_title)}, ${escapeSql(sibling.publisher ?? null)});`,
           );
+          if (!isDryRun) {
+            db.prepare(
+              `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              siblingId,
+              rel.game_id,
+              sibling.id,
+              sibling.region || rel.region,
+              sibling.variants || rel.variants,
+              sibling.also_released_as,
+              sibling.rom_name,
+              sibling.rom_crc,
+              sibSource,
+              sibling.serial_code ?? null,
+              sibling.raw_title,
+              sibling.publisher ?? null,
+            );
+          }
+        } else {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(siblingId)}, ${rel.game_id}, ${sibling.id}, ${escapeSql(sibling.region || rel.region)}, ${escapeSql(sibling.variants || rel.variants)}, ${escapeSql(sibling.also_released_as)}, ${escapeSql(sibling.rom_name)}, ${escapeSql(sibling.rom_crc)});`,
+          );
+          if (!isDryRun) {
+            db.prepare(
+              `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              siblingId,
+              rel.game_id,
+              sibling.id,
+              sibling.region || rel.region,
+              sibling.variants || rel.variants,
+              sibling.also_released_as,
+              sibling.rom_name,
+              sibling.rom_crc,
+            );
+          }
         }
       }
     }
@@ -1417,22 +1595,47 @@ export function reconcileGameReleasesWithCanonical(
     for (const packIn of packInDiscs) {
       usedSet.add(packIn.rom_name);
       const packInId = allocateSeqReleaseId(rel.game_id);
-      sqlStatements.push(
-        `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)});`,
-      );
-      if (!isDryRun) {
-        db.prepare(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
-          packInId,
-          rel.game_id,
-          packIn.id,
-          packIn.region || rel.region,
-          packIn.variants || 'Demo',
-          packIn.also_released_as,
-          packIn.rom_name,
-          packIn.rom_crc,
+      const packSource = packIn.source || 'dat';
+      if (hasGrDenormMain) {
+        sqlStatements.push(
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)}, ${escapeSql(packSource)}, ${escapeSql(packIn.serial_code ?? null)}, ${escapeSql(packIn.raw_title)}, ${escapeSql(packIn.publisher ?? null)});`,
         );
+        if (!isDryRun) {
+          db.prepare(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(
+            packInId,
+            rel.game_id,
+            packIn.id,
+            packIn.region || rel.region,
+            packIn.variants || 'Demo',
+            packIn.also_released_as,
+            packIn.rom_name,
+            packIn.rom_crc,
+            packSource,
+            packIn.serial_code ?? null,
+            packIn.raw_title,
+            packIn.publisher ?? null,
+          );
+        }
+      } else {
+        sqlStatements.push(
+          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(packInId)}, ${rel.game_id}, ${packIn.id}, ${escapeSql(packIn.region || rel.region)}, ${escapeSql(packIn.variants || 'Demo')}, ${escapeSql(packIn.also_released_as)}, ${escapeSql(packIn.rom_name)}, ${escapeSql(packIn.rom_crc)});`,
+        );
+        if (!isDryRun) {
+          db.prepare(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).run(
+            packInId,
+            rel.game_id,
+            packIn.id,
+            packIn.region || rel.region,
+            packIn.variants || 'Demo',
+            packIn.also_released_as,
+            packIn.rom_name,
+            packIn.rom_crc,
+          );
+        }
       }
     }
   }
@@ -1505,22 +1708,47 @@ export function reconcileGameReleasesWithCanonical(
           usedCrcsByPlatformId.set(g.platform_id, platUsedCrcSet);
         }
         const newId = allocateSeqReleaseId(g.stable_id);
-        sqlStatements.push(
-          `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)});`,
-        );
-        if (!isDryRun) {
-          db.prepare(
-            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          ).run(
-            newId,
-            g.stable_id,
-            c.id,
-            c.region,
-            c.variants,
-            c.also_released_as,
-            c.rom_name,
-            c.rom_crc,
+        const candSource = c.source || 'dat';
+        if (hasGrDenormMain) {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)}, ${escapeSql(candSource)}, ${escapeSql(c.serial_code ?? null)}, ${escapeSql(c.raw_title)}, ${escapeSql(c.publisher ?? null)});`,
           );
+          if (!isDryRun) {
+            db.prepare(
+              `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc, verified_source, serial_code, canonical_title, publisher) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              newId,
+              g.stable_id,
+              c.id,
+              c.region,
+              c.variants,
+              c.also_released_as,
+              c.rom_name,
+              c.rom_crc,
+              candSource,
+              c.serial_code ?? null,
+              c.raw_title,
+              c.publisher ?? null,
+            );
+          }
+        } else {
+          sqlStatements.push(
+            `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (${escapeSql(newId)}, ${g.stable_id}, ${c.id}, ${escapeSql(c.region)}, ${escapeSql(c.variants)}, ${escapeSql(c.also_released_as)}, ${escapeSql(c.rom_name)}, ${escapeSql(c.rom_crc)});`,
+          );
+          if (!isDryRun) {
+            db.prepare(
+              `INSERT OR IGNORE INTO game_releases (id, game_id, canonical_release_id, region, variants, also_released_as, rom_name, rom_crc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            ).run(
+              newId,
+              g.stable_id,
+              c.id,
+              c.region,
+              c.variants,
+              c.also_released_as,
+              c.rom_name,
+              c.rom_crc,
+            );
+          }
         }
       }
     }
@@ -1543,21 +1771,37 @@ export function reconcileGameReleasesWithCanonical(
     const hasAlsoReleasedAs = grTableInfo.some(
       (c) => c.name === 'also_released_as',
     );
+    const hasDenormalized = grTableInfo.some(
+      (c) => c.name === 'verified_source',
+    );
 
-    const updateStmt = hasAlsoReleasedAs
-      ? db.prepare(`
-          UPDATE game_releases
-          SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?,
-              variants = COALESCE(variants, ?),
-              also_released_as = COALESCE(also_released_as, ?)
-          WHERE id = ?
-        `)
-      : db.prepare(`
-          UPDATE game_releases
-          SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?,
-              variants = COALESCE(variants, ?)
-          WHERE id = ?
-        `);
+    const updateStmt =
+      hasAlsoReleasedAs && hasDenormalized
+        ? db.prepare(`
+            UPDATE game_releases
+            SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                variants = COALESCE(variants, ?),
+                also_released_as = COALESCE(also_released_as, ?),
+                verified_source = ?,
+                serial_code = ?,
+                canonical_title = ?,
+                publisher = ?
+            WHERE id = ?
+          `)
+        : hasAlsoReleasedAs
+          ? db.prepare(`
+              UPDATE game_releases
+              SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                  variants = COALESCE(variants, ?),
+                  also_released_as = COALESCE(also_released_as, ?)
+              WHERE id = ?
+            `)
+          : db.prepare(`
+              UPDATE game_releases
+              SET id = ?, canonical_release_id = ?, rom_name = ?, rom_crc = ?,
+                  variants = COALESCE(variants, ?)
+              WHERE id = ?
+            `);
 
     // Check if user_game_releases table exists to cascade primary key renames
     const ugrTableInfo = db.pragma('table_info(user_game_releases)') as Array<{
@@ -1574,7 +1818,21 @@ export function reconcileGameReleasesWithCanonical(
 
     const applyTx = db.transaction(() => {
       for (const u of updates) {
-        if (hasAlsoReleasedAs) {
+        if (hasAlsoReleasedAs && hasDenormalized) {
+          updateStmt.run(
+            u.newReleaseId || u.releaseId,
+            u.canonicalId,
+            u.romName,
+            u.romCrc,
+            u.variants || null,
+            u.alsoReleasedAs || null,
+            u.verifiedSource ?? 'dat',
+            u.serialCode ?? null,
+            u.canonicalTitle ?? null,
+            u.publisher ?? null,
+            u.releaseId,
+          );
+        } else if (hasAlsoReleasedAs) {
           updateStmt.run(
             u.newReleaseId || u.releaseId,
             u.canonicalId,
