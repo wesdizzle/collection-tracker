@@ -122,6 +122,32 @@
                 }}</span>
               </div>
             }
+            @if (getPrimaryVerificationLink(g); as verifyLink) {
+              @if (verifyLink.url) {
+                <a
+                  [href]="verifyLink.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="stat-pill active physical interactive"
+                  data-testid="primary-verification-link"
+                  [title]="verifyLink.tooltip"
+                >
+                  <span class="icon"><app-icon name="link" [size]="14" /></span>
+                  <span>{{ verifyLink.label }} ↗</span>
+                </a>
+              } @else {
+                <span
+                  class="stat-pill active physical"
+                  data-testid="primary-verification-badge"
+                  [title]="verifyLink.tooltip"
+                >
+                  <span class="icon"
+                    ><app-icon name="verified-badge" [size]="14"
+                  /></span>
+                  <span>{{ verifyLink.label }}</span>
+                </span>
+              }
+            }
           </div>
         } @else if (toy(); as t) {
           <div class="quick-stats flex gap-sm items-center">
@@ -389,6 +415,31 @@
                                   <span class="variant-badge region-badge">{{
                                     release.region
                                   }}</span>
+                                }
+                                @if (
+                                  getReleaseVerificationLink(g, release);
+                                  as relLink
+                                ) {
+                                  @if (relLink.url) {
+                                    <a
+                                      [href]="relLink.url"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      class="variant-badge meta-link"
+                                      data-testid="release-verification-link"
+                                      [title]="relLink.tooltip"
+                                    >
+                                      {{ relLink.label }} ↗
+                                    </a>
+                                  } @else {
+                                    <span
+                                      class="variant-badge"
+                                      data-testid="release-verification-badge"
+                                      [title]="relLink.tooltip"
+                                    >
+                                      {{ relLink.label }}
+                                    </span>
+                                  }
                                 }
                                 @if (
                                   release.is_companion_base_disc &&

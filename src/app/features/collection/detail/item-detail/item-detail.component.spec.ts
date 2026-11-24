@@ -1320,5 +1320,91 @@ describe('ItemDetailComponent', () => {
       ) as HTMLAnchorElement | null;
       expect(otherLink?.getAttribute('href')).toBe('/game/387?release=387-1');
     });
+
+    it('renders clickable source-aware external verification links and manual badge without link', async () => {
+      vi.spyOn(collectionService, 'canTrackIndividualMedia').mockReturnValue(
+        true,
+      );
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          stable_id: 901,
+          id: 'ps4-bb',
+          platform_id: 34,
+          platform: 'PlayStation 4',
+          title: 'Bloodborne',
+          releases: [
+            {
+              id: 'ps4-bb-1',
+              game_id: 901,
+              region: 'USA',
+              serial_code: 'CUSA-00900',
+              source: 'dat',
+              has_media: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '901', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const primaryLink = compiled.querySelector(
+        '[data-testid="primary-verification-link"]',
+      ) as HTMLAnchorElement | null;
+      expect(primaryLink?.getAttribute('href')).toBe(
+        'https://redump.org/discs/quicksearch/CUSA-00900',
+      );
+      expect(primaryLink?.getAttribute('target')).toBe('_blank');
+      expect(primaryLink?.getAttribute('rel')).toBe('noopener noreferrer');
+
+      const relLink = compiled.querySelector(
+        '[data-testid="release-verification-link"]',
+      ) as HTMLAnchorElement | null;
+      expect(relLink?.textContent).toContain('Redump');
+      expect(relLink?.getAttribute('href')).toBe(
+        'https://redump.org/discs/quicksearch/CUSA-00900',
+      );
+
+      // Manual verification renders non-link badge
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          stable_id: 902,
+          id: 'manual-game',
+          platform_id: 49,
+          platform: 'Xbox One',
+          title: 'Manual Disc',
+          manually_verified: 1,
+          releases: [
+            {
+              id: 'manual-rel',
+              game_id: 902,
+              region: 'USA',
+              has_media: 1,
+              ownership_status: 1,
+              is_source_verified: 1,
+            },
+          ],
+        }),
+      );
+      paramMapSubject.next(convertToParamMap({ id: '902', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const manualBadge = compiled.querySelector(
+        '[data-testid="primary-verification-badge"]',
+      ) as HTMLElement | null;
+      expect(manualBadge?.textContent).toContain('Manually Verified');
+      expect(
+        compiled.querySelector('[data-testid="primary-verification-link"]'),
+      ).toBeNull();
+    });
   });
 });

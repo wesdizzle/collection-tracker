@@ -53,6 +53,10 @@ import { NavigationHistoryService } from '../../../../core/services/navigation-h
 import { IconComponent } from '../../../../shared/components/icon/icon.component';
 import { IconName } from '../../../../shared/components/icon/icon.catalog';
 import { ItemMarketPriceComponent } from '../item-market-price/item-market-price.component';
+import {
+  getVerificationSourceLink,
+  VerificationSourceLink,
+} from '../../../../../../shared/verification_links';
 
 @Component({
   selector: 'app-item-detail',
@@ -949,6 +953,38 @@ export class ItemDetailComponent {
       return `${getMediaNoun(platform, false)} ${index + 1}`;
     }
     return isDisc ? 'Single Disc' : 'Single Cartridge';
+  }
+
+  public getReleaseVerificationLink(
+    game: Game,
+    release: GameRelease,
+  ): VerificationSourceLink | null {
+    return getVerificationSourceLink({
+      source: release.source,
+      platformId: game.platform_id,
+      title: release.title || game.title,
+      serialCode: release.serial_code,
+      retailUrl: game.retail_url,
+      manuallyVerified: game.manually_verified,
+    });
+  }
+
+  public getPrimaryVerificationLink(game: Game): VerificationSourceLink | null {
+    if (game.source || game.manually_verified) {
+      const direct = getVerificationSourceLink({
+        source: game.source,
+        platformId: game.platform_id,
+        title: game.title,
+        retailUrl: game.retail_url,
+        manuallyVerified: game.manually_verified,
+      });
+      if (direct) return direct;
+    }
+    for (const rel of game.releases || []) {
+      const relLink = this.getReleaseVerificationLink(game, rel);
+      if (relLink) return relLink;
+    }
+    return null;
   }
 
   onToggleDiscMediaOwned(release: GameRelease) {
