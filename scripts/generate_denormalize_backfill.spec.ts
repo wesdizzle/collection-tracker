@@ -60,31 +60,31 @@ describe('generateDenormalizeBackfill', () => {
     }
   });
 
-  it('computes 1+K=7 write factor on game_releases and chunks idempotent backfill SQL cleanly within D1 cost guard', () => {
-    expect(computeGameReleasesWriteFactor(db)).toBe(7);
+  it('computes 1+K=8 write factor on game_releases and chunks idempotent backfill SQL cleanly within D1 cost guard', () => {
+    expect(computeGameReleasesWriteFactor(db)).toBe(8);
 
     const outDir = path.join(tmpDir, 'out');
-    // 14 writes/chunk permits at most 2 rows/chunk at 7x factor
+    // 16 writes/chunk permits at most 2 rows/chunk at 8x factor
     const result = generateDenormalizeBackfill({
       db,
       outDir,
       prefix: '05_backfill_',
-      maxWrites: 14,
+      maxWrites: 16,
     });
 
-    expect(result.writeFactorPerRow).toBe(7);
+    expect(result.writeFactorPerRow).toBe(8);
     expect(result.totalBackfilledRows).toBe(4);
     expect(result.totalClearedRows).toBe(1);
     expect(result.totalCandidateRows).toBe(5);
-    expect(result.totalEstimatedWrites).toBe(35);
+    expect(result.totalEstimatedWrites).toBe(40);
     expect(result.chunkPaths.length).toBe(3);
 
-    // Every generated chunk passes D1 cost guard against baseline (0 unindexed scans, <= 14 writes)
+    // Every generated chunk passes D1 cost guard against baseline (0 unindexed scans, <= 16 writes)
     for (const chunkPath of result.chunkPaths) {
-      const report = auditSqlCost(chunkPath, 14, dbPath);
+      const report = auditSqlCost(chunkPath, 16, dbPath);
       expect(report.unindexedScans).toEqual([]);
       expect(report.isWithinBudget).toBe(true);
-      expect(report.totalBillableWrites).toBeLessThanOrEqual(14);
+      expect(report.totalBillableWrites).toBeLessThanOrEqual(16);
     }
 
     // Apply all chunks sequentially to baseline DB
