@@ -760,6 +760,22 @@ export async function syncCanonicalSources(
             byKey: Map<string, IndexedCanonicalRow[]>;
           }
         >();
+        const deletedCanonicalIds = new Set<number>();
+
+        const higherRegionCoversLower = (
+          higherRegion: string | null | undefined,
+          lowerRegion: string | null | undefined,
+        ): boolean => {
+          if (!regionsOverlap(higherRegion, lowerRegion)) return false;
+          const lowerTrim = (lowerRegion || '').trim().toLowerCase();
+          const higherTrim = (higherRegion || '').trim().toLowerCase();
+          const lowerIsWorld = !lowerTrim || lowerTrim === 'world';
+          const higherIsWorld = !higherTrim || higherTrim === 'world';
+          if (lowerIsWorld && !higherIsWorld) {
+            return false;
+          }
+          return true;
+        };
 
         const indexRowIntoPlatPool = (
           byKey: Map<string, IndexedCanonicalRow[]>,
@@ -813,6 +829,7 @@ export async function syncCanonicalSources(
             for (const cand of pool.byKey.get(k) || []) {
               if (seen.has(cand)) continue;
               seen.add(cand);
+              if (deletedCanonicalIds.has(cand.id)) continue;
               if (cand.is_verified_physical !== 1) continue;
               if (cand.source === excludeSource) continue;
               if ((cand.variants || null) !== relVar) continue;
@@ -824,8 +841,16 @@ export async function syncCanonicalSources(
               ) {
                 continue;
               }
-              if (!regionsOverlap(cand.region, rel.region || null)) {
-                continue;
+              const candPrio = getCanonicalSourcePriority(cand.source);
+              const relPrio = getCanonicalSourcePriority(excludeSource);
+              if (candPrio <= relPrio) {
+                if (!higherRegionCoversLower(cand.region, rel.region || null)) {
+                  continue;
+                }
+              } else {
+                if (!higherRegionCoversLower(rel.region || null, cand.region)) {
+                  continue;
+                }
               }
               matches.push(cand);
             }
@@ -1303,6 +1328,7 @@ export async function syncCanonicalSources(
             sqlStatements.push(
               `DELETE FROM canonical_releases WHERE ${obsoleteWhere};`,
             );
+            deletedCanonicalIds.add(obsolete.id);
             const poolIdx = platPool.rows.findIndex(
               (r) => r.id === obsolete.id,
             );
@@ -1372,7 +1398,11 @@ export async function syncCanonicalSources(
           if (isDryRun) {
             for (const platId of syncedNonDatPlatforms) {
               for (const row of getVerifiedPlatPool(platId).rows) {
-                if (row.is_verified_physical !== 1 || row.source === 'dat') {
+                if (
+                  row.is_verified_physical !== 1 ||
+                  row.source === 'dat' ||
+                  deletedCanonicalIds.has(row.id)
+                ) {
                   continue;
                 }
                 const candKey = `${row.platform_id}::${row.source}::${row.normalized_title}::${row.region || ''}::${row.variants || ''}`;

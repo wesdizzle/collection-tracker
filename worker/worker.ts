@@ -13233,7 +13233,32 @@ async function applyWorkerCanonicalHierarchyMerge(
       continue;
     }
 
-    candidates.sort((a, b) => {
+    const higherRegionCoversLower = (
+      higherRegion: string | null | undefined,
+      lowerRegion: string | null | undefined,
+    ): boolean => {
+      if (!regionsOverlap(higherRegion, lowerRegion)) return false;
+      const lowerTrim = (lowerRegion || '').trim().toLowerCase();
+      const higherTrim = (higherRegion || '').trim().toLowerCase();
+      const lowerIsWorld = !lowerTrim || lowerTrim === 'world';
+      const higherIsWorld = !higherTrim || higherTrim === 'world';
+      if (lowerIsWorld && !higherIsWorld) {
+        return false;
+      }
+      return true;
+    };
+
+    const incomingPrio = getCanonicalSourcePriority(rel.source);
+    const crossCandidates = candidates.filter((c) => {
+      if (c.source === rel.source) return true;
+      const existingPrio = getCanonicalSourcePriority(c.source);
+      if (existingPrio <= incomingPrio) {
+        return higherRegionCoversLower(c.region, regionVal);
+      }
+      return higherRegionCoversLower(regionVal, c.region);
+    });
+
+    crossCandidates.sort((a, b) => {
       const prioDiff =
         getCanonicalSourcePriority(a.source) -
         getCanonicalSourcePriority(b.source);
@@ -13241,10 +13266,9 @@ async function applyWorkerCanonicalHierarchyMerge(
       return (a.id || 0) - (b.id || 0);
     });
 
-    const bestExisting = candidates[0];
+    const bestExisting = crossCandidates[0];
     if (bestExisting) {
       const existingPrio = getCanonicalSourcePriority(bestExisting.source);
-      const incomingPrio = getCanonicalSourcePriority(rel.source);
       if (existingPrio <= incomingPrio) {
         const addSerial =
           !bestExisting.serial_code && serialVal ? serialVal : null;

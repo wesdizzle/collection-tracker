@@ -398,4 +398,139 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
     expect(sqlText).toContain("'canonical_releases_dirty'");
     expect(sqlText).toContain("'catalog_chunks_dirty'");
   });
+
+  it('prevents narrow-region World subsumption and never repoints to deleted absorbed canonical rows', async () => {
+    fs.writeFileSync(
+      path.join(sourcesDir, 'ps5db.csv'),
+      [
+        'Title,Developer,Game Publisher,Physical Publisher,Limited,ESRB SKU,PEGI Rating',
+        'Among Us,Innersloth,Innersloth,Maximum Games,-,-,-',
+        'Returnal,Housemarque,Sony,Sony Interactive Entertainment,-,PPSA-01284,-',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(sourcesDir, 'retail_backcatalog.json'),
+      JSON.stringify({
+        fetchedAt: '2026-11-24T00:00:00Z',
+        boutique: [],
+        lgn: [],
+        retail: [
+          {
+            store: 'VGP',
+            sku: 'VGP-RET',
+            upc: '711719545299',
+            name: 'Returnal - PlayStation 5',
+            regularPrice: 69.99,
+            salePrice: 69.99,
+            onSale: false,
+            percentSavings: 0,
+            url: 'https://videogamesplus.ca/returnal-ps5',
+            platform: 'PS5',
+            onlineAvailability: true,
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    db.exec(`
+      -- Case (a): Narrow Japan Tier 1 DAT must NOT absorb World Tier 3 PS5DB
+      INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical)
+      VALUES
+        (501, 35, 'Among Us', 'amongus', 'Japan', 'Among Us (Japan).iso', 'aaaa1111', 'dat', 1),
+        (502, 35, 'Among Us', 'amongus', 'World', NULL, NULL, 'ps5db', 1),
+      -- Case (b): Tier 1 USA DAT absorbs Tier 3 USA PS5DB; later Tier 4 USA retail_catalog must repoint to DAT (503), not deleted PS5DB (504)
+        (503, 35, 'Returnal', 'returnal', 'USA', 'Returnal (USA).iso', 'bbbb2222', 'dat', 1),
+        (504, 35, 'Returnal', 'returnal', 'USA', NULL, NULL, 'ps5db', 1),
+        (505, 35, 'Returnal - PlayStation 5', 'returnalplaystation5', 'USA', NULL, NULL, 'retail_catalog', 1);
+
+      INSERT INTO games (stable_id, id, title, platform_id)
+      VALUES
+        (3001, '3001', 'Among Us', 35),
+        (3002, '3002', 'Returnal', 35);
+      INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+      VALUES
+        ('3001-1', 3001, 'USA', 502),
+        ('3002-1', 3002, 'USA', 505);
+    `);
+
+    const summary = await syncCanonicalSources({
+      db,
+      sources: ['ps5db', 'retail'],
+      sourcesDir,
+      dryRun: false,
+      skipReconcile: true,
+      sqlOutputPath,
+    });
+    expect(summary.deletedCount).toBeGreaterThanOrEqual(2);
+
+    // (a) World PS5DB row (502) survived because Japan DAT (501) does not cover World
+    const amongUsWorld = db
+      .prepare(
+        'SELECT id, source, region FROM canonical_releases WHERE id = 502',
+      )
+      .get() as { id: number; source: string; region: string } | undefined;
+    expect(amongUsWorld).toMatchObject({
+      id: 502,
+      source: 'ps5db',
+      region: 'World',
+    });
+    const amongUsRel = db
+      .prepare(
+        "SELECT canonical_release_id FROM game_releases WHERE id = '3001-1'",
+      )
+      .get() as { canonical_release_id: number | null };
+    expect(amongUsRel.canonical_release_id).toBe(502);
+
+    // (b) Replay generated SQL on a clean pre-sync clone to verify SQL statements repoint 3002-1 to 503 (never deleted 504 -> NULL)
+    const preDb = new Database(':memory:');
+    preDb.exec(
+      fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      ),
+    );
+    preDb.exec(`
+      INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical)
+      VALUES
+        (501, 35, 'Among Us', 'amongus', 'Japan', 'Among Us (Japan).iso', 'aaaa1111', 'dat', 1),
+        (502, 35, 'Among Us', 'amongus', 'World', NULL, NULL, 'ps5db', 1),
+        (503, 35, 'Returnal', 'returnal', 'USA', 'Returnal (USA).iso', 'bbbb2222', 'dat', 1),
+        (504, 35, 'Returnal', 'returnal', 'USA', NULL, NULL, 'ps5db', 1),
+        (505, 35, 'Returnal - PlayStation 5', 'returnalplaystation5', 'USA', NULL, NULL, 'retail_catalog', 1);
+      INSERT INTO games (stable_id, id, title, platform_id)
+      VALUES (3001, '3001', 'Among Us', 35), (3002, '3002', 'Returnal', 35);
+      INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+      VALUES ('3001-1', 3001, 'USA', 502), ('3002-1', 3002, 'USA', 505);
+    `);
+    preDb.exec(fs.readFileSync(sqlOutputPath, 'utf8'));
+
+    const replayedAmong = preDb
+      .prepare(
+        "SELECT canonical_release_id, verified_source FROM game_releases WHERE id = '3001-1'",
+      )
+      .get() as {
+      canonical_release_id: number | null;
+      verified_source: string | null;
+    };
+    expect(replayedAmong).toEqual({
+      canonical_release_id: 502,
+      verified_source: 'ps5db',
+    });
+
+    const replayedReturnal = preDb
+      .prepare(
+        "SELECT canonical_release_id, verified_source FROM game_releases WHERE id = '3002-1'",
+      )
+      .get() as {
+      canonical_release_id: number | null;
+      verified_source: string | null;
+    };
+    expect(replayedReturnal).toEqual({
+      canonical_release_id: 503,
+      verified_source: 'dat',
+    });
+    preDb.close();
+  });
 });
