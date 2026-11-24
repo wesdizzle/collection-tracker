@@ -40,10 +40,7 @@ import {
   classifyCartridgeBudgetWithRecords,
 } from './lib/budget_sources.js';
 import { findRetailPackInDisc } from '../shared/special_labels.js';
-import {
-  extractDiscLabel,
-  isCuratedPsvrDemoDiscTitle,
-} from '../shared/source_format.js';
+import { extractDiscLabel } from '../shared/source_format.js';
 import { normalizeTitleForMatching } from '../shared/title_matching.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
 import { loadNeoGeoReleases } from './lib/sources/neogeo.js';
@@ -633,50 +630,16 @@ export async function syncCanonicalSources(
 
     const runSyncLoop = () => {
       if (runAllSources || selectedSources.has('dats')) {
-        const psvrTargetPlatform = targetPlatforms.find((p) => p.id === 51);
-        let psvrRoutedFromPs4 = false;
-
         for (const plat of targetPlatforms) {
           if (plat.id === 26 || plat.id === 27) {
             continue; // Switch 1 & 2 handled via Nintendo Revised & r/NSCollectors
-          }
-
-          if (plat.id === 51 && !psvrRoutedFromPs4) {
-            const ownDat = findDatFileForPlatform(db, 51);
-            if (!ownDat) {
-              const ps4Dat = findDatFileForPlatform(db, 34);
-              if (ps4Dat) {
-                const ps4Parsed = parseDatFile(ps4Dat.filePath);
-                const psvrEntries = ps4Parsed.releases.filter((r) =>
-                  isCuratedPsvrDemoDiscTitle(r.name),
-                );
-                if (psvrEntries.length > 0) {
-                  syncDatReleasesForPlatform(plat, psvrEntries);
-                }
-              }
-              continue;
-            }
           }
 
           const datInfo = findDatFileForPlatform(db, plat.id);
           if (!datInfo) continue;
 
           const parsed = parseDatFile(datInfo.filePath);
-          if (plat.id === 34) {
-            const psvrEntries = parsed.releases.filter((r) =>
-              isCuratedPsvrDemoDiscTitle(r.name),
-            );
-            const ps4Entries = parsed.releases.filter(
-              (r) => !isCuratedPsvrDemoDiscTitle(r.name),
-            );
-            syncDatReleasesForPlatform(plat, ps4Entries);
-            if (psvrTargetPlatform && psvrEntries.length > 0) {
-              syncDatReleasesForPlatform(psvrTargetPlatform, psvrEntries);
-              psvrRoutedFromPs4 = true;
-            }
-          } else {
-            syncDatReleasesForPlatform(plat, parsed.releases);
-          }
+          syncDatReleasesForPlatform(plat, parsed.releases);
         }
       }
 

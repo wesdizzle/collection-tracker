@@ -195,7 +195,7 @@ export async function bootstrapInstance(
     const curatedGamesCount = (
       db
         .prepare(
-          "SELECT COUNT(*) as c FROM games WHERE platform_id = 51 AND title LIKE 'PlayStation VR Demo Disc%'",
+          "SELECT COUNT(*) as c FROM games WHERE platform_id = 34 AND title LIKE 'PlayStation VR Demo Disc%'",
         )
         .get() as { c: number }
     ).c;

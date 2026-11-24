@@ -135,14 +135,14 @@ const PSP_PREFIXES = new Set([
 export function mapSerialStationTitleIdToPlatformId(
   titleId: string | null | undefined,
   consoleTags?: string[] | null,
-  isPsVr?: number | boolean | null,
+  _isPsVr?: number | boolean | null,
 ): number | null {
+  void _isPsVr;
   const cleanId = (titleId || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
   const prefix = cleanId.slice(0, 4);
-  const vrEnabled = Boolean(isPsVr);
 
-  if (PS5_PREFIXES.has(prefix)) return vrEnabled ? 52 : 35;
-  if (PS4_PREFIXES.has(prefix)) return vrEnabled ? 51 : 34;
+  if (PS5_PREFIXES.has(prefix)) return 35;
+  if (PS4_PREFIXES.has(prefix)) return 34;
   if (VITA_PREFIXES.has(prefix)) return 33;
   if (PS3_PREFIXES.has(prefix)) return 32;
   if (PSP_PREFIXES.has(prefix)) return 31;
@@ -151,12 +151,12 @@ export function mapSerialStationTitleIdToPlatformId(
   if (
     upperConsoles.some((c) => c.includes('PS5') || c.includes('PLAYSTATION 5'))
   ) {
-    return vrEnabled ? 52 : 35;
+    return 35;
   }
   if (
     upperConsoles.some((c) => c.includes('PS4') || c.includes('PLAYSTATION 4'))
   ) {
-    return vrEnabled ? 51 : 34;
+    return 34;
   }
   if (upperConsoles.some((c) => c.includes('VITA'))) return 33;
   if (

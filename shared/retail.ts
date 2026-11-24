@@ -55,10 +55,10 @@ export const RETAIL_TO_TRACKER_PLATFORM: Record<string, number> = {
   VITA: 33,
   'PlayStation Portable': 31,
   PSP: 31,
-  'PlayStation VR': 51,
-  PSVR: 51,
-  'PlayStation VR2': 52,
-  PSVR2: 52,
+  'PlayStation VR': 34,
+  PSVR: 34,
+  'PlayStation VR2': 35,
+  PSVR2: 35,
   'Nintendo Switch': 26,
   Switch: 26,
   NSW: 26,
@@ -140,10 +140,10 @@ export function resolveRetailPlatformId(
       return 26;
     }
     if (/\b(PlayStation\s*VR2|PS\s*VR2|PSVR2)\b\s*$/i.test(decoded)) {
-      return 52;
+      return 35;
     }
     if (/\b(PlayStation\s*VR|PS\s*VR|PSVR)\b\s*$/i.test(decoded)) {
-      return 51;
+      return 34;
     }
     if (/\b(PlayStation\s*5|PS5)\b\s*$/i.test(decoded)) {
       return 35;

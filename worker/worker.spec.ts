@@ -6240,7 +6240,7 @@ describe('Worker API Logic', () => {
           INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, summary, genres, manually_verified)
           VALUES
             (9601, '9601', 'Chrono Trigger', 15, 1111, NULL, NULL, NULL, 0),
-            (9602, '9602', 'PlayStation VR Demo Disc', 51, 2222, '/covers/playstation-vr-demo-disc-playstation-4.jpg', 'Curated summary', 'Demo Compilation', 1);
+            (9602, '9602', 'PlayStation VR Demo Disc', 34, 2222, '/covers/playstation-vr-demo-disc-playstation-4.jpg', 'Curated summary', 'Demo Compilation', 1);
         `);
 
         const fetchSpy = vi
@@ -6307,6 +6307,71 @@ describe('Worker API Logic', () => {
           expect(g2.summary).toBe('Curated summary');
           expect(g2.genres).toBe('Demo Compilation');
           expect(g2.igdb_url).toBe('https://www.igdb.com/games/psvr-demo');
+        } finally {
+          fetchSpy.mockRestore();
+        }
+      });
+
+      it('fetchIgdbMetadataForTitles queries PSVR (165) alongside PS4 (48) and PSVR2 (390) alongside PS5 (167)', async () => {
+        const capturedBodies: string[] = [];
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input, init) => {
+            const url = String(input);
+            if (url.includes('id.twitch.tv')) {
+              return Response.json({ access_token: 'tok', expires_in: 3600 });
+            }
+            if (url.includes('api.igdb.com/v4/multiquery')) {
+              capturedBodies.push(String(init?.body || ''));
+              return Response.json([
+                {
+                  name: 'q0',
+                  result: [
+                    {
+                      id: 7001,
+                      name: 'Astro Bot Rescue Mission',
+                      platforms: [165],
+                      url: 'https://www.igdb.com/games/astro-bot-rescue-mission',
+                    },
+                  ],
+                },
+                {
+                  name: 'q1',
+                  result: [
+                    {
+                      id: 7002,
+                      name: 'Horizon Call of the Mountain',
+                      platforms: [390],
+                      url: 'https://www.igdb.com/games/horizon-call-of-the-mountain',
+                    },
+                  ],
+                },
+              ]);
+            }
+            return new Response('[]', { status: 200 });
+          });
+
+        try {
+          const meta = await fetchIgdbMetadataForTitles(mockEnv, [
+            {
+              key: 'ps4-vr',
+              title: 'Astro Bot Rescue Mission',
+              normalizedTitle: 'astrobotrescuemission',
+              igdbPlatformId: 48,
+              trackerPlatformId: 34,
+            },
+            {
+              key: 'ps5-vr2',
+              title: 'Horizon Call of the Mountain',
+              normalizedTitle: 'horizoncallmountain',
+              igdbPlatformId: 167,
+              trackerPlatformId: 35,
+            },
+          ]);
+          expect(capturedBodies[0]).toContain('where platforms = (48,165)');
+          expect(capturedBodies[0]).toContain('where platforms = (167,390)');
+          expect(meta.get('ps4-vr')?.igdb_id).toBe(7001);
+          expect(meta.get('ps5-vr2')?.igdb_id).toBe(7002);
         } finally {
           fetchSpy.mockRestore();
         }

@@ -312,7 +312,7 @@ function cleanPlatformName(name: string): string {
 /**
  * Resolves platform ID to an array of platform IDs that are scanned together.
  * Specifically, NES (13) and Famicom (53) are mapped symmetrically,
- * and child platforms (e.g. PSVR under PS4, PSVR2 under PS5, New 3DS under 3DS)
+ * and child platforms (e.g. New 3DS under 3DS, Famicom under NES)
  * are included when scanning parent platforms.
  */
 export function getScannedPlatformIds(
@@ -335,8 +335,6 @@ export function getScannedPlatformIds(
     }
   } else {
     // Known hierarchy fallbacks
-    if (platformId === 34) ids.add(51); // PSVR under PS4
-    if (platformId === 35) ids.add(52); // PSVR2 under PS5
     if (platformId === 23) ids.add(25); // New 3DS under 3DS
   }
 
@@ -556,8 +554,8 @@ export function findDbPlatform(
     psp: 'playstation portable',
     psvita: 'playstation vita',
     vita: 'playstation vita',
-    psvr2: 'playstation vr2',
-    psvr: 'playstation vr',
+    psvr2: 'playstation 5',
+    psvr: 'playstation 4',
     'xbox 360': 'xbox 360',
     xbox360: 'xbox 360',
     'xbox one': 'xbox one',

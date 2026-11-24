@@ -250,7 +250,7 @@ export class OwnershipVerificationService {
       parent_platform_id: p.parent_platform_id ?? null,
     }));
 
-    // Ensure child platforms (like PSVR, PSVR2, New 3DS, Famicom) are represented even if PLATFORMS_LIST_QUERY only returned top-level platforms
+    // Ensure child/sister platforms (like New 3DS, Famicom) are represented even if PLATFORMS_LIST_QUERY only returned top-level platforms
     const knownChildPlatforms: PlatformRow[] = [
       {
         id: 25,
@@ -259,22 +259,6 @@ export class OwnershipVerificationService {
         brand: 'Nintendo',
         launch_date: '2015-02-13',
         parent_platform_id: 23,
-      },
-      {
-        id: 51,
-        name: 'playstation-vr',
-        display_name: 'PlayStation VR',
-        brand: 'PlayStation',
-        launch_date: '2016-10-13',
-        parent_platform_id: 34,
-      },
-      {
-        id: 52,
-        name: 'playstation-vr2',
-        display_name: 'PlayStation VR2',
-        brand: 'PlayStation',
-        launch_date: '2023-02-22',
-        parent_platform_id: 35,
       },
       {
         id: 53,

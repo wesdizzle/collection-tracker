@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { CanonicalRelease } from '../../../shared/canonical_releases.js';
+import { normalizeLegacyPlatformId } from '../../../shared/igdb_platforms.js';
 import {
   BoutiquePreOrder,
   fetchBoutiquePreOrders,
@@ -127,9 +128,12 @@ export function parseRetailBackCatalog(
 
   for (const item of snapshot.lgn || []) {
     const normTitle = normalizeTitleForMatching(item.cleanTitle);
-    if (!item.cleanTitle || !normTitle || !item.platformId) continue;
+    const platformId = item.platformId
+      ? normalizeLegacyPlatformId(item.platformId)
+      : null;
+    if (!item.cleanTitle || !normTitle || !platformId) continue;
     addRelease({
-      platform_id: item.platformId,
+      platform_id: platformId,
       raw_title: item.cleanTitle,
       normalized_title: normTitle,
       region: item.region || 'Asia',
@@ -146,9 +150,12 @@ export function parseRetailBackCatalog(
 
   for (const item of snapshot.boutique || []) {
     const normTitle = normalizeTitleForMatching(item.cleanTitle);
-    if (!item.cleanTitle || !normTitle || !item.platformId) continue;
+    const platformId = item.platformId
+      ? normalizeLegacyPlatformId(item.platformId)
+      : null;
+    if (!item.cleanTitle || !normTitle || !platformId) continue;
     addRelease({
-      platform_id: item.platformId,
+      platform_id: platformId,
       raw_title: item.cleanTitle,
       normalized_title: normTitle,
       region: item.region || 'USA',
@@ -165,7 +172,10 @@ export function parseRetailBackCatalog(
 
   for (const item of snapshot.retail || []) {
     if (isStandaloneToyListing(item)) continue;
-    const platformId = resolveRetailPlatformId(item.platform, item.name);
+    const rawPlatformId = resolveRetailPlatformId(item.platform, item.name);
+    const platformId = rawPlatformId
+      ? normalizeLegacyPlatformId(rawPlatformId)
+      : undefined;
     if (!platformId) continue;
     const cleanTitle = cleanRetailTitle(item.name);
     const normTitle = normalizeTitleForMatching(cleanTitle);

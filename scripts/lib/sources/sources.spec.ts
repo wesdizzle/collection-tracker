@@ -197,10 +197,10 @@ describe('Offline Canonical Source Adapters', () => {
       expect(mapSerialStationTitleIdToPlatformId('BCUS98114')).toBe(32);
       expect(mapSerialStationTitleIdToPlatformId('ULUS10509')).toBe(31);
       expect(mapSerialStationTitleIdToPlatformId('CUSA05685', ['PS4'], 1)).toBe(
-        51,
+        34,
       );
       expect(mapSerialStationTitleIdToPlatformId('PPSA09999', ['PS5'], 1)).toBe(
-        52,
+        35,
       );
 
       const requestedUrls: string[] = [];
@@ -276,7 +276,7 @@ describe('Offline Canonical Source Adapters', () => {
         variants: 'Launch Edition',
       });
       expect(loaded.find((r) => r.serial_code === 'CUSA05685')).toMatchObject({
-        platform_id: 51,
+        platform_id: 34,
         raw_title: 'Resident Evil 7 biohazard',
       });
 

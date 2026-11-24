@@ -267,33 +267,33 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(upcomingDigital.verification_tier).toBe(0);
     });
 
-    it('should verify child platforms like PSVR using parent platform canonical releases', () => {
-      const ps4Canonical = [
+    it('should verify child platforms like Famicom using parent platform canonical releases', () => {
+      const nesCanonical = [
         {
           id: 889900,
-          platform_id: 34, // PS4
-          raw_title: 'Astro Bot - Rescue Mission',
-          normalized_title: 'astrobotrescuemission',
+          platform_id: 13, // NES
+          raw_title: 'Super Mario Bros.',
+          normalized_title: 'mario',
           region: 'USA',
           variants: null,
-          rom_name: 'Astro Bot - Rescue Mission (USA).iso',
+          rom_name: 'Super Mario Bros. (USA).nes',
           rom_crc: '0F563151',
           source: 'dat' as const,
           is_verified_physical: 1,
         },
       ];
 
-      const psvrRes = detectPhysicalReleaseStatus({
-        platformId: 51, // PSVR
-        parentPlatformId: 34, // PS4
-        gameTitle: 'Astro Bot: Rescue Mission',
-        canonicalReleases: ps4Canonical,
+      const famicomRes = detectPhysicalReleaseStatus({
+        platformId: 53, // Famicom
+        parentPlatformId: 13, // NES
+        gameTitle: 'Super Mario Bros.',
+        canonicalReleases: nesCanonical,
       });
 
-      expect(psvrRes.physical_status).toBe('verified_physical');
-      expect(psvrRes.verification_tier).toBe(1);
-      expect(psvrRes.is_physical).toBe(true);
-      expect(psvrRes.physical_regions).toEqual(['USA']);
+      expect(famicomRes.physical_status).toBe('verified_physical');
+      expect(famicomRes.verification_tier).toBe(1);
+      expect(famicomRes.is_physical).toBe(true);
+      expect(famicomRes.physical_regions).toEqual(['USA']);
     });
 
     it('should correctly identify era discrepancies', () => {
@@ -1184,17 +1184,14 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       ).toBe(false);
     });
 
-    it('allows curated boxed PSVR Demo Discs on PSVR (51) and ignores them on PS4 (34)', () => {
+    it('allows curated boxed PSVR Demo Discs directly on PS4 (34)', () => {
       for (const title of [
         'PlayStation VR Demo Disc (USA)',
         'PlayStation VR Demo Disc 2.0 (USA)',
         'PlayStation VR Demo Disc 3 (USA)',
       ]) {
-        expect(isIgnoredFormatRelease(title, `${title}.iso`, 51, 'Demos')).toBe(
-          false,
-        );
         expect(isIgnoredFormatRelease(title, `${title}.iso`, 34, 'Demos')).toBe(
-          true,
+          false,
         );
       }
     });

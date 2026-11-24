@@ -157,8 +157,6 @@ const MODERN_CASED_NO_MANUAL_PLATFORM_IDS = new Set<number>([
   35, // PlayStation 5
   49, // Xbox One
   50, // Xbox Series X
-  51, // PlayStation VR
-  52, // PlayStation VR2
 ]);
 
 const PLATFORM_SEARCH_ALIASES: Record<number, { usa: string; alt?: string }> = {
@@ -212,8 +210,6 @@ const PLATFORM_SEARCH_ALIASES: Record<number, { usa: string; alt?: string }> = {
   48: { usa: 'Xbox 360' },
   49: { usa: 'Xbox One' },
   50: { usa: 'Xbox Series X' },
-  51: { usa: 'PSVR PS4' },
-  52: { usa: 'PSVR2 PS5' },
   53: { usa: 'Famicom' },
   54: { usa: 'Famicom Disk System' },
   55: { usa: 'Nintendo 64DD' },

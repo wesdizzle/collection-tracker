@@ -143,20 +143,12 @@ describe('Isomorphic Ownership Verifier & SKU Reconciler', () => {
       parent_platform_id: null,
     },
     {
-      id: 51,
-      name: 'playstation-vr',
-      display_name: 'PlayStation VR',
-      brand: 'PlayStation',
-      launch_date: '2016-10-13',
-      parent_platform_id: 34,
-    },
-    {
       id: 53,
       name: 'famicom',
       display_name: 'Famicom',
       brand: 'Nintendo',
       launch_date: '1983-07-15',
-      parent_platform_id: null,
+      parent_platform_id: 13,
     },
   ];
 
@@ -168,13 +160,12 @@ describe('Isomorphic Ownership Verifier & SKU Reconciler', () => {
     });
 
     it('should dynamically resolve child platforms from platform hierarchy', () => {
-      const ps4Scanned = getScannedPlatformIds(34, mockPlatforms);
-      expect(ps4Scanned).toContain(34);
-      expect(ps4Scanned).toContain(51);
-
       const ds3Scanned = getScannedPlatformIds(23, mockPlatforms);
       expect(ds3Scanned).toContain(23);
       expect(ds3Scanned).toContain(25);
+
+      const ps4Scanned = getScannedPlatformIds(34, mockPlatforms);
+      expect(ps4Scanned).toEqual([34]);
     });
   });
 

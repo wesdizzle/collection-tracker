@@ -233,22 +233,22 @@ describe('CollectionListComponent', () => {
 
     const initPromise = component.ngOnInit();
 
-    // PS4 (id 34), PSVR (id 51, parent 34)
+    // NES (id 13), Famicom (id 53, parent 13)
     httpMock.expectOne('/api/games').flush([
       {
-        id: 'ps4-game',
-        title: 'PS4 Game',
-        platform_id: 34,
+        id: 'nes-game',
+        title: 'NES Game',
+        platform_id: 13,
         ownership_status: 1,
-        platform: 'PS4',
+        platform: 'NES',
       },
       {
-        id: 'psvr-game',
-        title: 'PSVR Game',
-        platform_id: 51,
-        parent_platform_id: 34,
+        id: 'famicom-game',
+        title: 'Famicom Game',
+        platform_id: 53,
+        parent_platform_id: 13,
         ownership_status: 1,
-        platform: 'PSVR',
+        platform: 'Famicom',
       },
     ]);
     httpMock.expectOne('/api/toys').flush([]);
@@ -256,8 +256,8 @@ describe('CollectionListComponent', () => {
 
     await initPromise;
 
-    // Filter by PS4
-    component.filters.set({ ownership: 'all', platform_id: 34 });
+    // Filter by NES
+    component.filters.set({ ownership: 'all', platform_id: 13 });
     expect(component.filteredGames().length).toBe(2);
   });
 

@@ -27,7 +27,7 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
       skipDatsSync: true,
     });
 
-    expect(result.platformsCount).toBe(55);
+    expect(result.platformsCount).toBe(53);
     expect(result.toySeriesCount).toBe(41);
     expect(result.retiredToysCount).toBe(547);
     expect(result.curatedGamesCount).toBe(3);
@@ -45,7 +45,7 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
     ).c;
     const curatedPsvr = db
       .prepare(
-        "SELECT title, platform_id, image_url, manually_verified FROM games WHERE platform_id = 51 AND title LIKE 'PlayStation VR Demo Disc%' ORDER BY title ASC",
+        "SELECT title, platform_id, image_url, manually_verified FROM games WHERE platform_id = 34 AND title LIKE 'PlayStation VR Demo Disc%' ORDER BY title ASC",
       )
       .all() as Array<{
       title: string;
@@ -59,7 +59,7 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
     expect(starlink).toBe(35);
     expect(curatedPsvr).toHaveLength(3);
     for (const row of curatedPsvr) {
-      expect(row.platform_id).toBe(51);
+      expect(row.platform_id).toBe(34);
       expect(row.image_url).toMatch(/^\/covers\/playstation-vr-demo-disc/);
       expect(row.manually_verified).toBe(1);
     }

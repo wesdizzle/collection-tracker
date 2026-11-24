@@ -146,7 +146,7 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
     expect(rerun.linkedNonDatReleases).toBe(0);
   });
 
-  it('filters ignored Redump <category> releases and routes PSVR Demo Discs from PS4 (34) DAT onto PSVR (51)', async () => {
+  it('filters ignored Redump <category> releases while keeping curated PSVR Demo Discs directly on PS4 (34)', async () => {
     const datsDir = path.join(tmpDir, 'dats');
     fs.mkdirSync(datsDir, { recursive: true });
     fs.writeFileSync(
@@ -200,8 +200,8 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
 
       expect(rows).toEqual([
         { platform_id: 34, raw_title: 'Bloodborne' },
-        { platform_id: 51, raw_title: 'PlayStation VR Demo Disc' },
-        { platform_id: 51, raw_title: 'PlayStation VR Demo Disc 2.0' },
+        { platform_id: 34, raw_title: 'PlayStation VR Demo Disc' },
+        { platform_id: 34, raw_title: 'PlayStation VR Demo Disc 2.0' },
       ]);
     } finally {
       cwdSpy.mockRestore();

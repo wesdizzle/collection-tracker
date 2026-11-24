@@ -69,6 +69,12 @@ import {
   DEFAULT_USER_HOME_REGION,
 } from '../shared/queries';
 import {
+  getIgdbCompanionPlatformIds,
+  getIgdbQueryPlatformIds,
+  normalizeLegacyPlatformId,
+  registerIgdbAliasPlatforms,
+} from '../shared/igdb_platforms';
+import {
   isIgnoredFormatRelease,
   isPackInCompanionDemoRom,
   isRegionMatchingHome,
@@ -509,14 +515,7 @@ export async function getCachedPlatformMetadata(env: Env): Promise<{
   });
 
   // Map regional/VR IGDB platform IDs to unified parent local platforms
-  const nesEntry = igdbToPlatformId.get(18);
-  if (nesEntry) igdbToPlatformId.set(99, nesEntry);
-  const snesEntry = igdbToPlatformId.get(19);
-  if (snesEntry) igdbToPlatformId.set(58, snesEntry);
-  const ps4Entry = igdbToPlatformId.get(48);
-  if (ps4Entry) igdbToPlatformId.set(165, ps4Entry);
-  const ps5Entry = igdbToPlatformId.get(167);
-  if (ps5Entry) igdbToPlatformId.set(390, ps5Entry);
+  registerIgdbAliasPlatforms(igdbToPlatformId);
 
   cachedPlatformMetadata = {
     parentMap,
@@ -588,28 +587,7 @@ export function extractIgdbPlatformIds(
   return out;
 }
 
-export function getIgdbCompanionPlatformIds(igdbPlatformId: number): number[] {
-  switch (igdbPlatformId) {
-    case 18:
-      return [18, 99];
-    case 99:
-      return [99, 18];
-    case 19:
-      return [19, 58];
-    case 58:
-      return [58, 19];
-    case 48:
-      return [48, 165];
-    case 165:
-      return [165, 48];
-    case 167:
-      return [167, 390];
-    case 390:
-      return [390, 167];
-    default:
-      return [igdbPlatformId];
-  }
-}
+export { getIgdbCompanionPlatformIds };
 
 function toIsoDateFromIgdbValue(
   val: number | string | null | undefined,
@@ -3988,7 +3966,12 @@ async function loadPlatformLookupMaps(env: Env): Promise<{
         parentPlatformId: row.parent_platform_id ?? null,
       };
       byId.set(entry.id, entry);
-      if (entry.igdbId && entry.igdbId > 0 && !byIgdbId.has(entry.igdbId)) {
+      if (
+        normalizeLegacyPlatformId(entry.id) === entry.id &&
+        entry.igdbId &&
+        entry.igdbId > 0 &&
+        !byIgdbId.has(entry.igdbId)
+      ) {
         byIgdbId.set(entry.igdbId, entry);
       }
     }
@@ -4017,7 +4000,12 @@ async function loadPlatformLookupMaps(env: Env): Promise<{
           parentPlatformId: null,
         };
         byId.set(entry.id, entry);
-        if (entry.igdbId && entry.igdbId > 0 && !byIgdbId.has(entry.igdbId)) {
+        if (
+          normalizeLegacyPlatformId(entry.id) === entry.id &&
+          entry.igdbId &&
+          entry.igdbId > 0 &&
+          !byIgdbId.has(entry.igdbId)
+        ) {
           byIgdbId.set(entry.igdbId, entry);
         }
       }
@@ -4025,14 +4013,7 @@ async function loadPlatformLookupMaps(env: Env): Promise<{
       // Minimal test schemas may omit the platforms table
     }
   }
-  const nes = byIgdbId.get(18);
-  if (nes && !byIgdbId.has(99)) byIgdbId.set(99, nes);
-  const snes = byIgdbId.get(19);
-  if (snes && !byIgdbId.has(58)) byIgdbId.set(58, snes);
-  const ps4 = byIgdbId.get(48);
-  if (ps4 && !byIgdbId.has(165)) byIgdbId.set(165, ps4);
-  const ps5 = byIgdbId.get(167);
-  if (ps5 && !byIgdbId.has(390)) byIgdbId.set(390, ps5);
+  registerIgdbAliasPlatforms(byIgdbId);
   return { byId, byIgdbId };
 }
 
@@ -14221,6 +14202,7 @@ export async function syncWorkerUnmatchedIgdbRetry(
     title: string;
     normalizedTitle: string;
     igdbPlatformId: number | null;
+    trackerPlatformId?: number | null;
     platformLaunchDate?: string | null;
   }> = [];
 
@@ -14238,6 +14220,7 @@ export async function syncWorkerUnmatchedIgdbRetry(
       title: row.title,
       normalizedTitle: normTitle,
       igdbPlatformId: plat.igdbId,
+      trackerPlatformId: plat.id,
       platformLaunchDate: plat.launchDate,
     });
   }
@@ -15432,6 +15415,7 @@ export async function fetchIgdbMetadataForTitles(
     title: string;
     normalizedTitle: string;
     igdbPlatformId: number | null;
+    trackerPlatformId?: number | null;
     platformLaunchDate?: string | null;
   }>,
 ): Promise<Map<string, IgdbGameMeta>> {
@@ -15440,8 +15424,10 @@ export async function fetchIgdbMetadataForTitles(
 
   const eligible = items.filter(
     (i) =>
-      i.igdbPlatformId &&
-      i.igdbPlatformId > 0 &&
+      ((i.igdbPlatformId && i.igdbPlatformId > 0) ||
+        (i.trackerPlatformId != null &&
+          getIgdbQueryPlatformIds(i.trackerPlatformId, i.igdbPlatformId)
+            .length > 0)) &&
       i.normalizedTitle &&
       buildIgdbSearchTokens(i.title).length > 0,
   );
@@ -15454,9 +15440,15 @@ export async function fetchIgdbMetadataForTitles(
       .map((item, idx) => {
         const tokens = buildIgdbSearchTokens(getQueryTitle(item));
         if (tokens.length === 0) return null;
-        const platformIds = getIgdbCompanionPlatformIds(
-          item.igdbPlatformId as number,
-        ).join(',');
+        const resolvedPlatformIds =
+          item.trackerPlatformId != null
+            ? getIgdbQueryPlatformIds(
+                item.trackerPlatformId,
+                item.igdbPlatformId,
+              )
+            : getIgdbCompanionPlatformIds(item.igdbPlatformId as number);
+        if (resolvedPlatformIds.length === 0) return null;
+        const platformIds = resolvedPlatformIds.join(',');
         const buildFieldClause = (field: string) =>
           tokens.length === 1
             ? `${field} ~ *"${tokens[0]}"*`
@@ -15477,10 +15469,17 @@ export async function fetchIgdbMetadataForTitles(
       const idx = parseInt((entry.name || '').replace(/^q/, ''), 10);
       const item = Number.isFinite(idx) ? chunk[idx] : undefined;
       if (!item) continue;
+      const effectiveIgdbPlatformId =
+        item.igdbPlatformId && item.igdbPlatformId > 0
+          ? item.igdbPlatformId
+          : (getIgdbQueryPlatformIds(
+              item.trackerPlatformId as number,
+              item.igdbPlatformId,
+            )[0] ?? 0);
       const match = selectStrictIgdbMatch(
         entry.result || [],
         item.normalizedTitle,
-        item.igdbPlatformId as number,
+        effectiveIgdbPlatformId,
         {
           rawTitle: item.title,
           platformLaunchDate: item.platformLaunchDate,
@@ -16620,6 +16619,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     title: string;
     normalizedTitle: string;
     igdbPlatformId: number | null;
+    trackerPlatformId?: number | null;
     platformLaunchDate?: string | null;
   }> = [];
   for (const [key, group] of groupsMap) {
@@ -16631,6 +16631,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       title,
       normalizedTitle: normalizeTitleForMatching(title),
       igdbPlatformId: platformIgdbIdById.get(group.platform_id) ?? null,
+      trackerPlatformId: group.platform_id,
       platformLaunchDate: platformLaunchDateById.get(group.platform_id) ?? null,
     });
   }

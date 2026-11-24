@@ -637,14 +637,13 @@ export function isIgnoredFormatRelease(
     return false;
   }
 
-  // The three retail boxed PSVR Demo Discs belong on PlayStation VR (51),
-  // never duplicated under PlayStation 4 (34).
+  // The three retail boxed PSVR Demo Discs are official physical PS4 (34) media
+  // even when categorized under Redump `<category>Demos</category>`.
   if (
     isCuratedPsvrDemoDiscTitle(releaseName) ||
     isCuratedPsvrDemoDiscTitle(romName)
   ) {
-    if (platformId === 51) return false;
-    if (platformId === 34) return true;
+    if (platformId === 34) return false;
   }
 
   // Honor authoritative Redump XML <category> classification (retaining Games,

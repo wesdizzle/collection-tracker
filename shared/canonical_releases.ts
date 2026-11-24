@@ -405,8 +405,6 @@ export const ACTIVE_OR_INCOMPLETE_SOURCE_PLATFORM_IDS = new Set<number>([
   35, // PlayStation 5
   49, // Xbox One
   50, // Xbox Series X
-  51, // PlayStation VR
-  52, // PlayStation VR2
 ]);
 export const ACTIVE_OR_INCOMPLETE_DAT_PLATFORM_IDS =
   ACTIVE_OR_INCOMPLETE_SOURCE_PLATFORM_IDS;

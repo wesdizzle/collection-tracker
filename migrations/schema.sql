@@ -334,8 +334,6 @@ INSERT OR IGNORE INTO platforms (id, name, brand, launch_date, image_url, descri
   (48, 'Xbox 360', 'Xbox', '2005-11-22', NULL, NULL, 'Xbox 360', 12, NULL),
   (49, 'Xbox One', 'Xbox', '2013-11-22', NULL, NULL, 'Xbox One', 49, NULL),
   (50, 'Xbox Series X', 'Xbox', '2020-11-10', NULL, NULL, 'Xbox Series X', 169, NULL),
-  (51, 'PlayStation VR', 'PlayStation', '2016-10-13', NULL, NULL, 'PlayStation VR', 165, 34),
-  (52, 'PlayStation VR2', 'PlayStation', '2023-02-22', NULL, NULL, 'PlayStation VR2', 390, 35),
   (53, 'Famicom', 'Nintendo', '1983-07-15', NULL, NULL, 'Famicom', 99, 13),
   (54, 'Famicom Disk System', 'Nintendo', '1986-02-21', NULL, NULL, 'Famicom Disk System', 51, NULL),
   (55, 'Nintendo 64DD', 'Nintendo', '1999-12-01', NULL, NULL, 'Nintendo 64DD', 416, NULL);

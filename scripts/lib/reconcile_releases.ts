@@ -1116,7 +1116,7 @@ export function reconcileGameReleasesWithCanonical(
     }
   }
 
-  // Map parent platform relationships (e.g. PSVR 51 -> PS4 34, PSVR2 52 -> PS5 35)
+  // Map parent platform relationships (e.g. New 3DS 25 -> 3DS 23, Famicom 53 -> NES 13)
   const parentPlatformMap = new Map<number, number>();
   try {
     const platformRows = db
