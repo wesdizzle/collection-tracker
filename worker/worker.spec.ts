@@ -44,11 +44,13 @@ import worker, {
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
   resolveCatalogManifest,
+  resolveWorkerPlanTier,
   selectStrictIgdbMatch,
   syncOrResolveOidcUser,
   syncWorkerAmiiboCatalog,
   syncWorkerBoutiquePreOrders,
   syncWorkerBroadCatalogPopulation,
+  syncWorkerDats,
   syncWorkerIgdbSeriesAndCanonical,
   syncWorkerLaunchDayNotifications,
   syncWorkerNsCollectors,
@@ -544,15 +546,13 @@ describe('Worker API Logic', () => {
 
     mockBucket.storage.clear();
 
-    const scheduledEvent = {
-      cron: '*/30 * * * *',
-      type: 'scheduled',
-      scheduledTime: Date.now(),
-    } as unknown as ScheduledEvent;
-
-    // Outside daily window (e.g. 12:00 UTC)
     const originalDate = globalThis.Date;
     const mockNow = new Date('2026-10-18T12:00:00Z');
+    const scheduledEvent = {
+      cron: '0 * * * *',
+      type: 'scheduled',
+      scheduledTime: mockNow.getTime(),
+    } as unknown as ScheduledEvent;
     globalThis.Date = class extends originalDate {
       constructor() {
         super();
@@ -2892,10 +2892,11 @@ describe('Worker API Logic', () => {
 
   describe('Scheduled Cron & Multi-User Execution', () => {
     it('scheduled cron gates boutique pre-order sync to 1-hour interval', async () => {
+      const slot06Ms = Date.parse('2026-11-18T06:00:00Z');
       const scheduledEvent = {
-        cron: '*/30 * * * *',
+        cron: '0 * * * *',
         type: 'scheduled',
-        scheduledTime: Date.now(),
+        scheduledTime: slot06Ms,
       } as unknown as ScheduledEvent;
 
       const fetchSpy = vi
@@ -7932,9 +7933,9 @@ describe('Worker API Logic', () => {
       try {
         await worker.scheduled(
           {
-            cron: '*/30 * * * *',
+            cron: '0 * * * *',
             type: 'scheduled',
-            scheduledTime: Date.now(),
+            scheduledTime: mockNow.getTime(),
           } as unknown as ScheduledEvent,
           mockEnv,
           {} as ExecutionContext,
@@ -11022,6 +11023,225 @@ describe('Worker API Logic', () => {
         expect(failRes.nextOffset).toBe(100);
       } finally {
         bothFailSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('Hourly 24-Slot Cron Dispatcher, In-Worker DAT Sync & Paid/Free Tier Switch', () => {
+    it('GET/POST /api/admin/plan-tier enforces admin auth, validates tier, and exposes workerPlanTier in /api/admin/catalog-seed', async () => {
+      expect(await resolveWorkerPlanTier(mockEnv)).toBe('paid');
+
+      const unauthRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/admin/plan-tier',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Origin: 'https://collection-tracker.example.com',
+            },
+            body: JSON.stringify({ tier: 'free' }),
+          },
+        ),
+        {
+          ...mockEnv,
+          OIDC_ISSUER: 'https://issuer.example.com',
+          OIDC_CLIENT_ID: 'client-1',
+        },
+      );
+      expect(unauthRes.status).toBe(403);
+
+      const adminToken = await signSession(
+        { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+        mockEnv.SESSION_SECRET!,
+      );
+      const adminHeaders = {
+        'Content-Type': 'application/json',
+        Origin: 'https://collection-tracker.example.com',
+        Cookie: `${HOST_SESSION_COOKIE}=${adminToken}`,
+      };
+
+      const badRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/admin/plan-tier',
+          {
+            method: 'POST',
+            headers: adminHeaders,
+            body: JSON.stringify({ tier: 'enterprise' }),
+          },
+        ),
+        mockEnv,
+      );
+      expect(badRes.status).toBe(400);
+
+      const toFreeRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/admin/plan-tier',
+          {
+            method: 'POST',
+            headers: adminHeaders,
+            body: JSON.stringify({ tier: 'free' }),
+          },
+        ),
+        mockEnv,
+      );
+      expect(toFreeRes.status).toBe(200);
+      expect(
+        (await toFreeRes.json()) as { success: boolean; tier: string },
+      ).toMatchObject({ success: true, tier: 'free' });
+      expect(await resolveWorkerPlanTier(mockEnv)).toBe('free');
+
+      const seedStatusRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/admin/catalog-seed',
+          {
+            headers: { Cookie: adminHeaders.Cookie },
+          },
+        ),
+        mockEnv,
+      );
+      expect(seedStatusRes.status).toBe(200);
+      const seedStatus = (await seedStatusRes.json()) as {
+        workerPlanTier: string;
+        catalogDelivery: { mode: string };
+        workerDatSync: { retroCursor: number };
+      };
+      expect(seedStatus.workerPlanTier).toBe('free');
+      expect(seedStatus.catalogDelivery.mode).toBe('d1-edge-cache');
+      expect(typeof seedStatus.workerDatSync.retroCursor).toBe('number');
+    });
+
+    it('routes isolated UTC hour slots, logs SKIPPED (free_tier_mode) in free tier, and keeps 00:00 UTC backups running', async () => {
+      db.prepare(
+        `INSERT OR REPLACE INTO sync_state (key, value) VALUES ('worker_plan_tier', 'free')`,
+      ).run();
+      await markDbDirty(mockEnv);
+      mockBucket.storage.clear();
+
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(
+          new Response(JSON.stringify({ products: [] }), { status: 200 }),
+        );
+
+      try {
+        // Hour 05 UTC in free tier -> retail_preorders skipped without fetching
+        await worker.scheduled(
+          {
+            cron: '0 * * * *',
+            type: 'scheduled',
+            scheduledTime: Date.parse('2026-11-24T05:00:00Z'),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        expect(fetchSpy).not.toHaveBeenCalled();
+        const cronLogs = logSpy.mock.calls
+          .map(([arg]) => arg)
+          .filter(
+            (a): a is Record<string, unknown> =>
+              typeof a === 'object' &&
+              a !== null &&
+              (a as Record<string, unknown>)['event'] === 'cron_execution',
+          );
+        expect(
+          cronLogs.some(
+            (l) =>
+              l['job_name'] === 'retail_preorders' &&
+              l['status'] === 'SKIPPED' &&
+              l['summary'] === 'SKIPPED (free_tier_mode)',
+          ),
+        ).toBe(true);
+
+        // Hour 00 UTC in free tier -> daily R2 backup STILL runs!
+        await worker.scheduled(
+          {
+            cron: '0 * * * *',
+            type: 'scheduled',
+            scheduledTime: Date.parse('2026-11-24T00:00:00Z'),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerDats parses fetched XML DAT, links unlinked game_releases, and SHA-256 hash-skips repeat unchanged runs', async () => {
+      db.prepare(
+        `INSERT OR IGNORE INTO platforms (id, name, display_name) VALUES (35, 'ps5', 'PlayStation 5')`,
+      ).run();
+      const insG = db
+        .prepare(
+          `INSERT INTO games (id, title, platform_id) VALUES ('ps5-dat-test', 'Returnal', 35)`,
+        )
+        .run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region) VALUES ('ps5-dat-rel', ?, 'USA')`,
+      ).run(insG.lastInsertRowid);
+
+      const sampleXml = `<?xml version="1.0"?>
+<datafile>
+  <header><name>Sony - PlayStation 5 - Datfile</name></header>
+  <game name="Returnal (USA)">
+    <category>Games</category>
+    <serial>PPSA-01284</serial>
+    <rom name="Returnal (USA).iso" size="1024" crc="abcdef12"/>
+  </game>
+</datafile>`;
+
+      let getCalls = 0;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (_input, init) => {
+          if (init?.method === 'HEAD') {
+            return new Response(null, {
+              status: 200,
+              headers: { ETag: '"dat-v1"' },
+            });
+          }
+          getCalls++;
+          return new Response(sampleXml, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/xml',
+              ETag: '"dat-v1"',
+            },
+          });
+        });
+
+      try {
+        const res1 = await syncWorkerDats(mockEnv, { targetSlugs: ['ps5'] });
+        expect(res1.skipped).toBe(false);
+        expect(res1.targetsUpdated).toBe(1);
+        expect(res1.addedCanonical).toBe(1);
+        expect(res1.linkedReleases).toBe(1);
+        expect(getCalls).toBe(1);
+
+        const linkedRel = db
+          .prepare(
+            `SELECT canonical_release_id, verified_source, serial_code FROM game_releases WHERE id = 'ps5-dat-rel'`,
+          )
+          .get() as {
+          canonical_release_id: number | null;
+          verified_source: string | null;
+          serial_code: string | null;
+        };
+        expect(linkedRel.canonical_release_id).not.toBeNull();
+        expect(linkedRel.verified_source).toBe('dat');
+        expect(linkedRel.serial_code).toBe('PPSA-01284');
+
+        // Second run: ETag unchanged via HEAD -> zero GET fetches and zero writes
+        const res2 = await syncWorkerDats(mockEnv, { targetSlugs: ['ps5'] });
+        expect(res2.targetsUpdated).toBe(0);
+        expect(res2.writesUsed).toBe(0);
+        expect(getCalls).toBe(1);
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });

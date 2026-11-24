@@ -81,12 +81,20 @@ import {
 } from '../shared/source_format';
 import {
   CANONICAL_BUNDLES,
+  deduplicateDatReleases,
   detectPhysicalReleaseStatus,
   findCanonicalBundle,
   getCanonicalSourcePriority,
   regionsOverlap,
   CanonicalRelease,
 } from '../shared/canonical_releases';
+import {
+  REDUMP_TARGETS,
+  REDUMP_WIP_TARGETS,
+  getRedumpInfoDatUrl,
+} from '../shared/dat_targets';
+import { parseDatContent } from '../shared/dat_parser';
+import { extractFirstMatchingZipEntry, isZipBuffer } from '../shared/zip';
 import {
   fetchSwitchSpreadsheetTabs,
   parseSwitchRevisionsCsv,
@@ -919,6 +927,7 @@ const JSON_BODY_MUTATION_PATHS = new Set([
   '/api/user/profile',
   '/api/user/tracking-rules',
   '/api/admin/catalog-seed',
+  '/api/admin/plan-tier',
   '/api/collection/toggle',
   '/api/admin/verify-ownership/apply',
   '/api/collection/sort',
@@ -975,6 +984,25 @@ export const CATALOG_CHUNKS_DIRTY_KEY = 'catalog_chunks_dirty';
 export const CATALOG_CHUNKS_LAST_BUILT_AT_KEY = 'catalog_chunks_last_built_at';
 export const CATALOG_CHUNKS_ACTIVE_BUILDS_KEY = 'catalog_chunks_active_builds';
 export const CATALOG_CHUNKS_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+export type WorkerPlanTier = 'paid' | 'free';
+export const WORKER_PLAN_TIER_KEY = 'worker_plan_tier';
+export const WORKER_DAT_SYNC_META_PREFIX = 'dat_sync_meta:';
+export const WORKER_DAT_RETRO_CURSOR_KEY = 'worker_dat_retro_cursor';
+export const WORKER_DAT_SYNC_STATS_KEY = 'worker_dat_sync_stats';
+
+export async function resolveWorkerPlanTier(env: Env): Promise<WorkerPlanTier> {
+  try {
+    const row = await env.DB.prepare(
+      'SELECT value FROM sync_state WHERE key = ?',
+    )
+      .bind(WORKER_PLAN_TIER_KEY)
+      .first<{ value: string }>();
+    if (row?.value === 'free') return 'free';
+  } catch {
+    // Default to 'paid' if sync_state unavailable
+  }
+  return 'paid';
+}
 export const X_CATALOG_PARTIAL_HEADER = 'X-Catalog-Partial';
 export const X_CATALOG_VERSION_HEADER = 'X-Catalog-Version';
 export const X_CATALOG_TOTAL_ROWS_HEADER = 'X-Catalog-Total-Rows';
@@ -7102,6 +7130,52 @@ Disallow: /
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
 
+    // Endpoint: GET/POST /api/admin/plan-tier
+    else if (path === '/api/admin/plan-tier') {
+      if (!isAuthorizedAdmin(request, env, sessionUser)) {
+        return Response.json(
+          { error: 'Unauthorized: Admin authentication required.' },
+          { status: 403 },
+        );
+      }
+
+      if (request.method === 'GET') {
+        const tier = await resolveWorkerPlanTier(env);
+        return Response.json(
+          { tier },
+          { headers: { 'Cache-Control': 'private, no-cache, no-store' } },
+        );
+      }
+
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as {
+          tier?: string;
+        } | null;
+        if (body?.tier !== 'paid' && body?.tier !== 'free') {
+          return Response.json(
+            { error: "Invalid tier: expected 'paid' or 'free'." },
+            { status: 400 },
+          );
+        }
+        const nextTier: WorkerPlanTier = body.tier;
+        const updatedAt = new Date().toISOString();
+        await env.DB.prepare(
+          `INSERT INTO sync_state (key, value, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+          .bind(WORKER_PLAN_TIER_KEY, nextTier, updatedAt)
+          .run();
+        return Response.json({
+          success: true,
+          tier: nextTier,
+          updatedAt,
+        });
+      }
+
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
     // Endpoint: GET/POST /api/admin/catalog-seed
     else if (path === '/api/admin/catalog-seed') {
       if (!isAuthorizedAdmin(request, env, sessionUser)) {
@@ -7128,6 +7202,7 @@ Disallow: /
           runRetailPreOrdersNow?: boolean;
           runPs5DbNow?: boolean;
           runSerialStationNow?: boolean;
+          runWorkerDatsNow?: boolean;
         } | null;
 
         let batchResult: unknown = undefined;
@@ -7138,6 +7213,7 @@ Disallow: /
         let retailPreOrdersResult: unknown = undefined;
         let ps5DbResult: unknown = undefined;
         let serialStationResult: unknown = undefined;
+        let workerDatsResult: unknown = undefined;
         if (body?.runBatchNow) {
           batchResult = await syncWorkerBroadCatalogPopulation(env);
           await invalidateEdgeApiCache(request.url);
@@ -7172,6 +7248,13 @@ Disallow: /
           });
           await invalidateEdgeApiCache(request.url);
         }
+        if (body?.runWorkerDatsNow) {
+          workerDatsResult = await syncWorkerDats(env, {
+            force: true,
+            mode: 'active',
+          });
+          await invalidateEdgeApiCache(request.url);
+        }
 
         const status = await getBroadCatalogSeedStatus(env);
         return Response.json({
@@ -7185,6 +7268,7 @@ Disallow: /
           retailPreOrdersResult,
           ps5DbResult,
           serialStationResult,
+          workerDatsResult,
         });
       }
 
@@ -10655,247 +10739,26 @@ export default {
   },
 
   /**
-   * Scheduled cron event handler invoked by Cloudflare.
-   * Runs every 30 minutes (gated by persistent sync_state cadence >= 25 mins):
-   * 1. Advances the rolling IGDB series/franchise batch query and checks tracked upcoming games.
-   * 2. Ingests boutique physical publisher pre-order feeds (LRG, SRG, iam8bit, Fangamer, Strictly Limited, VGP, PNP Games).
-   *
-   * Runs during daily window (23:30 UTC or cron "30 23 * * *"):
-   * 1. Generates daily structured R2 database snapshot backup.
-   * 2. Scans active retail deals and new retail pre-orders (VGP, PNP Games).
-   * 3. Dispatches launch-day push notifications for tracked games releasing today.
+   * Deterministic 24-slot UTC hourly cron dispatcher (`0 * * * *`).
+   * Isolates each heavy ingestion job to its own UTC hour slot (zero overlapping
+   * CPU spikes), reserves 00:00 UTC for daily R2 disaster-recovery backups +
+   * launch-day push notifications, and honors the Paid/Free tier switch
+   * (`SKIPPED (free_tier_mode)` on heavy ingestion slots when in Free tier).
    */
   async scheduled(
     event: ScheduledEvent,
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    // 1. Rolling IGDB series / franchise refresh and canonical_series reconciliation
-    console.log(
-      '[WorkerCron] Executing scheduled rolling IGDB series/franchise refresh...',
-    );
-    const igdbStart = Date.now();
-    try {
-      const res = await syncWorkerIgdbSeriesAndCanonical(env);
-      logCronExecution(
-        'igdb_batch',
-        'SUCCESS',
-        Date.now() - igdbStart,
-        `Processed ${res.refreshedIgdbCount} IGDB games, updated ${res.updatedGamesCount}, self-healed ${res.selfHealedRulesCount ?? 0} tracking rules (cursor ${res.cursorOffset ?? 0})`,
-        res,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(
-        '[WorkerCron] IGDB series refresh and canonical_series sync failed:',
-        err,
-      );
-      logCronExecution(
-        'igdb_batch',
-        'ERROR',
-        Date.now() - igdbStart,
-        `Failed: ${msg}`,
-        { error: msg },
-      );
-    }
-
-    // 2. Check 1-hour interval tasks (Boutique Pre-Orders + Limited Game News)
-    const nowMs = Date.now();
-    let lastBoutiqueRun = 0;
-    try {
-      const row = await env.DB.prepare(
-        "SELECT updated_at FROM sync_state WHERE key = 'boutique_sync_last_run'",
-      ).first<{ updated_at: string }>();
-      if (row?.updated_at) {
-        lastBoutiqueRun = new Date(row.updated_at).getTime();
-      }
-    } catch {
-      // unmigrated sync_state table fallback
-    }
-
-    const shouldRunBoutiqueTasks =
-      lastBoutiqueRun === 0 || nowMs - lastBoutiqueRun >= 55 * 60 * 1000;
-
-    if (shouldRunBoutiqueTasks) {
-      console.log(
-        '[WorkerCron] Executing scheduled boutique physical pre-order sync (1-hour window)...',
-      );
-      const boutiqueStart = Date.now();
-      try {
-        const res = await syncWorkerBoutiquePreOrders(env);
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('boutique_sync_last_run', datetime('now'), datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
-        ).run();
-        logCronExecution(
-          'boutique_preorders',
-          'SUCCESS',
-          Date.now() - boutiqueStart,
-          `Matched ${res.matchedCount} pre-orders, sent ${res.notifications.dispatchedCount} alerts`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Boutique pre-order sync failed:', err);
-        logCronExecution(
-          'boutique_preorders',
-          'ERROR',
-          Date.now() - boutiqueStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-    }
-
-    // 2b. Check 1-hour interval tasks (User-Prioritized Unmatched IGDB Retry)
-    let lastIgdbRetryRun = 0;
-    try {
-      const row = await env.DB.prepare(
-        "SELECT updated_at FROM sync_state WHERE key = 'igdb_retry_last_run'",
-      ).first<{ updated_at: string }>();
-      if (row?.updated_at) {
-        lastIgdbRetryRun = new Date(row.updated_at).getTime();
-      }
-    } catch {
-      // unmigrated sync_state table fallback
-    }
-
-    const shouldRunIgdbRetry =
-      lastIgdbRetryRun === 0 || nowMs - lastIgdbRetryRun >= 55 * 60 * 1000;
-
-    if (shouldRunIgdbRetry) {
-      const retryStart = Date.now();
-      try {
-        const retryRes = await syncWorkerUnmatchedIgdbRetry(env);
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('igdb_retry_last_run', datetime('now'), datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
-        ).run();
-        if (retryRes.phase !== 'disabled') {
-          logCronExecution(
-            'igdb_unmatched_retry',
-            'SUCCESS',
-            Date.now() - retryStart,
-            `Phase=${retryRes.phase}: scanned ${retryRes.scannedCount}, matched ${retryRes.matchedCount}, updated ${retryRes.updatedCount}, skippedDups=${retryRes.skippedDuplicates}, writes=${retryRes.writesUsed}`,
-            retryRes,
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Unmatched IGDB retry failed:', err);
-        logCronExecution(
-          'igdb_unmatched_retry',
-          'ERROR',
-          Date.now() - retryStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-    }
-
-    // 3b. Check 2-hour interval tasks (Rolling Watched-Series IGDB Discovery)
-    let lastSeriesDiscoveryRun = 0;
-    try {
-      const row = await env.DB.prepare(
-        "SELECT updated_at FROM sync_state WHERE key = 'watched_series_discovery_last_run'",
-      ).first<{ updated_at: string }>();
-      if (row?.updated_at) {
-        lastSeriesDiscoveryRun = new Date(row.updated_at).getTime();
-      }
-    } catch {
-      // unmigrated sync_state table fallback
-    }
-
-    const shouldRunSeriesDiscovery =
-      lastSeriesDiscoveryRun === 0 ||
-      nowMs - lastSeriesDiscoveryRun >= 115 * 60 * 1000;
-
-    if (shouldRunSeriesDiscovery) {
-      const seriesDiscStart = Date.now();
-      try {
-        const sdRes = await syncWorkerWatchedSeriesDiscovery(env);
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('watched_series_discovery_last_run', datetime('now'), datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
-        ).run();
-        if (!sdRes.skipped || sdRes.ingestedGames > 0) {
-          logCronExecution(
-            'watched_series_discovery',
-            'SUCCESS',
-            Date.now() - seriesDiscStart,
-            `Scanned ${sdRes.seriesScanned} watched series: ingested ${sdRes.ingestedGames} games / ${sdRes.ingestedReleases} releases, applied ${sdRes.rulesApplied} tracking rules (cursor ${sdRes.cursor})`,
-            sdRes,
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Watched series discovery failed:', err);
-        logCronExecution(
-          'watched_series_discovery',
-          'ERROR',
-          Date.now() - seriesDiscStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-    }
-
-    // 3c. Check 2-hour interval tasks (Mainstream Retail Pre-Orders: VGP & PNP Games)
-    let lastRetailPreOrderRun = 0;
-    try {
-      const row = await env.DB.prepare(
-        "SELECT updated_at FROM sync_state WHERE key = 'retail_preorder_sync_last_run'",
-      ).first<{ updated_at: string }>();
-      if (row?.updated_at) {
-        lastRetailPreOrderRun = new Date(row.updated_at).getTime();
-      }
-    } catch {
-      // unmigrated sync_state table fallback
-    }
-
-    const shouldRunRetailPreOrders =
-      lastRetailPreOrderRun === 0 ||
-      nowMs - lastRetailPreOrderRun >= 115 * 60 * 1000;
-
-    if (shouldRunRetailPreOrders) {
-      const retailPreStart = Date.now();
-      // Stamp pre-run so persistent upstream/network failures never cause 30m retry storms
-      try {
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('retail_preorder_sync_last_run', datetime('now'), datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
-        ).run();
-      } catch {
-        // Ignore in minimal test mocks
-      }
-      try {
-        const rpRes = await syncWorkerRetailPreOrders(env);
-        logCronExecution(
-          'retail_preorders',
-          'SUCCESS',
-          Date.now() - retailPreStart,
-          `Matched ${rpRes.matchedCount}, ingested ${rpRes.ingestedCount} retail pre-orders (${rpRes.totalPreOrders} checked)`,
-          rpRes,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Retail pre-order sync failed:', err);
-        logCronExecution(
-          'retail_preorders',
-          'ERROR',
-          Date.now() - retailPreStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-    }
-
-    const now = new Date();
+    const tier = await resolveWorkerPlanTier(env);
+    const scheduledMs =
+      event.scheduledTime && Number.isFinite(event.scheduledTime)
+        ? event.scheduledTime
+        : Date.now();
+    const now = new Date(scheduledMs);
+    const utcHour = now.getUTCHours();
     const todayDateStr = now.toISOString().slice(0, 10);
+
     let lastDailyRunDate = '';
     try {
       const row = await env.DB.prepare(
@@ -10911,12 +10774,11 @@ export default {
     const isDailyWindow =
       event.cron === '0 0 * * *' ||
       event.cron === '30 23 * * *' ||
-      (now.getUTCHours() === 0 &&
-        now.getUTCMinutes() < 30 &&
-        lastDailyRunDate !== todayDateStr);
+      (utcHour === 0 &&
+        (event.cron === '0 * * * *' ||
+          (now.getUTCMinutes() < 30 && lastDailyRunDate !== todayDateStr)));
 
     if (isDailyWindow) {
-      // Immediately record daily run in sync_state to prevent re-entrant cascade on task failure
       try {
         await env.DB.prepare(
           `INSERT INTO sync_state (key, value, updated_at)
@@ -10931,19 +10793,17 @@ export default {
           dateErr,
         );
       }
-    }
 
-    let isDirty: boolean;
-    try {
-      const dirtyRow = (await env.DB.prepare(
-        "SELECT value FROM sync_state WHERE key = 'db_dirty'",
-      ).first()) as { value: string } | null;
-      isDirty = dirtyRow?.value === '1';
-    } catch {
-      isDirty = true;
-    }
+      let isDirty: boolean;
+      try {
+        const dirtyRow = (await env.DB.prepare(
+          "SELECT value FROM sync_state WHERE key = 'db_dirty'",
+        ).first()) as { value: string } | null;
+        isDirty = dirtyRow?.value === '1';
+      } catch {
+        isDirty = true;
+      }
 
-    if (isDailyWindow) {
       if (isDirty || !lastDailyRunDate) {
         console.log(
           `[WorkerCron] Executing scheduled daily backup (reason: ${isDirty ? 'data_modified' : 'daily_window'})...`,
@@ -11009,286 +10869,8 @@ export default {
           },
         );
       }
-    }
 
-    if (
-      !isDailyWindow &&
-      env.BACKUP_BUCKET &&
-      typeof env.BACKUP_BUCKET.head === 'function'
-    ) {
-      try {
-        const [
-          hasLatest,
-          hasGamesLite,
-          hasBackupCatalogManifest,
-          hasBackupCanonicalManifest,
-          backupCatalogCursorRow,
-          backupCanonicalCursorRow,
-          canonicalDirtyRow,
-        ] = await Promise.all([
-          env.BACKUP_BUCKET.head('snapshots/latest.json'),
-          env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
-          env.BACKUP_BUCKET.head(R2_BACKUP_CATALOG_MANIFEST_KEY),
-          env.BACKUP_BUCKET.head(R2_BACKUP_CANONICAL_MANIFEST_KEY),
-          env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
-            .bind(BACKUP_CATALOG_CHUNKS_STATE_KEY)
-            .first<{ value: string }>()
-            .catch(() => null),
-          env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
-            .bind(BACKUP_CANONICAL_CHUNKS_STATE_KEY)
-            .first<{ value: string }>()
-            .catch(() => null),
-          env.DB.prepare(
-            "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
-          )
-            .first<{ value: string }>()
-            .catch(() => null),
-        ]);
-        const liteDate = hasGamesLite?.customMetadata?.['date'] || '';
-        const isGamesLiteStale = Boolean(
-          hasLatest && hasGamesLite && liteDate && liteDate !== todayDateStr,
-        );
-        if (hasLatest && (!hasGamesLite || isGamesLiteStale)) {
-          await writeLiteBackupSnapshots(env);
-        }
-        if (
-          backupCatalogCursorRow?.value ||
-          (hasLatest && !hasBackupCatalogManifest)
-        ) {
-          await performChunkedCatalogBackup(env, { maxChunksPerRun: 2 });
-        }
-        if (
-          backupCanonicalCursorRow?.value ||
-          canonicalDirtyRow?.value === '1' ||
-          (hasLatest && !hasBackupCanonicalManifest)
-        ) {
-          await performCanonicalReleasesBackup(env, { maxChunksPerRun: 2 });
-        }
-      } catch (liteBackfillErr) {
-        console.warn(
-          '[WorkerCron] Daytime one-time lite/chunked backup failed:',
-          liteBackfillErr,
-        );
-      }
-
-      // Rolling 2-page SerialStation verification sweep every ~2 hours (fail-soft)
-      const ssStart = Date.now();
-      try {
-        const ssRes = await syncWorkerSerialStation(env);
-        if (!ssRes.skipped) {
-          logCronExecution(
-            'serialstation_sync',
-            ssRes.error ? 'ERROR' : 'SUCCESS',
-            Date.now() - ssStart,
-            ssRes.error
-              ? `Fail-soft at offset ${ssRes.nextOffset}: ${ssRes.error}`
-              : `SerialStation sweep (+${ssRes.addedCanonical} / ~${ssRes.upgradedCanonical} upg / ~${ssRes.enrichedCanonical} enr, ${ssRes.linkedReleases} linked, next offset ${ssRes.nextOffset})`,
-            ssRes,
-          );
-        }
-      } catch (ssErr) {
-        const msg = ssErr instanceof Error ? ssErr.message : String(ssErr);
-        console.warn('[WorkerCron] SerialStation cron failed-soft:', ssErr);
-        logCronExecution(
-          'serialstation_sync',
-          'ERROR',
-          Date.now() - ssStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-    }
-
-    if (isDailyWindow) {
-      console.log(
-        '[WorkerCron] Executing scheduled retail deal scan (VGP, PNP Games)...',
-      );
-      const dealsStart = Date.now();
-      try {
-        const res = await syncWorkerRetailDeals(env);
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES ('retail_deals_last_run', datetime('now'), datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
-        ).run();
-        logCronExecution(
-          'retail_deals',
-          'SUCCESS',
-          Date.now() - dealsStart,
-          `Matched ${res.matchedCount} deals from ${res.totalDeals} items`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Retail deal sync failed:', err);
-        logCronExecution(
-          'retail_deals',
-          'ERROR',
-          Date.now() - dealsStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      console.log(
-        '[WorkerCron] Checking for launch-day game releases and notifications...',
-      );
-      const launchStart = Date.now();
-      try {
-        const res = await syncWorkerLaunchDayNotifications(env);
-        logCronExecution(
-          'launch_day',
-          'SUCCESS',
-          Date.now() - launchStart,
-          `Dispatched ${res.dispatchedCount} launch day alerts`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Launch-day release scan failed:', err);
-        logCronExecution(
-          'launch_day',
-          'ERROR',
-          Date.now() - launchStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 4. Scheduled Nintendo Switch 1 & 2 revisions sync (daily window)
-      console.log(
-        '[WorkerCron] Executing scheduled Nintendo Switch 1 & 2 revisions sync...',
-      );
-      const switchStart = Date.now();
-      try {
-        const res = await syncWorkerSwitchRevisions(env);
-        logCronExecution(
-          'switch_revisions',
-          'SUCCESS',
-          Date.now() - switchStart,
-          res.hashMatch
-            ? 'Spreadsheet unchanged (0 writes)'
-            : `Synced Switch revisions (+${res.addedCanonical} / ~${res.updatedCanonical} / -${res.deletedCanonical}, ${res.verifiedGames} games verified)`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Switch revisions sync failed:', err);
-        logCronExecution(
-          'switch_revisions',
-          'ERROR',
-          Date.now() - switchStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 4b. Scheduled r/NSCollectors SW1 & SW2 physical list sync (daily window, SHA-256 hash-gated)
-      const nsColStart = Date.now();
-      try {
-        const res = await syncWorkerNsCollectors(env);
-        logCronExecution(
-          'nscollectors_sync',
-          'SUCCESS',
-          Date.now() - nsColStart,
-          res.hashMatch
-            ? 'r/NSCollectors sheets unchanged (0 writes)'
-            : `Synced r/NSCollectors (+${res.addedCanonical} canonical, ${res.matchedGames} matched, ${res.ingestedGames} ingested)`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] r/NSCollectors sync failed:', err);
-        logCronExecution(
-          'nscollectors_sync',
-          'ERROR',
-          Date.now() - nsColStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 4c. Scheduled PS5DB physical sheet sync (daily window, SHA-256 hash-gated)
-      const ps5DbStart = Date.now();
-      try {
-        const ps5Res = await syncWorkerPs5Db(env);
-        if (ps5Res.checked) {
-          logCronExecution(
-            'ps5db_sync',
-            'SUCCESS',
-            Date.now() - ps5DbStart,
-            ps5Res.hashMatch
-              ? 'PS5DB sheet unchanged (0 writes)'
-              : `Synced PS5DB (+${ps5Res.addedCanonical} / ~${ps5Res.upgradedCanonical} upg / ~${ps5Res.enrichedCanonical} enr, ${ps5Res.linkedReleases} linked)`,
-            ps5Res,
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] PS5DB sync failed:', err);
-        logCronExecution(
-          'ps5db_sync',
-          'ERROR',
-          Date.now() - ps5DbStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 4c. Steady-state canonical tailer (materializes any newly added canonical_releases)
-      const tailerStart = Date.now();
-      try {
-        const tailRes = await syncWorkerBroadCatalogPopulation(env);
-        if (!tailRes.skipped || tailRes.ingestedGames > 0) {
-          logCronExecution(
-            'canonical_tailer',
-            'SUCCESS',
-            Date.now() - tailerStart,
-            `Ingested ${tailRes.ingestedGames} games / ${tailRes.ingestedReleases} releases (${tailRes.writesUsed} writes, cursor ${tailRes.cursor})`,
-            tailRes,
-          );
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Canonical tailer failed:', err);
-        logCronExecution(
-          'canonical_tailer',
-          'ERROR',
-          Date.now() - tailerStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 5. Scheduled Amiibo catalog sync (daily window, SHA-256 hash-gated)
-      console.log(
-        '[WorkerCron] Executing scheduled Amiibo catalog sync (AmiiboAPI)...',
-      );
-      const amiiboStart = Date.now();
-      try {
-        const res = await syncWorkerAmiiboCatalog(env);
-        logCronExecution(
-          'amiibo_catalog',
-          'SUCCESS',
-          Date.now() - amiiboStart,
-          res.hashMatch
-            ? 'AmiiboAPI catalog unchanged (0 writes)'
-            : `Synced Amiibo catalog (+${res.addedCount} / ~${res.updatedCount}, ${res.writesUsed} writes)`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Amiibo catalog sync failed:', err);
-        logCronExecution(
-          'amiibo_catalog',
-          'ERROR',
-          Date.now() - amiiboStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
-
-      // 6. Diff-guarded cursor-resumed canonical_releases R2 backup
+      // Diff-guarded canonical_releases R2 backup (both Paid & Free tiers)
       const canonicalBackupStart = Date.now();
       try {
         const crBackupRes = await performCanonicalReleasesBackup(env, {
@@ -11317,7 +10899,327 @@ export default {
         );
       }
 
-      // R2 catalog/* pre-baking removed; /api/catalog/* serves D1 keyset chunks via Edge Cache.
+      // Launch-day release notifications (both Paid & Free tiers)
+      const launchStart = Date.now();
+      try {
+        const res = await syncWorkerLaunchDayNotifications(env);
+        logCronExecution(
+          'launch_day',
+          'SUCCESS',
+          Date.now() - launchStart,
+          `Dispatched ${res.dispatchedCount} launch day alerts`,
+          res,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] Launch-day release scan failed:', err);
+        logCronExecution(
+          'launch_day',
+          'ERROR',
+          Date.now() - launchStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+    } else {
+      // Daytime lightweight R2 disaster-recovery catchup only when incomplete/stale
+      if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.head === 'function') {
+        try {
+          const [
+            hasLatest,
+            hasGamesLite,
+            hasBackupCatalogManifest,
+            hasBackupCanonicalManifest,
+            backupCatalogCursorRow,
+            backupCanonicalCursorRow,
+            canonicalDirtyRow,
+          ] = await Promise.all([
+            env.BACKUP_BUCKET.head('snapshots/latest.json'),
+            env.BACKUP_BUCKET.head(R2_GAMES_ACTIVE_LITE_KEY),
+            env.BACKUP_BUCKET.head(R2_BACKUP_CATALOG_MANIFEST_KEY),
+            env.BACKUP_BUCKET.head(R2_BACKUP_CANONICAL_MANIFEST_KEY),
+            env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+              .bind(BACKUP_CATALOG_CHUNKS_STATE_KEY)
+              .first<{ value: string }>()
+              .catch(() => null),
+            env.DB.prepare('SELECT value FROM sync_state WHERE key = ?')
+              .bind(BACKUP_CANONICAL_CHUNKS_STATE_KEY)
+              .first<{ value: string }>()
+              .catch(() => null),
+            env.DB.prepare(
+              "SELECT value FROM sync_state WHERE key = 'canonical_releases_dirty'",
+            )
+              .first<{ value: string }>()
+              .catch(() => null),
+          ]);
+          const liteDate = hasGamesLite?.customMetadata?.['date'] || '';
+          const isGamesLiteStale = Boolean(
+            hasLatest && hasGamesLite && liteDate && liteDate !== todayDateStr,
+          );
+          if (hasLatest && (!hasGamesLite || isGamesLiteStale)) {
+            await writeLiteBackupSnapshots(env);
+          }
+          if (
+            backupCatalogCursorRow?.value ||
+            (hasLatest && !hasBackupCatalogManifest)
+          ) {
+            await performChunkedCatalogBackup(env, { maxChunksPerRun: 2 });
+          }
+          if (
+            backupCanonicalCursorRow?.value ||
+            canonicalDirtyRow?.value === '1' ||
+            (hasLatest && !hasBackupCanonicalManifest)
+          ) {
+            await performCanonicalReleasesBackup(env, { maxChunksPerRun: 2 });
+          }
+        } catch (liteBackfillErr) {
+          console.warn(
+            '[WorkerCron] Daytime one-time lite/chunked backup failed:',
+            liteBackfillErr,
+          );
+        }
+      }
+
+      const runGatedIngestion = async (
+        jobName: string,
+        fn: () => Promise<{
+          status?: 'SUCCESS' | 'ERROR';
+          summary: string;
+          details?: unknown;
+          silent?: boolean;
+        }>,
+      ): Promise<void> => {
+        if (tier === 'free') {
+          logCronExecution(jobName, 'SKIPPED', 0, 'SKIPPED (free_tier_mode)', {
+            tier: 'free',
+            utcHour,
+          });
+          return;
+        }
+        const jobStart = Date.now();
+        try {
+          const outcome = await fn();
+          if (!outcome.silent) {
+            logCronExecution(
+              jobName,
+              outcome.status ?? 'SUCCESS',
+              Date.now() - jobStart,
+              outcome.summary,
+              outcome.details,
+            );
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[WorkerCron] ${jobName} failed:`, err);
+          logCronExecution(
+            jobName,
+            'ERROR',
+            Date.now() - jobStart,
+            `Failed: ${msg}`,
+            { error: msg },
+          );
+        }
+      };
+
+      switch (utcHour) {
+        case 1:
+          await runGatedIngestion('worker_dat_sync', async () => {
+            const datRes = await syncWorkerDats(env, { mode: 'active' });
+            return {
+              summary: `Worker DAT sync (active): checked ${datRes.targetsChecked}, updated ${datRes.targetsUpdated}, +${datRes.addedCanonical} canonical, ${datRes.linkedReleases} linked (${datRes.writesUsed} writes)`,
+              details: datRes,
+            };
+          });
+          break;
+        case 2:
+          await runGatedIngestion('nscollectors_sync', async () => {
+            const res = await syncWorkerNsCollectors(env);
+            return {
+              summary: res.hashMatch
+                ? 'r/NSCollectors sheets unchanged (0 writes)'
+                : `Synced r/NSCollectors (+${res.addedCanonical} canonical, ${res.matchedGames} matched, ${res.ingestedGames} ingested)`,
+              details: res,
+            };
+          });
+          break;
+        case 3:
+          await runGatedIngestion('ps5db_sync', async () => {
+            const ps5Res = await syncWorkerPs5Db(env);
+            return {
+              silent: !ps5Res.checked,
+              summary: ps5Res.hashMatch
+                ? 'PS5DB sheet unchanged (0 writes)'
+                : `Synced PS5DB (+${ps5Res.addedCanonical} / ~${ps5Res.upgradedCanonical} upg / ~${ps5Res.enrichedCanonical} enr, ${ps5Res.linkedReleases} linked)`,
+              details: ps5Res,
+            };
+          });
+          break;
+        case 4:
+        case 16:
+          await runGatedIngestion('serialstation_sync', async () => {
+            const ssRes = await syncWorkerSerialStation(env);
+            return {
+              silent: Boolean(ssRes.skipped),
+              status: ssRes.error ? 'ERROR' : 'SUCCESS',
+              summary: ssRes.error
+                ? `Fail-soft at offset ${ssRes.nextOffset}: ${ssRes.error}`
+                : `SerialStation sweep (+${ssRes.addedCanonical} / ~${ssRes.upgradedCanonical} upg / ~${ssRes.enrichedCanonical} enr, ${ssRes.linkedReleases} linked, next offset ${ssRes.nextOffset})`,
+              details: ssRes,
+            };
+          });
+          break;
+        case 5:
+        case 17:
+          await runGatedIngestion('retail_preorders', async () => {
+            try {
+              await env.DB.prepare(
+                `INSERT INTO sync_state (key, value, updated_at)
+                 VALUES ('retail_preorder_sync_last_run', datetime('now'), datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+              ).run();
+            } catch {
+              // Ignore in minimal test mocks
+            }
+            const rpRes = await syncWorkerRetailPreOrders(env);
+            return {
+              summary: `Matched ${rpRes.matchedCount}, ingested ${rpRes.ingestedCount} retail pre-orders (${rpRes.totalPreOrders} checked)`,
+              details: rpRes,
+            };
+          });
+          break;
+        case 6:
+        case 18: {
+          let lastBoutiqueRun = 0;
+          try {
+            const row = await env.DB.prepare(
+              "SELECT updated_at FROM sync_state WHERE key = 'boutique_sync_last_run'",
+            ).first<{ updated_at: string }>();
+            if (row?.updated_at) {
+              lastBoutiqueRun = new Date(row.updated_at).getTime();
+            }
+          } catch {
+            // unmigrated sync_state table fallback
+          }
+          if (
+            lastBoutiqueRun === 0 ||
+            Date.now() - lastBoutiqueRun >= 55 * 60 * 1000
+          ) {
+            await runGatedIngestion('boutique_preorders', async () => {
+              const res = await syncWorkerBoutiquePreOrders(env);
+              await env.DB.prepare(
+                `INSERT INTO sync_state (key, value, updated_at)
+                 VALUES ('boutique_sync_last_run', datetime('now'), datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+              ).run();
+              return {
+                summary: `Matched ${res.matchedCount} pre-orders, sent ${res.notifications.dispatchedCount} alerts`,
+                details: res,
+              };
+            });
+          }
+          break;
+        }
+        case 7:
+        case 19:
+          await runGatedIngestion('retail_deals', async () => {
+            const res = await syncWorkerRetailDeals(env);
+            await env.DB.prepare(
+              `INSERT INTO sync_state (key, value, updated_at)
+               VALUES ('retail_deals_last_run', datetime('now'), datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+            ).run();
+            return {
+              summary: `Matched ${res.matchedCount} deals from ${res.totalDeals} items`,
+              details: res,
+            };
+          });
+          break;
+        case 8:
+        case 14:
+        case 20:
+          await runGatedIngestion('watched_series_discovery', async () => {
+            const sdRes = await syncWorkerWatchedSeriesDiscovery(env);
+            await env.DB.prepare(
+              `INSERT INTO sync_state (key, value, updated_at)
+               VALUES ('watched_series_discovery_last_run', datetime('now'), datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+            ).run();
+            return {
+              silent: Boolean(sdRes.skipped && sdRes.ingestedGames === 0),
+              summary: `Scanned ${sdRes.seriesScanned} watched series: ingested ${sdRes.ingestedGames} games / ${sdRes.ingestedReleases} releases, applied ${sdRes.rulesApplied} tracking rules (cursor ${sdRes.cursor})`,
+              details: sdRes,
+            };
+          });
+          break;
+        case 9:
+        case 21:
+          await runGatedIngestion('igdb_unmatched_retry', async () => {
+            const retryRes = await syncWorkerUnmatchedIgdbRetry(env);
+            await env.DB.prepare(
+              `INSERT INTO sync_state (key, value, updated_at)
+               VALUES ('igdb_retry_last_run', datetime('now'), datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
+            ).run();
+            return {
+              silent: retryRes.phase === 'disabled',
+              summary: `Phase=${retryRes.phase}: scanned ${retryRes.scannedCount}, matched ${retryRes.matchedCount}, updated ${retryRes.updatedCount}, skippedDups=${retryRes.skippedDuplicates}, writes=${retryRes.writesUsed}`,
+              details: retryRes,
+            };
+          });
+          break;
+        case 10:
+        case 22:
+          await runGatedIngestion('canonical_tailer', async () => {
+            const tailRes = await syncWorkerBroadCatalogPopulation(env);
+            return {
+              silent: Boolean(tailRes.skipped && tailRes.ingestedGames === 0),
+              summary: `Ingested ${tailRes.ingestedGames} games / ${tailRes.ingestedReleases} releases (${tailRes.writesUsed} writes, cursor ${tailRes.cursor})`,
+              details: tailRes,
+            };
+          });
+          break;
+        case 11:
+        case 23:
+          await runGatedIngestion('igdb_batch', async () => {
+            const res = await syncWorkerIgdbSeriesAndCanonical(env);
+            return {
+              summary: `Processed ${res.refreshedIgdbCount} IGDB games, updated ${res.updatedGamesCount}, self-healed ${res.selfHealedRulesCount ?? 0} tracking rules (cursor ${res.cursorOffset ?? 0})`,
+              details: res,
+            };
+          });
+          break;
+        case 12:
+          await runGatedIngestion('switch_revisions', async () => {
+            const res = await syncWorkerSwitchRevisions(env);
+            return {
+              summary: res.hashMatch
+                ? 'Spreadsheet unchanged (0 writes)'
+                : `Synced Switch revisions (+${res.addedCanonical} / ~${res.updatedCanonical} / -${res.deletedCanonical}, ${res.verifiedGames} games verified)`,
+              details: res,
+            };
+          });
+          break;
+        case 13:
+          await runGatedIngestion('worker_dat_sync', async () => {
+            const datRes = await syncWorkerDats(env, { mode: 'retro' });
+            return {
+              summary: `Worker DAT sync (retro): checked ${datRes.targetsChecked}, updated ${datRes.targetsUpdated}, +${datRes.addedCanonical} canonical, ${datRes.linkedReleases} linked (next cursor ${datRes.retroCursor})`,
+              details: datRes,
+            };
+          });
+          break;
+        case 15:
+          await runGatedIngestion('amiibo_catalog', async () => {
+            const res = await syncWorkerAmiiboCatalog(env);
+            return {
+              summary: res.hashMatch
+                ? 'AmiiboAPI catalog unchanged (0 writes)'
+                : `Synced Amiibo catalog (+${res.addedCount} / ~${res.updatedCount}, ${res.writesUsed} writes)`,
+              details: res,
+            };
+          });
+          break;
+      }
     }
 
     // Rotating sweep of 1 ephemeral eBay price shard per tick (max 1-2 subrequests, 0 D1 writes)
@@ -13385,6 +13287,394 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     addedCanonical: insertCanonicalStmts.length,
     matchedGames,
     ingestedGames,
+  };
+}
+
+/**
+ * In-Worker streaming Redump DAT synchronization (`redump.info`).
+ * Uses HEAD (ETag / Last-Modified) and WebCrypto SHA-256 gating so unchanged
+ * DAT archives incur zero D1 canonical writes, and merges changed entries via
+ * the shared 4-tier hierarchy and unlinked `game_releases` linker.
+ */
+export async function syncWorkerDats(
+  env: Env,
+  options?: {
+    force?: boolean;
+    mode?: 'active' | 'retro' | 'all';
+    targetSlugs?: string[];
+    maxWriteBudget?: number;
+  },
+): Promise<{
+  skipped: boolean;
+  reason?: string;
+  targetsChecked: number;
+  targetsUpdated: number;
+  addedCanonical: number;
+  upgradedCanonical: number;
+  enrichedCanonical: number;
+  linkedReleases: number;
+  writesUsed: number;
+  retroCursor: number;
+  results: Array<{
+    slug: string;
+    platformId: number;
+    status: 'updated' | 'unchanged' | 'error' | 'budget_capped';
+    entriesParsed?: number;
+    error?: string;
+  }>;
+}> {
+  const tier = await resolveWorkerPlanTier(env);
+  if (tier === 'free' && !options?.force) {
+    return {
+      skipped: true,
+      reason: 'free_tier_mode',
+      targetsChecked: 0,
+      targetsUpdated: 0,
+      addedCanonical: 0,
+      upgradedCanonical: 0,
+      enrichedCanonical: 0,
+      linkedReleases: 0,
+      writesUsed: 0,
+      retroCursor: 0,
+      results: [],
+    };
+  }
+
+  const allTargets = [...REDUMP_WIP_TARGETS, ...REDUMP_TARGETS];
+  let retroCursor = 0;
+  try {
+    const cursorRow = await env.DB.prepare(
+      'SELECT value FROM sync_state WHERE key = ?',
+    )
+      .bind(WORKER_DAT_RETRO_CURSOR_KEY)
+      .first<{ value: string }>();
+    const parsed = parseInt(cursorRow?.value || '0', 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      retroCursor = parsed;
+    }
+  } catch {
+    // Ignore missing sync_state key in minimal schemas
+  }
+
+  let selectedTargets = REDUMP_WIP_TARGETS as Array<{
+    platformId: number;
+    name: string;
+    slug: string;
+    redumpInfoSlug: string;
+    canonicalFileName?: string;
+  }>;
+  if (options?.targetSlugs && options.targetSlugs.length > 0) {
+    const wanted = new Set(options.targetSlugs.map((s) => s.toLowerCase()));
+    selectedTargets = allTargets.filter((t) =>
+      wanted.has(t.slug.toLowerCase()),
+    );
+  } else if (options?.mode === 'retro') {
+    if (REDUMP_TARGETS.length > 0) {
+      const idx = retroCursor % REDUMP_TARGETS.length;
+      selectedTargets = [REDUMP_TARGETS[idx]];
+      retroCursor = (idx + 1) % REDUMP_TARGETS.length;
+    } else {
+      selectedTargets = [];
+    }
+  } else if (options?.mode === 'all') {
+    selectedTargets = allTargets;
+  }
+
+  const maxBudget = options?.maxWriteBudget ?? 40_000;
+  let totalWritesUsed = 0;
+  let addedCanonical = 0;
+  let upgradedCanonical = 0;
+  let enrichedCanonical = 0;
+  let linkedReleases = 0;
+  let linkedCanonicalMutated = false;
+  let targetsUpdated = 0;
+  const results: Array<{
+    slug: string;
+    platformId: number;
+    status: 'updated' | 'unchanged' | 'error' | 'budget_capped';
+    entriesParsed?: number;
+    error?: string;
+  }> = [];
+
+  for (const target of selectedTargets) {
+    if (totalWritesUsed >= maxBudget) {
+      results.push({
+        slug: target.slug,
+        platformId: target.platformId,
+        status: 'budget_capped',
+      });
+      continue;
+    }
+
+    const metaKey = `${WORKER_DAT_SYNC_META_PREFIX}${target.slug}`;
+    let prevMeta: {
+      etag?: string | null;
+      lastModified?: string | null;
+      sha256?: string | null;
+    } = {};
+    try {
+      const metaRow = await env.DB.prepare(
+        'SELECT value FROM sync_state WHERE key = ?',
+      )
+        .bind(metaKey)
+        .first<{ value: string }>();
+      if (metaRow?.value) {
+        prevMeta = JSON.parse(metaRow.value) as typeof prevMeta;
+      }
+    } catch {
+      // Ignore malformed/missing DAT metadata
+    }
+
+    const datUrl = getRedumpInfoDatUrl(target.redumpInfoSlug);
+    const reqHeaders: Record<string, string> = {
+      'User-Agent': 'CollectionTracker/2.0 (DatSync)',
+      Accept: 'application/zip,application/xml,text/xml,text/plain,*/*',
+    };
+
+    try {
+      let headEtag: string | null = null;
+      let headLastMod: string | null = null;
+      if (!options?.force && (prevMeta.etag || prevMeta.lastModified)) {
+        try {
+          const headRes = await fetch(datUrl, {
+            method: 'HEAD',
+            headers: reqHeaders,
+            signal: AbortSignal.timeout(8000),
+          });
+          if (headRes.ok) {
+            headEtag = headRes.headers.get('etag');
+            headLastMod = headRes.headers.get('last-modified');
+            const etagMatched = Boolean(
+              headEtag && prevMeta.etag && headEtag === prevMeta.etag,
+            );
+            const lastModMatched = Boolean(
+              headLastMod &&
+              prevMeta.lastModified &&
+              headLastMod === prevMeta.lastModified,
+            );
+            if (etagMatched || (!headEtag && lastModMatched)) {
+              results.push({
+                slug: target.slug,
+                platformId: target.platformId,
+                status: 'unchanged',
+              });
+              continue;
+            }
+          }
+        } catch {
+          // Proceed to GET if HEAD is unsupported or times out
+        }
+      }
+
+      const res = await fetch(datUrl, {
+        headers: reqHeaders,
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) {
+        results.push({
+          slug: target.slug,
+          platformId: target.platformId,
+          status: 'error',
+          error: `HTTP ${res.status}`,
+        });
+        continue;
+      }
+
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        results.push({
+          slug: target.slug,
+          platformId: target.platformId,
+          status: 'error',
+          error: 'Empty DAT response',
+        });
+        continue;
+      }
+
+      const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
+      const sha256 = Array.from(new Uint8Array(hashBuf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      if (!options?.force && prevMeta.sha256 && prevMeta.sha256 === sha256) {
+        results.push({
+          slug: target.slug,
+          platformId: target.platformId,
+          status: 'unchanged',
+        });
+        continue;
+      }
+
+      let datText: string;
+      if (isZipBuffer(bytes)) {
+        const extracted = await extractFirstMatchingZipEntry(
+          bytes,
+          (fileName) =>
+            !fileName.endsWith('/') &&
+            (/\.(dat|xml)$/i.test(fileName) || !fileName.includes('.')),
+        );
+        datText = extracted.text();
+      } else {
+        datText = new TextDecoder('utf-8').decode(bytes);
+      }
+
+      const parsed = parseDatContent(
+        datText,
+        target.canonicalFileName || target.name,
+      );
+      const deduped = deduplicateDatReleases(
+        target.platformId,
+        parsed.releases,
+      );
+      const canonicalRows: CanonicalRelease[] = deduped.map((d) => ({
+        platform_id: d.platform_id,
+        raw_title: d.raw_title,
+        normalized_title: d.normalized_title,
+        region: d.region,
+        variants: d.variants,
+        also_released_as: d.also_released_as,
+        packin_host_normalized_title: d.packin_host_normalized_title,
+        rom_name: d.rom_name,
+        rom_crc: d.rom_crc,
+        serial_code: d.serial_code,
+        publisher: d.publisher,
+        source: 'dat',
+        is_verified_physical: 1,
+      }));
+
+      const existingRes = await env.DB.prepare(
+        `SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                serial_code, barcode, publisher, source, is_verified_physical
+         FROM canonical_releases
+         WHERE platform_id = ? AND is_verified_physical = 1`,
+      )
+        .bind(target.platformId)
+        .all<WorkerCanonicalMergeRow>();
+
+      const mergeRes = await applyWorkerCanonicalHierarchyMerge(
+        env,
+        canonicalRows,
+        existingRes.results || [],
+        {
+          touchedPlatforms: [target.platformId],
+          maxWriteBudget: Math.max(0, maxBudget - totalWritesUsed),
+          loadPostInsertRows: async (plats, normKeys) => {
+            const out: WorkerCanonicalMergeRow[] = [];
+            const platPh = plats.map(() => '?').join(',');
+            for (let i = 0; i < normKeys.length; i += 40) {
+              const chunk = normKeys.slice(i, i + 40);
+              const keyPh = chunk.map(() => '?').join(',');
+              const r = await env.DB.prepare(
+                `SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                        serial_code, barcode, publisher, source, is_verified_physical
+                 FROM canonical_releases
+                 WHERE platform_id IN (${platPh}) AND normalized_title IN (${keyPh}) AND is_verified_physical = 1`,
+              )
+                .bind(...plats, ...chunk)
+                .all<WorkerCanonicalMergeRow>();
+              out.push(...(r.results || []));
+            }
+            return out;
+          },
+        },
+      );
+
+      totalWritesUsed += mergeRes.writesUsed;
+      addedCanonical += mergeRes.addedCanonical;
+      upgradedCanonical += mergeRes.upgradedCanonical;
+      enrichedCanonical += mergeRes.enrichedCanonical;
+      linkedReleases += mergeRes.linkedReleases;
+      if (mergeRes.linkedCanonicalMutated) {
+        linkedCanonicalMutated = true;
+      }
+
+      const nextEtag = res.headers.get('etag') || headEtag;
+      const nextLastMod = res.headers.get('last-modified') || headLastMod;
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+        .bind(
+          metaKey,
+          JSON.stringify({
+            etag: nextEtag,
+            lastModified: nextLastMod,
+            sha256,
+            releaseCount: canonicalRows.length,
+            updatedAt: new Date().toISOString(),
+          }),
+        )
+        .run();
+
+      targetsUpdated++;
+      results.push({
+        slug: target.slug,
+        platformId: target.platformId,
+        status: 'updated',
+        entriesParsed: canonicalRows.length,
+      });
+    } catch (err) {
+      results.push({
+        slug: target.slug,
+        platformId: target.platformId,
+        status: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (addedCanonical > 0 || upgradedCanonical > 0 || enrichedCanonical > 0) {
+    await markCanonicalReleasesDirty(env);
+  }
+  if (linkedReleases > 0 || linkedCanonicalMutated) {
+    await markCatalogChunksDirty(env);
+  }
+
+  const nowIso = new Date().toISOString();
+  try {
+    if (options?.mode === 'retro') {
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+        .bind(WORKER_DAT_RETRO_CURSOR_KEY, String(retroCursor))
+        .run();
+    }
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+      .bind(
+        WORKER_DAT_SYNC_STATS_KEY,
+        JSON.stringify({
+          lastRunAt: nowIso,
+          lastTargetsChecked: selectedTargets.length,
+          lastChangedCount: targetsUpdated,
+          retroCursor,
+          addedCanonical,
+          linkedReleases,
+          writesUsed: totalWritesUsed,
+        }),
+      )
+      .run();
+  } catch {
+    // Ignore sync_state persistence failures in minimal schemas
+  }
+
+  return {
+    skipped: false,
+    targetsChecked: selectedTargets.length,
+    targetsUpdated,
+    addedCanonical,
+    upgradedCanonical,
+    enrichedCanonical,
+    linkedReleases,
+    writesUsed: totalWritesUsed,
+    retroCursor,
+    results,
   };
 }
 
@@ -17051,6 +17341,21 @@ export async function getBroadCatalogSeedStatus(
     amiiboCatalogUpdatedAt: string | null;
     catalogChunksUpdatedAt: string | null;
   };
+  workerPlanTier: WorkerPlanTier;
+  catalogDelivery: {
+    mode: 'd1-edge-cache';
+    version: string | null;
+    totalRows: number;
+    chunkCount: number;
+    maxStableId: number;
+    updatedAt: string | null;
+  };
+  workerDatSync: {
+    lastRunAt: string | null;
+    lastTargetsChecked: number;
+    lastChangedCount: number;
+    retroCursor: number;
+  };
 }> {
   const includeTableBounds = options?.includeTableBounds ?? true;
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -17079,6 +17384,28 @@ export async function getBroadCatalogSeedStatus(
     discoveredGamesTotal: 0,
     lastRunAt: null as string | null,
   };
+  let workerPlanTier: WorkerPlanTier = 'paid';
+  let catalogDelivery: {
+    mode: 'd1-edge-cache';
+    version: string | null;
+    totalRows: number;
+    chunkCount: number;
+    maxStableId: number;
+    updatedAt: string | null;
+  } = {
+    mode: 'd1-edge-cache',
+    version: null,
+    totalRows: 0,
+    chunkCount: 0,
+    maxStableId: 0,
+    updatedAt: null,
+  };
+  let workerDatSync = {
+    lastRunAt: null as string | null,
+    lastTargetsChecked: 0,
+    lastChangedCount: 0,
+    retroCursor: 0,
+  };
 
   try {
     const { results } = await env.DB.prepare(
@@ -17095,8 +17422,12 @@ export async function getBroadCatalogSeedStatus(
          'nscollectors_sync_hash',
          'amiibo_catalog_hash',
          'catalog_chunks_state',
+         'catalog_manifest_v1',
          'watched_series_discovery_cursor',
-         'watched_series_discovery_stats'
+         'watched_series_discovery_stats',
+         'worker_plan_tier',
+         'worker_dat_sync_stats',
+         'worker_dat_retro_cursor'
        )`,
     ).all<{ key: string; value: string; updated_at: string }>();
 
@@ -17160,6 +17491,47 @@ export async function getBroadCatalogSeedStatus(
         amiiboCatalogUpdatedAt = row.updated_at || null;
       } else if (row.key === 'catalog_chunks_state') {
         catalogChunksUpdatedAt = row.updated_at || null;
+      } else if (row.key === 'catalog_manifest_v1') {
+        try {
+          const parsedManifest = JSON.parse(row.value) as CatalogManifest;
+          catalogDelivery = {
+            mode: 'd1-edge-cache',
+            version: parsedManifest?.version || null,
+            totalRows: Number(parsedManifest?.totalRows) || 0,
+            chunkCount: Number(parsedManifest?.chunkCount) || 0,
+            maxStableId: Number(parsedManifest?.maxStableId) || 0,
+            updatedAt: parsedManifest?.timestamp || row.updated_at || null,
+          };
+          catalogChunksUpdatedAt =
+            catalogDelivery.updatedAt || catalogChunksUpdatedAt;
+        } catch {
+          // ignore malformed JSON
+        }
+      } else if (row.key === 'worker_plan_tier') {
+        workerPlanTier = row.value === 'free' ? 'free' : 'paid';
+      } else if (row.key === 'worker_dat_retro_cursor') {
+        const parsed = parseInt(row.value, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          workerDatSync.retroCursor = parsed;
+        }
+      } else if (row.key === 'worker_dat_sync_stats') {
+        try {
+          const parsedDat = JSON.parse(row.value) as {
+            lastRunAt?: string | null;
+            lastTargetsChecked?: number;
+            lastChangedCount?: number;
+            retroCursor?: number;
+          };
+          workerDatSync = {
+            lastRunAt: parsedDat?.lastRunAt || row.updated_at || null,
+            lastTargetsChecked: Number(parsedDat?.lastTargetsChecked) || 0,
+            lastChangedCount: Number(parsedDat?.lastChangedCount) || 0,
+            retroCursor:
+              Number(parsedDat?.retroCursor ?? workerDatSync.retroCursor) || 0,
+          };
+        } catch {
+          // ignore malformed JSON
+        }
       } else if (row.key === 'watched_series_discovery_cursor') {
         const parsed = parseInt(row.value, 10);
         if (Number.isFinite(parsed) && parsed >= 0) {
@@ -17257,6 +17629,9 @@ export async function getBroadCatalogSeedStatus(
       amiiboCatalogUpdatedAt,
       catalogChunksUpdatedAt,
     },
+    workerPlanTier,
+    catalogDelivery,
+    workerDatSync,
   };
 }
 
