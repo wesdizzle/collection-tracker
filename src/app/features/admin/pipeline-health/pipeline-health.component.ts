@@ -54,7 +54,16 @@ export class PipelineHealthComponent {
   readonly runSeriesDiscovery = output<void>();
   readonly runNsCollectors = output<void>();
   readonly runRetailPreOrders = output<void>();
+  readonly runWorkerDats = output<void>();
+  readonly togglePlanTier = output<'paid' | 'free'>();
   readonly purgeMarketCache = output<void>();
+
+  readonly isFreeTier = computed(
+    () => this.status()?.workerPlanTier === 'free',
+  );
+  readonly nextPlanTier = computed<'paid' | 'free'>(() =>
+    this.isFreeTier() ? 'paid' : 'free',
+  );
 
   readonly budgetBarItems = computed<readonly KitStatBarItem[]>(() => {
     const tailer = this.status()?.canonicalTailer;
@@ -89,6 +98,7 @@ export class PipelineHealthComponent {
   readonly tailerKvItems = computed<readonly KitKvItem[]>(() => {
     const s = this.status();
     if (!s) return [];
+    const delivery = s.catalogDelivery;
     return [
       {
         label: 'Canonical Cursor',
@@ -103,8 +113,17 @@ export class PipelineHealthComponent {
         value: String(s.canonicalTailer.releasesIngestedToday),
       },
       {
-        label: 'R2 Catalog Chunks',
-        value: s.upstreamSources.catalogChunksUpdatedAt || 'Pending',
+        label: 'Edge Cache Catalog',
+        value: delivery?.version
+          ? `${delivery.mode} (${delivery.chunkCount} chunks, ${delivery.totalRows} rows)`
+          : s.upstreamSources.catalogChunksUpdatedAt || 'On-demand D1',
+        tone: 'muted',
+      },
+      {
+        label: 'Worker DAT Sync',
+        value: s.workerDatSync?.lastRunAt
+          ? `${s.workerDatSync.lastTargetsChecked} checked / ${s.workerDatSync.lastChangedCount} updated`
+          : 'Pending',
         tone: 'muted',
       },
       {
@@ -178,8 +197,16 @@ export class PipelineHealthComponent {
         tone: 'muted',
       },
       {
-        label: 'R2 Catalog Chunks',
-        value: u.catalogChunksUpdatedAt || 'Pending',
+        label: 'Worker DAT Sync',
+        value: this.status()?.workerDatSync?.lastRunAt || 'Pending',
+        tone: 'muted',
+      },
+      {
+        label: 'Edge Manifest Refresh',
+        value:
+          this.status()?.catalogDelivery?.updatedAt ||
+          u.catalogChunksUpdatedAt ||
+          'Pending',
         tone: 'muted',
       },
     ];

@@ -47,6 +47,21 @@ describe('AdminCenterComponent', () => {
       amiiboCatalogUpdatedAt: '2026-11-18T06:00:00Z',
       catalogChunksUpdatedAt: '2026-11-18T00:05:00Z',
     },
+    workerPlanTier: 'paid',
+    catalogDelivery: {
+      mode: 'd1-edge-cache',
+      version: '2026-11-18:1000:1:v2',
+      totalRows: 1000,
+      chunkCount: 1,
+      maxStableId: 1000,
+      updatedAt: '2026-11-18T00:05:00Z',
+    },
+    workerDatSync: {
+      lastRunAt: '2026-11-18T01:00:00Z',
+      lastTargetsChecked: 5,
+      lastChangedCount: 1,
+      retroCursor: 2,
+    },
   };
 
   let mockCollectionService: {
@@ -54,6 +69,7 @@ describe('AdminCenterComponent', () => {
     promptAdminLogin: ReturnType<typeof vi.fn>;
     getCatalogSeedStatus: ReturnType<typeof vi.fn>;
     updateCatalogSeedControl: ReturnType<typeof vi.fn>;
+    setWorkerPlanTier: ReturnType<typeof vi.fn>;
     getMarketPricingRateLimits: ReturnType<typeof vi.fn>;
     clearMarketPriceCache: ReturnType<typeof vi.fn>;
   };
@@ -64,6 +80,13 @@ describe('AdminCenterComponent', () => {
       promptAdminLogin: vi.fn(),
       getCatalogSeedStatus: vi.fn(() => of(baseStatus)),
       updateCatalogSeedControl: vi.fn(() => of(baseStatus)),
+      setWorkerPlanTier: vi.fn((tier: 'paid' | 'free') =>
+        of({
+          success: true,
+          tier,
+          updatedAt: '2026-11-18T12:00:00Z',
+        }),
+      ),
       getMarketPricingRateLimits: vi.fn(() =>
         of({
           configured: true,
@@ -107,7 +130,10 @@ describe('AdminCenterComponent', () => {
     expect(el.textContent).toContain('Rolling IGDB Refresh');
     expect(el.textContent).toContain('Watched-Series Discovery');
     expect(el.textContent).toContain('Live Upstream Sources & Pre-Orders');
-    expect(el.textContent).toContain('Canonical Tailer & R2 Catalog');
+    expect(el.textContent).toContain('Canonical Tailer & Edge Catalog');
+    expect(el.textContent).toContain('Worker Plan Tier & Quota Guard');
+    expect(el.textContent).toContain('Paid Tier ($5/mo)');
+    expect(el.textContent).toContain('SKIPPED (free_tier_mode)');
     expect(el.textContent).toContain('400 Pending');
     expect(el.textContent).toContain('2026-11-18T05:00:00Z');
     expect(el.textContent).not.toContain('Pause Seeding');
@@ -154,6 +180,27 @@ describe('AdminCenterComponent', () => {
         runRetailPreOrdersNow: true,
       },
     );
+
+    await component.triggerWorkerDatsNow();
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      {
+        runWorkerDatsNow: true,
+      },
+    );
+
+    const toggleBtn = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="plan-tier-toggle-btn"]',
+    ) as HTMLButtonElement;
+    expect(toggleBtn.textContent).toContain('Switch to Free Tier');
+    toggleBtn.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(mockCollectionService.setWorkerPlanTier).toHaveBeenCalledWith(
+      'free',
+    );
+    expect(component.pipelineStatus()?.workerPlanTier).toBe('free');
+    expect(toggleBtn.textContent).toContain('Switch to Paid Tier');
   });
 
   it('surfaces error banner when diagnostics request fails', async () => {

@@ -127,9 +127,9 @@
         </div>
       </kit-section-card>
 
-      <!-- Card 4: Canonical Tailer & R2 Catalog -->
+      <!-- Card 4: Canonical Tailer & Edge Catalog -->
       <kit-section-card
-        title="Canonical Tailer &amp; R2 Catalog"
+        title="Canonical Tailer &amp; Edge Catalog"
         [compact]="true"
       >
         <span
@@ -167,10 +167,97 @@
             >
               Run Tailer Batch
             </button>
+            <button
+              type="button"
+              class="m3-btn m3-btn-secondary btn-sm"
+              data-testid="pipeline-run-worker-dats-btn"
+              [disabled]="actionBusy()"
+              (click)="runWorkerDats.emit()"
+            >
+              Sync Worker DATs
+            </button>
           </div>
         </div>
       </kit-section-card>
     </div>
+
+    <kit-section-card
+      class="mb-lg"
+      title="Worker Plan Tier &amp; Quota Guard"
+      testId="worker-plan-tier-card"
+      [compact]="true"
+    >
+      <span
+        cardActions
+        class="pipeline-badge"
+        [class.done]="!isFreeTier()"
+        [class.warn]="isFreeTier()"
+      >
+        {{ isFreeTier() ? 'Free Tier (Safe Mode)' : 'Paid Tier ($5/mo)' }}
+      </span>
+
+      <div class="pipeline-card-body">
+        <p class="text-sm m-0">
+          @if (isFreeTier()) {
+            <strong>Free Tier Safe Mode is active.</strong> All heavy background
+            ingestion crons pause cleanly (logged as
+            <code>SKIPPED (free_tier_mode)</code>) so the deployment stays well
+            within Cloudflare Free-tier daily D1 read/write quotas and 10ms CPU
+            ceilings.
+          } @else {
+            <strong>Paid Tier ($5/mo) is active.</strong> All 24-slot hourly
+            ingestion pipelines run automatically without free-tier throttling.
+            Toggle to Free Tier anytime if you downgrade your Workers plan.
+          }
+        </p>
+
+        <div class="pipeline-dual-grid">
+          <div class="pipeline-subpanel">
+            <div class="text-xs font-bold">
+              Paused in Free Tier Mode (<code>SKIPPED (free_tier_mode)</code>)
+            </div>
+            <ul class="text-xs text-secondary m-0 pl-md">
+              <li>Redump DAT cron sync (active WIP + retro rotation)</li>
+              <li>Retail deals &amp; pre-orders (VGP / PNP Games)</li>
+              <li>Boutique feeds, SerialStation, PS5DB, r/NSCollectors</li>
+              <li>
+                Switch revisions, AmiiboAPI, Series Discovery, IGDB retries
+              </li>
+            </ul>
+          </div>
+          <div class="pipeline-subpanel">
+            <div class="text-xs font-bold">
+              Always Active in Free &amp; Paid
+            </div>
+            <ul class="text-xs text-secondary m-0 pl-md">
+              <li>
+                Daily 00:00 UTC R2 disaster-recovery backups
+                (<code>snapshots/*</code>)
+              </li>
+              <li>Launch-day release notifications</li>
+              <li>D1 + Edge Cache catalog reads (24h immutable chunks)</li>
+              <li>
+                Collection toggles, manual verification &amp; offline IndexedDB
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="pipeline-card-actions">
+          <button
+            type="button"
+            class="m3-btn btn-sm"
+            [class.m3-btn-primary]="isFreeTier()"
+            [class.m3-btn-secondary]="!isFreeTier()"
+            data-testid="plan-tier-toggle-btn"
+            [disabled]="actionBusy()"
+            (click)="togglePlanTier.emit(nextPlanTier())"
+          >
+            {{ isFreeTier() ? 'Switch to Paid Tier' : 'Switch to Free Tier' }}
+          </button>
+        </div>
+      </div>
+    </kit-section-card>
   }
 
   @if (marketPricingStatus(); as mps) {

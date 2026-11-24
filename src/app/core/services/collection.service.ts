@@ -622,12 +622,25 @@ export class CollectionService implements OnDestroy {
     runSeriesDiscoveryNow?: boolean;
     runNsCollectorsNow?: boolean;
     runRetailPreOrdersNow?: boolean;
+    runWorkerDatsNow?: boolean;
   }): Observable<CatalogSeedStatus> {
     return this.http
       .post<
         CatalogSeedStatus | { status: CatalogSeedStatus }
       >('/api/admin/catalog-seed', payload)
       .pipe(map((res) => (res && 'status' in res ? res.status : res)));
+  }
+
+  public setWorkerPlanTier(tier: 'paid' | 'free'): Observable<{
+    success: boolean;
+    tier: 'paid' | 'free';
+    updatedAt: string;
+  }> {
+    return this.http.post<{
+      success: boolean;
+      tier: 'paid' | 'free';
+      updatedAt: string;
+    }>('/api/admin/plan-tier', { tier });
   }
 
   public getPublicUser(username: string): Observable<PublicUserProfile> {

@@ -866,6 +866,21 @@ export interface CatalogSeedStatus {
     amiiboCatalogUpdatedAt: string | null;
     catalogChunksUpdatedAt: string | null;
   };
+  workerPlanTier?: 'paid' | 'free';
+  catalogDelivery?: {
+    mode: 'd1-edge-cache' | 'r2-backup';
+    version: string | null;
+    totalRows: number;
+    chunkCount: number;
+    maxStableId: number;
+    updatedAt: string | null;
+  };
+  workerDatSync?: {
+    lastRunAt: string | null;
+    lastTargetsChecked: number;
+    lastChangedCount: number;
+    retroCursor: number;
+  };
 }
 
 /**

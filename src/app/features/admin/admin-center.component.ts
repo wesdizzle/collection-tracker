@@ -123,6 +123,7 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       runSeriesDiscoveryNow?: boolean;
       runNsCollectorsNow?: boolean;
       runRetailPreOrdersNow?: boolean;
+      runWorkerDatsNow?: boolean;
     },
     successMessage: (status: CatalogSeedStatus) => string,
     fallbackError: string,
@@ -192,6 +193,48 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       () => 'Retail pre-orders feed sync completed.',
       'Failed to sync retail pre-orders.',
     );
+  }
+
+  public async triggerWorkerDatsNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { runWorkerDatsNow: true },
+      () => 'Worker DAT sync completed.',
+      'Failed to run Worker DAT sync.',
+    );
+  }
+
+  public async toggleWorkerPlanTier(tier: 'paid' | 'free'): Promise<void> {
+    if (!this.collectionService.isAdmin()) {
+      this.collectionService.promptAdminLogin();
+      return;
+    }
+    if (!this.collectionService.setWorkerPlanTier) return;
+
+    this.pipelineActionBusy.set(true);
+    this.pipelineError.set(null);
+    try {
+      const res = await firstValueFrom(
+        this.collectionService.setWorkerPlanTier(tier),
+      );
+      this.pipelineStatus.update((prev) =>
+        prev ? { ...prev, workerPlanTier: res.tier } : prev,
+      );
+      this.showToast(
+        res.tier === 'free'
+          ? 'Switched Worker Plan Tier to Free Tier (Safe Mode).'
+          : 'Switched Worker Plan Tier to Paid Tier ($5/mo).',
+      );
+    } catch (err: unknown) {
+      console.error('[AdminCenter] Plan tier toggle failed:', err);
+      const msg = this.extractErrorMessage(
+        err,
+        'Failed to update Worker plan tier.',
+      );
+      this.pipelineError.set(msg);
+      this.showToast(msg);
+    } finally {
+      this.pipelineActionBusy.set(false);
+    }
   }
 
   public async purgeMarketPriceCache(): Promise<void> {
