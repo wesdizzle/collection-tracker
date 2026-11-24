@@ -2278,6 +2278,28 @@ export function postProcessGameListRows(
 
   const parsedMetadataByStableId = new Map<number, ParsedGameMetadata | null>();
   const candidateNamesByStableId = new Map<number, string[] | null>();
+  const articleLowerCache = new Map<string, string>();
+  const variantPriorityCache = new Map<string, number>();
+
+  const getCachedArticleLower = (raw: string): string => {
+    let val = articleLowerCache.get(raw);
+    if (val === undefined) {
+      val = stripLeadingArticleLower(raw);
+      articleLowerCache.set(raw, val);
+    }
+    return val;
+  };
+
+  const getCachedVariantPrio = (raw: unknown): number => {
+    if (raw == null || raw === '') return 0;
+    const key = String(raw);
+    let val = variantPriorityCache.get(key);
+    if (val === undefined) {
+      val = getGameListVariantPriority(key);
+      variantPriorityCache.set(key, val);
+    }
+    return val;
+  };
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -2294,9 +2316,9 @@ export function postProcessGameListRows(
         cachedMeta = parsedMetadataByStableId.get(stableId) ?? null;
         cachedNames = candidateNamesByStableId.get(stableId) ?? null;
       } else {
-        cachedMeta = parseGameMetadataOnce(
-          (row['metadata_json'] as string | ParsedGameMetadata | null) || null,
-        );
+        const rawMeta =
+          (row['metadata_json'] as string | ParsedGameMetadata | null) || null;
+        cachedMeta = rawMeta ? parseGameMetadataOnce(rawMeta) : null;
         parsedMetadataByStableId.set(stableId, cachedMeta);
         if (cachedMeta) {
           const nameSet = new Set<string>();
@@ -2324,6 +2346,10 @@ export function postProcessGameListRows(
     const rawSort = row['sort_index'] as number | null | undefined;
     const sort = rawSort === null || rawSort === undefined ? null : rawSort;
     const plat = Number(row['platform_id'] ?? 0);
+    const rawSeries = String(
+      row['canonical_series'] || row['base_title'] || row['title'] || '',
+    );
+    const rawTitle = String(row['base_title'] || row['title'] || '');
 
     keyed[i] = {
       row,
@@ -2332,19 +2358,13 @@ export function postProcessGameListRows(
       launchNull: launch === null ? 1 : 0,
       parentPlat: Number(row['parent_platform_id'] ?? plat),
       plat,
-      seriesKey: stripLeadingArticleLower(
-        String(
-          row['canonical_series'] || row['base_title'] || row['title'] || '',
-        ),
-      ),
+      seriesKey: getCachedArticleLower(rawSeries),
       rel,
       relNull: rel === null ? 1 : 0,
       sort,
       sortNull: sort === null ? 1 : 0,
-      titleKey: stripLeadingArticleLower(
-        String(row['base_title'] || row['title'] || ''),
-      ),
-      varPrio: getGameListVariantPriority(row['variants']),
+      titleKey: getCachedArticleLower(rawTitle),
+      varPrio: getCachedVariantPrio(row['variants']),
       reg: String(row['region'] ?? ''),
       id: String(row['id'] ?? ''),
     };

@@ -911,6 +911,8 @@ export interface CatalogManifest {
   toysChunkCount?: number;
   schemaVersion?: string;
   chunkPrefix?: string;
+  chunkBounds?: number[];
+  source?: 'd1-edge-cache' | 'r2-backup';
 }
 
 export interface UserCollectionOverlayResponse {

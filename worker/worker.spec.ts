@@ -43,6 +43,7 @@ import worker, {
   recoverCatalogManifestFromR2Chunks,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
+  resolveCatalogManifest,
   selectStrictIgdbMatch,
   syncOrResolveOidcUser,
   syncWorkerAmiiboCatalog,
@@ -453,12 +454,7 @@ describe('Worker API Logic', () => {
     expect(updatedGame.sort_index).toBe(42);
   });
 
-  it('POST /api/collection/sort updates toy sort_index and invalidates R2 toys catalog chunk', async () => {
-    mockBucket.storage.set(
-      R2_CATALOG_TOYS_CHUNK_KEY,
-      JSON.stringify([{ id: 'link-amiibo', sort_index: 0 }]),
-    );
-
+  it('POST /api/collection/sort updates toy sort_index and serves updated toys via D1 Edge Cache without writing R2 catalog chunks', async () => {
     const req = new Request('http://localhost/api/collection/sort', {
       method: 'POST',
       body: JSON.stringify({
@@ -476,6 +472,22 @@ describe('Worker API Logic', () => {
       .prepare('SELECT sort_index FROM toys WHERE id = ?')
       .get('link-amiibo') as { sort_index: number };
     expect(updatedToy.sort_index).toBe(15);
+
+    const catalogToysRes = await worker.fetch(
+      new Request('http://localhost/api/catalog/toys?v=sort-test'),
+      mockEnv,
+    );
+    expect(catalogToysRes.status).toBe(200);
+    expect(catalogToysRes.headers.get('X-Catalog-Source')).toBe(
+      'd1-edge-cache',
+    );
+    const catalogToys = (await catalogToysRes.json()) as Array<{
+      id: string;
+      sort_index: number;
+    }>;
+    expect(catalogToys.find((t) => t.id === 'link-amiibo')?.sort_index).toBe(
+      15,
+    );
     expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(false);
   });
 
@@ -632,7 +644,7 @@ describe('Worker API Logic', () => {
     );
   });
 
-  it('daytime cron auto-recovers missed daily R2 catalog chunks and stale lite snapshots when manifest version is from a previous UTC day', async () => {
+  it('daytime cron auto-recovers stale lite snapshots without generating R2 catalog chunks', async () => {
     db.prepare(
       `INSERT INTO sync_state (key, value, updated_at)
        VALUES ('db_dirty', '0', datetime('now'))
@@ -648,26 +660,6 @@ describe('Worker API Logic', () => {
       JSON.stringify({ stale: true }),
       {
         customMetadata: { date: '2026-11-17' },
-      },
-    );
-    await mockBucket.put(
-      R2_CATALOG_MANIFEST_KEY,
-      JSON.stringify({
-        version: '2026-11-17:1:1',
-        timestamp: '2026-11-17T17:01:46.339Z',
-        totalRows: 1,
-        chunkSize: 3500,
-        chunkCount: 1,
-        maxStableId: 1,
-        toysTotalRows: 1,
-        toysChunkCount: 1,
-      }),
-      {
-        customMetadata: {
-          version: '2026-11-17:1:1',
-          totalRows: '1',
-          chunkCount: '1',
-        },
       },
     );
 
@@ -708,125 +700,11 @@ describe('Worker API Logic', () => {
       expect(mockBucket.metadata.get(R2_GAMES_ACTIVE_LITE_KEY)?.['date']).toBe(
         '2026-11-18',
       );
-      const updatedManifestRaw = mockBucket.storage.get(
-        R2_CATALOG_MANIFEST_KEY,
-      );
-      expect(updatedManifestRaw).toBeDefined();
-      const updatedManifest = JSON.parse(updatedManifestRaw!) as {
-        version: string;
-        totalRows: number;
-      };
-      expect(updatedManifest.version.startsWith('2026-11-18:')).toBe(true);
-      expect(
-        updatedManifest.version.endsWith(`:${CATALOG_CHUNK_SCHEMA_VERSION}`),
-      ).toBe(true);
-      expect(updatedManifest.totalRows).toBeGreaterThanOrEqual(1);
-      expect(
-        mockBucket.storage.has(
-          getCatalogChunkR2Key(0, updatedManifest.version),
-        ),
-      ).toBe(true);
-    } finally {
-      globalThis.Date = originalDate;
-      fetchSpy.mockRestore();
-    }
-  });
-
-  it('daytime cron reads manifest.version from JSON body when customMetadata is omitted', async () => {
-    db.prepare(
-      `INSERT INTO sync_state (key, value, updated_at)
-       VALUES ('db_dirty', '0', datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = '0'`,
-    ).run();
-
-    mockBucket.storage.clear();
-    mockBucket.metadata.clear();
-
-    await mockBucket.put('snapshots/latest.json', JSON.stringify({ ok: true }));
-    await mockBucket.put(R2_GAMES_ACTIVE_LITE_KEY, JSON.stringify({ ok: 1 }), {
-      customMetadata: { date: '2026-11-19' },
-    });
-    // Put manifest WITHOUT customMetadata (simulating `wrangler r2 object put`) for today -> no stale rebuild
-    const todayVersion = `2026-11-19:1:1:${CATALOG_CHUNK_SCHEMA_VERSION}`;
-    await mockBucket.put(
-      R2_CATALOG_MANIFEST_KEY,
-      JSON.stringify({
-        version: todayVersion,
-        schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
-        timestamp: '2026-11-19T12:00:00.000Z',
-        totalRows: 1,
-        chunkSize: 3500,
-        chunkCount: 1,
-        maxStableId: 1,
-        toysTotalRows: 1,
-        toysChunkCount: 1,
-      }),
-    );
-
-    const scheduledEvent = {
-      cron: '*/30 * * * *',
-      type: 'scheduled',
-      scheduledTime: Date.now(),
-    } as unknown as ScheduledEvent;
-
-    const originalDate = globalThis.Date;
-    let mockTimeMs = Date.parse('2026-11-19T14:00:00Z');
-    globalThis.Date = class extends originalDate {
-      constructor(...args: unknown[]) {
-        if (args.length === 0) {
-          super(mockTimeMs);
-        } else {
-          super(...(args as [string | number | Date]));
-        }
-      }
-      static override now() {
-        return mockTimeMs;
-      }
-    } as unknown as typeof Date;
-
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () => {
-        return {
-          ok: true,
-          json: async () => ({ products: [] }),
-          text: async () => '',
-        } as unknown as Response;
-      });
-
-    try {
-      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-      // Manifest had today's date & current schema version in JSON body, so chunks were NOT rebuilt
+      expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
       const hasAnyBuildChunk = Array.from(mockBucket.storage.keys()).some((k) =>
         k.startsWith(R2_CATALOG_BUILDS_PREFIX),
       );
       expect(hasAnyBuildChunk).toBe(false);
-
-      // Advance past cachedCatalogManifest TTL and overwrite manifest with yesterday's version in JSON body (still no customMetadata)
-      mockTimeMs += 120_000;
-      await mockBucket.put(
-        R2_CATALOG_MANIFEST_KEY,
-        JSON.stringify({
-          version: `2026-11-18:1:1:${CATALOG_CHUNK_SCHEMA_VERSION}`,
-          schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
-          timestamp: '2026-11-18T12:00:00.000Z',
-          totalRows: 1,
-          chunkSize: 3500,
-          chunkCount: 1,
-          maxStableId: 1,
-          toysTotalRows: 1,
-          toysChunkCount: 1,
-        }),
-      );
-      await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-      const rebuiltManifest = JSON.parse(
-        mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
-      ) as { version: string };
-      expect(
-        mockBucket.storage.has(
-          getCatalogChunkR2Key(0, rebuiltManifest.version),
-        ),
-      ).toBe(true);
     } finally {
       globalThis.Date = originalDate;
       fetchSpy.mockRestore();
@@ -8143,7 +8021,7 @@ describe('Worker API Logic', () => {
       vi.stubGlobal('caches', { default: mockCache });
 
       try {
-        // 1. Post-midnight 00:05 UTC cron triggers daily backup & R2 catalog chunk generation
+        // 1. Post-midnight 00:05 UTC cron triggers daily backup (snapshots/*) without baking R2 catalog/* chunks
         await worker.scheduled(
           {
             cron: '*/30 * * * *',
@@ -8154,8 +8032,8 @@ describe('Worker API Logic', () => {
           {} as ExecutionContext,
         );
         expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
-        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
-        expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(true);
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
+        expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(false);
 
         const manifestRes = await worker.fetch(
           new Request(
@@ -8164,15 +8042,21 @@ describe('Worker API Logic', () => {
           mockEnv,
         );
         expect(manifestRes.status).toBe(200);
+        expect(manifestRes.headers.get('X-Catalog-Source')).toBe(
+          'd1-edge-cache',
+        );
         const manifest = (await manifestRes.json()) as {
           version: string;
           totalRows: number;
           chunkCount: number;
           maxStableId: number;
+          chunkBounds?: number[];
+          source?: string;
         };
-        expect(
-          mockBucket.storage.has(getCatalogChunkR2Key(0, manifest.version)),
-        ).toBe(true);
+        expect(manifest.source).toBe('d1-edge-cache');
+        expect(Array.isArray(manifest.chunkBounds)).toBe(true);
+        expect(manifest.chunkBounds!.length).toBe(manifest.chunkCount + 1);
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
         expect(manifest.totalRows).toBeGreaterThanOrEqual(506);
         expect(manifest.chunkCount).toBe(1);
         expect(manifest.maxStableId).toBeGreaterThan(500);
@@ -8201,7 +8085,7 @@ describe('Worker API Logic', () => {
           '3500',
         );
 
-        // 3. GET /api/catalog/games?chunk=0 streams R2 chunk with 24h immutable Edge Cache
+        // 3. GET /api/catalog/games?chunk=0 streams D1 keyset chunk with 24h immutable Edge Cache
         const chunkUrl = `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`;
         const chunkRes1 = await worker.fetch(
           new Request(chunkUrl, { headers: { Cookie: cookieHeader } }),
@@ -8209,9 +8093,18 @@ describe('Worker API Logic', () => {
         );
         expect(chunkRes1.status).toBe(200);
         expect(chunkRes1.headers.get('Cache-Control')).toContain('immutable');
+        expect(chunkRes1.headers.get('X-Catalog-Source')).toBe('d1-edge-cache');
+        expect(chunkRes1.headers.get('X-Cache-Status')).toBe('MISS');
         const chunkData = (await chunkRes1.json()) as Array<{ id: string }>;
         expect(chunkData.length).toBeGreaterThanOrEqual(506);
         expect(cacheStore.has(chunkUrl)).toBe(true);
+
+        const chunkResHit = await worker.fetch(
+          new Request(chunkUrl, { headers: { Cookie: cookieHeader } }),
+          mockEnv,
+        );
+        expect(chunkResHit.status).toBe(200);
+        expect(chunkResHit.headers.get('X-Cache-Status')).toBe('HIT');
 
         // 4. User toggle mutation must NOT evict immutable /api/catalog/games Edge Cache
         const toggleRes = await worker.fetch(
@@ -8287,7 +8180,7 @@ describe('Worker API Logic', () => {
           'same-day-rel',
         );
 
-        // 6. GET /api/toys merges R2 catalog/toys-chunk-0.json base with live D1 user_toys and delta toys
+        // 6. GET /api/toys merges D1/cached base toys with live user_toys overlay without R2 catalog reads
         db.prepare(
           `INSERT INTO toys (id, name, line, series_id, sort_index) VALUES ('zelda-amiibo', 'Zelda', 'amiibo', 'smash', 1)`,
         ).run();
@@ -8311,29 +8204,24 @@ describe('Worker API Logic', () => {
         );
         expect(toys.some((t) => t.id === 'zelda-amiibo')).toBe(true);
 
-        // 7. Single-chunk D1 write-through when active build chunk is missing (non-immutable)
-        mockBucket.storage.delete(getCatalogChunkR2Key(0, manifest.version));
+        // 7. Mismatched/unversioned ?chunk=0 request serves short-TTL D1 response (non-immutable, zero R2 puts)
         cacheStore.clear();
-        const writeThroughRes = await worker.fetch(
+        const mismatchRes = await worker.fetch(
           new Request(
-            `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`,
+            'https://collection-tracker.example.com/api/catalog/games?chunk=0&v=stale-version',
           ),
           mockEnv,
         );
-        expect(writeThroughRes.status).toBe(200);
-        expect(writeThroughRes.headers.get('Cache-Control')).not.toContain(
+        expect(mismatchRes.status).toBe(200);
+        expect(mismatchRes.headers.get('Cache-Control')).not.toContain(
           'immutable',
+        );
+        expect(mismatchRes.headers.get('X-Catalog-Source')).toBe(
+          'd1-edge-cache',
         );
         expect(
           mockBucket.storage.has(getCatalogChunkR2Key(0, manifest.version)),
-        ).toBe(true);
-
-        // Direct writeCatalogChunksToR2 supports resumable maxChunksPerRun cursor
-        mockBucket.storage.clear();
-        const forcedManifest = await writeCatalogChunksToR2(mockEnv, {
-          forceRestart: true,
-        });
-        expect(forcedManifest?.chunkCount).toBe(1);
+        ).toBe(false);
       } finally {
         globalThis.Date = originalDate;
         fetchSpy.mockRestore();
@@ -8871,7 +8759,7 @@ describe('Worker API Logic', () => {
       expect(missingChunkRes.status).toBe(503);
     });
 
-    it('isolates multi-tick build-scoped chunks, retains 1 previous build, prunes older builds, and returns 410 Gone for expired versions', async () => {
+    it('computes D1 keyset chunkBounds across multi-chunk catalogs and serves deterministic keyset slices without R2 reads', async () => {
       resetWorkerRateLimits();
       db.prepare('DELETE FROM user_game_releases').run();
       db.prepare('DELETE FROM game_releases').run();
@@ -8891,79 +8779,47 @@ describe('Worker API Logic', () => {
       });
       seedTx();
 
-      const build1 = await writeCatalogChunksToR2(mockEnv, {
-        timestampOverride: '2026-11-23T01:00:00.000Z',
-        forceRestart: true,
-      });
-      expect(build1).not.toBeNull();
-      expect(build1!.chunkCount).toBe(2);
-      expect(build1!.chunkPrefix).toContain(R2_CATALOG_BUILDS_PREFIX);
-      expect(
-        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
-      ).toBe(true);
-
-      // Start build 2 with only 1 chunk written (partial) -> manifest still points to build 1
-      const partialBuild2 = await writeCatalogChunksToR2(mockEnv, {
-        timestampOverride: '2026-11-23T02:00:00.000Z',
-        maxChunksPerRun: 1,
-      });
-      expect(partialBuild2).toBeNull();
-      const liveManifestMid = JSON.parse(
-        mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
-      ) as { version: string };
-      expect(liveManifestMid.version).toBe(build1!.version);
-
-      // Serving chunk 0 for build1 still returns build1's data intact
-      const b1Chunk0Res = await worker.fetch(
+      const manifestRes = await worker.fetch(
         new Request(
-          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build1!.version)}`,
+          'https://collection-tracker.example.com/api/catalog/games?manifest=1',
         ),
         mockEnv,
       );
-      expect(b1Chunk0Res.status).toBe(200);
+      expect(manifestRes.status).toBe(200);
+      const manifest = (await manifestRes.json()) as {
+        version: string;
+        chunkCount: number;
+        maxStableId: number;
+        chunkBounds: number[];
+        source: string;
+      };
+      expect(manifest.source).toBe('d1-edge-cache');
+      expect(manifest.chunkCount).toBe(2);
+      expect(manifest.maxStableId).toBe(1502);
+      expect(manifest.chunkBounds).toEqual([0, 1500, 1502]);
+      expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
 
-      // Finish build 2 -> manifest swaps atomically and build 1 is retained (1 previous build grace)
-      const build2 = await writeCatalogChunksToR2(mockEnv, {
-        maxChunksPerRun: 2,
-      });
-      expect(build2).not.toBeNull();
-      expect(
-        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
-      ).toBe(true);
-      expect(
-        mockBucket.storage.has(getCatalogChunkR2Key(0, build2!.version)),
-      ).toBe(true);
-
-      // Build 3 completes -> build 2 is retained as previous grace build; build 1 is pruned -> 410 Gone
-      const build3 = await writeCatalogChunksToR2(mockEnv, {
-        timestampOverride: '2026-11-23T03:00:00.000Z',
-        forceRestart: true,
-      });
-      expect(build3).not.toBeNull();
-      expect(
-        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
-      ).toBe(false);
-      expect(
-        mockBucket.storage.has(getCatalogChunkR2Key(0, build2!.version)),
-      ).toBe(true);
-
-      const graceRes = await worker.fetch(
+      const chunk0Res = await worker.fetch(
         new Request(
-          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build2!.version)}`,
+          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`,
         ),
         mockEnv,
       );
-      expect(graceRes.status).toBe(200);
-
-      resetWorkerRateLimits();
-      const expiredRes = await worker.fetch(
+      const chunk1Res = await worker.fetch(
         new Request(
-          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build1!.version)}`,
+          `https://collection-tracker.example.com/api/catalog/games?chunk=1&v=${encodeURIComponent(manifest.version)}`,
         ),
         mockEnv,
       );
-      expect(expiredRes.status).toBe(410);
-      expect(expiredRes.headers.get('X-Catalog-Version-Expired')).toBe('1');
+      expect(chunk0Res.status).toBe(200);
+      expect(chunk1Res.status).toBe(200);
+      expect(chunk0Res.headers.get('Cache-Control')).toContain('immutable');
+      expect(((await chunk0Res.json()) as Array<{ id: string }>).length).toBe(
+        1500,
+      );
+      expect(((await chunk1Res.json()) as Array<{ id: string }>).length).toBe(
+        2,
+      );
     });
 
     it('recovers manifest from build-scoped R2 folders with schemaVersion and chunkPrefix', async () => {
@@ -8985,108 +8841,27 @@ describe('Worker API Logic', () => {
       expect(recovered!.manifest.chunkPrefix).toBe(built!.chunkPrefix);
     });
 
-    it('triggers daytime rebuild on schemaVersion mismatch or catalog_chunks_dirty respecting cooldown', async () => {
-      db.prepare(
-        `INSERT INTO sync_state (key, value, updated_at)
-         VALUES ('db_dirty', '0', datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = '0'`,
-      ).run();
-      mockBucket.storage.clear();
-      mockBucket.metadata.clear();
+    it('recomputes catalog manifest in D1 sync_state when catalog_chunks_dirty is flagged without R2 writes', async () => {
+      resetWorkerRateLimits();
+      const m1 = await resolveCatalogManifest(mockEnv);
+      expect(m1).not.toBeNull();
+      const firstVersion = m1!.version;
 
-      await mockBucket.put(
-        'snapshots/latest.json',
-        JSON.stringify({ ok: true }),
-      );
-      await mockBucket.put(
-        R2_GAMES_ACTIVE_LITE_KEY,
-        JSON.stringify({ ok: 1 }),
-        {
-          customMetadata: { date: '2026-11-23' },
-        },
-      );
-      await mockBucket.put(
-        R2_CATALOG_MANIFEST_KEY,
-        JSON.stringify({
-          version: '2026-11-23:1:1',
-          schemaVersion: 'v1',
-          timestamp: '2026-11-23T01:00:00.000Z',
-          totalRows: 1,
-          chunkSize: 3500,
-          chunkCount: 1,
-          maxStableId: 1,
-          toysTotalRows: 1,
-          toysChunkCount: 1,
-        }),
-        {
-          customMetadata: {
-            version: '2026-11-23:1:1',
-            schemaVersion: 'v1',
-          },
-        },
-      );
+      await markCatalogChunksDirty(mockEnv);
+      const dirtyRow = db
+        .prepare(`SELECT value FROM sync_state WHERE key = ?`)
+        .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+      expect(dirtyRow.value).toBe('1');
 
-      const originalDate = globalThis.Date;
-      let mockTimeMs = Date.parse('2026-11-23T12:00:00Z');
-      globalThis.Date = class extends originalDate {
-        constructor(...args: unknown[]) {
-          if (args.length === 0) super(mockTimeMs);
-          else super(...(args as [string | number | Date]));
-        }
-        static override now() {
-          return mockTimeMs;
-        }
-      } as unknown as typeof Date;
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: async () => ({ products: [] }),
-        text: async () => '',
-      } as unknown as Response);
-
-      try {
-        const scheduledEvent = {
-          cron: '*/30 * * * *',
-          type: 'scheduled',
-          scheduledTime: mockTimeMs,
-        } as unknown as ScheduledEvent;
-
-        // 1. Schema version v1 mismatch triggers immediate rebuild on today's date
-        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-        const rebuilt1 = JSON.parse(
-          mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
-        ) as { version: string; schemaVersion: string };
-        expect(rebuilt1.schemaVersion).toBe(CATALOG_CHUNK_SCHEMA_VERSION);
-        expect(
-          rebuilt1.version.endsWith(`:${CATALOG_CHUNK_SCHEMA_VERSION}`),
-        ).toBe(true);
-
-        // 2. Setting catalog_chunks_dirty within 2h cooldown waits cleanly
-        await markCatalogChunksDirty(mockEnv);
-        mockTimeMs += 30 * 60_000;
-        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-        const stillDirty = db
-          .prepare(`SELECT value FROM sync_state WHERE key = ?`)
-          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
-        expect(stillDirty.value).toBe('1');
-
-        // 3. Past 2h cooldown, dirty flag triggers rebuild and clears dirty bit
-        mockTimeMs += 2 * 60 * 60_000;
-        db.prepare(
-          `INSERT INTO sync_state (key, value) VALUES (?, ?)
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        ).run(
-          CATALOG_CHUNKS_LAST_BUILT_AT_KEY,
-          new Date(mockTimeMs - 3 * 60 * 60_000).toISOString(),
-        );
-        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-        const clearedDirty = db
-          .prepare(`SELECT value FROM sync_state WHERE key = ?`)
-          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
-        expect(clearedDirty.value).toBe('0');
-      } finally {
-        globalThis.Date = originalDate;
-        fetchSpy.mockRestore();
-      }
+      await new Promise((r) => setTimeout(r, 15));
+      const m2 = await resolveCatalogManifest(mockEnv);
+      expect(m2).not.toBeNull();
+      expect(m2!.version).not.toBe(firstVersion);
+      const clearedRow = db
+        .prepare(`SELECT value FROM sync_state WHERE key = ?`)
+        .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+      expect(clearedRow.value).toBe('0');
+      expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
     });
 
     it('marks non-DAT canonical_release_id rows as is_source_verified = 1 in R2 degraded list and detail fallbacks', async () => {
@@ -9309,9 +9084,10 @@ describe('Worker API Logic', () => {
       expect(carolOverlay.ugr.map((r) => r.release_id)).toEqual(['carol-rel']);
     });
 
-    it('keeps existing R2 catalog/manifest.json intact when ingestion triggers invalidation', async () => {
-      await writeCatalogChunksToR2(mockEnv, { forceRestart: true });
-      expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+    it('marks catalog_chunks_dirty cleanly when ingestion inserts a new game without writing R2 catalog files', async () => {
+      resetWorkerRateLimits();
+      const initialManifest = await resolveCatalogManifest(mockEnv);
+      expect(initialManifest).not.toBeNull();
 
       const mockVgp = {
         products: [
@@ -9368,9 +9144,13 @@ describe('Worker API Logic', () => {
         await syncWorkerRetailDeals(mockEnv);
         const inserted = db
           .prepare(`SELECT stable_id FROM games WHERE barcode = '045496905999'`)
-          .get();
+          .get() as { stable_id: number } | undefined;
         expect(inserted).toBeDefined();
-        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
+        const refreshedManifest = await resolveCatalogManifest(mockEnv);
+        expect(refreshedManifest?.maxStableId).toBeGreaterThanOrEqual(
+          inserted!.stable_id,
+        );
+        expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(false);
       } finally {
         fetchSpy.mockRestore();
       }
