@@ -33,6 +33,12 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
         "Demon's Souls & More",
       );
     });
+    it('decodes extended HTML entities including multiplication signs', () => {
+      expect(decodeHtmlEntities('Hunter&#215;Hunter Nen')).toBe(
+        'Hunter×Hunter Nen',
+      );
+      expect(decodeHtmlEntities('A &times; B')).toBe('A × B');
+    });
   });
 
   describe('cleanRetailTitle', () => {
@@ -86,6 +92,18 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
           'Baten Kaitos [Asian English Import] [Play-Asia Exclusive]',
         ),
       ).toBe('Baten Kaitos');
+
+      expect(
+        cleanRetailTitle(
+          'Limited Run #420: Guacamelee (JPIM) [SteelBook® Edition] [Free Shipping] (Extra Edition)',
+        ),
+      ).toBe('Guacamelee');
+
+      expect(
+        cleanRetailTitle(
+          'Hunter&#215;Hunter (Multi-Lang) [Canadian Exclusive Retailer] [EU Import]',
+        ),
+      ).toBe('Hunter×Hunter');
     });
 
     it('should handle empty or undefined titles gracefully', () => {
@@ -100,6 +118,20 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(
         resolveRetailPlatformId(undefined, 'Metroid Prime Remastered [Switch]'),
       ).toBe(26);
+
+      // Dual Xbox One / Xbox Series X classifies strictly as Xbox One (49)
+      expect(
+        resolveRetailPlatformId('Xbox Series X / Xbox One', 'Dual Release'),
+      ).toBe(49);
+      expect(
+        resolveRetailPlatformId(
+          undefined,
+          'Hogwarts Legacy - Xbox One / Xbox Series X',
+        ),
+      ).toBe(49);
+      expect(
+        resolveRetailPlatformId('Xbox Series X', 'Dead Space Remake'),
+      ).toBe(50);
     });
   });
 
@@ -733,7 +765,9 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
             json: () => Promise.resolve({ rates: { USD: 0.75 } }),
           });
         }
-        if (url.includes('videogamesplus.ca/products.json')) {
+        if (
+          url.includes('videogamesplus.ca/collections/pre-orders/products.json')
+        ) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -833,6 +867,49 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       });
       expect(all.sources).toEqual({ vgp: 1, pnp: 1 });
       expect(all.preOrders).toHaveLength(2);
+    });
+
+    it('falls back to /collections/all/products.json when /collections/pre-orders returns 403/404', async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/collections/pre-orders/products.json')) {
+          return Promise.resolve({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+          });
+        }
+        if (url.includes('/collections/all/products.json')) {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                products: [
+                  {
+                    id: 991,
+                    title: 'Fallback PreOrder - PS5 (PRE-ORDER)',
+                    handle: 'fallback-ps5',
+                    product_type: 'PlayStation 5',
+                    tags: ['PRE-ORDER'],
+                    variants: [{ id: 1, price: '59.99', available: true }],
+                  },
+                ],
+              }),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+        });
+      });
+
+      const res = await fetchVgpNewPreOrders(
+        mockFetch as unknown as typeof fetch,
+        1,
+        0.73,
+      );
+      expect(res).toHaveLength(1);
+      expect(res[0].name).toBe('Fallback PreOrder - PS5 (PRE-ORDER)');
     });
   });
 });

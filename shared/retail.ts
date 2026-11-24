@@ -9,7 +9,11 @@
  * Designed to stay well within Cloudflare Workers Free Tier limits (~20 subrequests per run).
  */
 
-import { stripRetailPreorderAndPlatformTrailer } from './title_matching.js';
+import {
+  stripBoutiqueCatalogPrefix,
+  stripLgnPlatformPipeTrailer,
+  stripRetailPreorderAndPlatformTrailer,
+} from './title_matching.js';
 
 export type RetailStoreName = 'VGP' | 'PNP Games';
 
@@ -80,10 +84,11 @@ export const RETAIL_TO_TRACKER_PLATFORM: Record<string, number> = {
   'Xbox One': 49,
   XB1: 49,
   'XBOX ONE': 49,
+  'Xbox One / Xbox Series X': 49,
+  'Xbox Series X / Xbox One': 49,
   'Xbox Series X': 50,
   'Xbox Series S': 50,
   'Xbox Series X|S': 50,
-  'Xbox Series X / Xbox One': 50,
   'XBOX SERIES X': 50,
   XSX: 50,
   'Xbox 360': 48,
@@ -113,7 +118,16 @@ export function decodeHtmlEntities(text: string): string {
     .replace(/&#038;|&#38;|&amp;/gi, '&')
     .replace(/&quot;|&#34;|&#8220;|&#8221;/gi, '"')
     .replace(/&#039;|&#39;/gi, "'")
-    .replace(/&nbsp;/gi, ' ');
+    .replace(/&#215;|&#x0*d7;|&times;/gi, '×')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#(\d+);/g, (_m, dec) => {
+      const cp = parseInt(dec, 10);
+      return cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, hex) => {
+      const cp = parseInt(hex, 16);
+      return cp >= 32 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '';
+    });
 }
 
 /**
@@ -124,10 +138,18 @@ export function resolveRetailPlatformId(
   rawTitle?: string | null,
 ): number | undefined {
   if (platformStr) {
+    const platNorm = platformStr.toLowerCase().trim();
     const direct =
       RETAIL_TO_TRACKER_PLATFORM[platformStr] ??
-      CASE_INSENSITIVE_PLATFORM_MAP.get(platformStr.toLowerCase().trim());
+      CASE_INSENSITIVE_PLATFORM_MAP.get(platNorm);
     if (direct !== undefined) return direct;
+    // Dual Xbox One / Series X strings always classify as forward-compatible Xbox One (49)
+    if (/\b(xbox\s*one|xb1)\b/i.test(platformStr)) {
+      return 49;
+    }
+    if (/\b(xbox\s*series\s*[xs](\|[xs])?|xsx)\b/i.test(platformStr)) {
+      return 50;
+    }
   }
 
   if (rawTitle) {
@@ -163,11 +185,19 @@ export function resolveRetailPlatformId(
     if (/\b(PlayStation\s*Portable|PSP)\b\s*$/i.test(decoded)) {
       return 31;
     }
+    // Check Xbox One (including dual Xbox One / Xbox Series X) before standalone Xbox Series X
+    if (
+      /\b(Xbox\s*One|XB1)\b(?:\s*[/|,&]\s*\b(?:Xbox\s*Series\s*[XS](?:[|/]S)?|XSX)\b)?\s*$/i.test(
+        decoded,
+      ) ||
+      /\b(?:Xbox\s*Series\s*[XS](?:[|/]S)?|XSX)\s*[/|,&]\s*\b(Xbox\s*One|XB1)\b\s*$/i.test(
+        decoded,
+      )
+    ) {
+      return 49;
+    }
     if (/\b(Xbox\s*Series\s*[XS](\|[XS])?|XSX)\b\s*$/i.test(decoded)) {
       return 50;
-    }
-    if (/\b(Xbox\s*One|XB1)\b\s*$/i.test(decoded)) {
-      return 49;
     }
     if (/\b(Xbox\s*360|X360)\b\s*$/i.test(decoded)) {
       return 48;
@@ -196,16 +226,19 @@ export function resolveRetailPlatformId(
  */
 export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
-  let cleaned = decodeHtmlEntities(rawTitle);
+  let cleaned = stripBoutiqueCatalogPrefix(
+    stripLgnPlatformPipeTrailer(decodeHtmlEntities(rawTitle)),
+    { stripPreOrderPrefix: true },
+  );
 
   // Strip common VGP/PNP promotional suffixes, parentheticals, and boutique/import bracket tags
   cleaned = cleaned
     .replace(
-      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPN\s*Import[^)]*|Multi-Language[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?\s*English\s*Import|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
+      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPIM|JP|JPN\s*Import[^)]*|Multi-Lang(?:uage)?[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard(?:\s*Edition)?|Extra\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?(?:\s*English)?\s*Import[^)]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
       ' ',
     )
     .replace(
-      /\s*\[(Standard\s*Edition|Import|PEGI[^\]]*|US\/ESRB|Multi-Language[^\]]*|PRE-ORDER|ESRB|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?\s*English\s*Import|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
+      /\s*\[(Standard\s*Edition|Standard\/Limited\s*Ed(?:i)?tion|Import|EU\s*Import|PEGI[^\]]*|US\/ESRB|Multi-Lang(?:uage)?[^\]]*|PRE-ORDER|ESRB|Cart\s*Type\s*Not\s*Confirmed|Free\s*Shipping|Retail\s*Version|SteelBook®?\s*Edition|Canadian\s*Exclusive\s*Retailer|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?(?:\s*English)?\s*Import[^\]]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
       ' ',
     );
 
@@ -417,7 +450,7 @@ function parseVgpProductToRetailItem(
 
 /**
  * Fetches newest game pre-orders & recent physical releases from VideoGamesPlus
- * via `/products.json` (most recently published catalog products).
+ * via `/collections/pre-orders/products.json` with fallback to `/collections/all/products.json`.
  */
 export async function fetchVgpNewPreOrders(
   fetchFn: typeof fetch = fetch,
@@ -426,48 +459,74 @@ export async function fetchVgpNewPreOrders(
 ): Promise<RetailDealItem[]> {
   const items: RetailDealItem[] = [];
   const todayIso = new Date().toISOString().slice(0, 10);
+  const collectionBases = [
+    'https://videogamesplus.ca/collections/pre-orders/products.json',
+    'https://videogamesplus.ca/collections/all/products.json',
+  ];
 
-  for (let page = 1; page <= maxPages; page++) {
-    const url = `https://videogamesplus.ca/products.json?limit=250&page=${page}`;
-    const res = await fetchFn(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'CollectionTracker/1.0',
-      },
-      signal: AbortSignal.timeout(15000),
-    });
+  let lastErrorStatus = '';
+  for (let cIdx = 0; cIdx < collectionBases.length; cIdx++) {
+    const baseUrl = collectionBases[cIdx];
+    const collected: RetailDealItem[] = [];
+    let collectionFailedOnPage1 = false;
 
-    if (!res.ok) {
-      throw new Error(
-        `VGP Pre-Order API request failed with status ${res.status}: ${res.statusText}`,
-      );
-    }
-
-    const data = (await res.json()) as { products?: VgpShopifyProduct[] };
-    const products = data.products || [];
-    if (products.length === 0) break;
-
-    for (const prod of products) {
-      if (isNonGameRetailTitle(prod.title, prod.product_type)) continue;
-      const item = parseVgpProductToRetailItem(
-        prod,
-        cadToUsdRate,
-        false,
-        'game',
-        {
-          allowUnavailable: true,
+    for (let page = 1; page <= maxPages; page++) {
+      const url = `${baseUrl}?limit=250&page=${page}`;
+      const res = await fetchFn(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'CollectionTracker/1.0',
         },
-      );
-      if (!item || isStandaloneToyListing(item)) continue;
-      if (
-        item.isPreOrder ||
-        (item.releaseDate && item.releaseDate >= todayIso)
-      ) {
-        items.push({ ...item, isPreOrder: true });
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!res.ok) {
+        lastErrorStatus = `${res.status}: ${res.statusText}`;
+        if (page === 1) {
+          collectionFailedOnPage1 = true;
+          break;
+        }
+        throw new Error(
+          `VGP Pre-Order API request failed with status ${lastErrorStatus}`,
+        );
       }
+
+      const data = (await res.json()) as { products?: VgpShopifyProduct[] };
+      const products = data.products || [];
+      if (products.length === 0) break;
+
+      for (const prod of products) {
+        if (isNonGameRetailTitle(prod.title, prod.product_type)) continue;
+        const item = parseVgpProductToRetailItem(
+          prod,
+          cadToUsdRate,
+          false,
+          'game',
+          {
+            allowUnavailable: true,
+          },
+        );
+        if (!item || isStandaloneToyListing(item)) continue;
+        if (
+          item.isPreOrder ||
+          (item.releaseDate && item.releaseDate >= todayIso)
+        ) {
+          collected.push({ ...item, isPreOrder: true });
+        }
+      }
+
+      if (products.length < 250) break;
     }
 
-    if (products.length < 250) break;
+    if (!collectionFailedOnPage1 && collected.length > 0) {
+      items.push(...collected);
+      break;
+    }
+    if (cIdx === collectionBases.length - 1 && collectionFailedOnPage1) {
+      throw new Error(
+        `VGP Pre-Order API request failed with status ${lastErrorStatus}`,
+      );
+    }
   }
 
   return items;

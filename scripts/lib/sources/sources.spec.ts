@@ -536,6 +536,63 @@ describe('Offline Canonical Source Adapters', () => {
         ),
       ).toBe(true);
     });
+
+    it('fetches VGP all-xbox-one and all-xbox-series-x collections and enforces Xbox One forward-compat', async () => {
+      const mockFetch = async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes('/collections/all-xbox-one/products.json')) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 881,
+                  title: 'Control Ultimate Edition',
+                  handle: 'control-xbox',
+                  product_type: 'Xbox Series X / Xbox One',
+                  variants: [{ price: '39.99', sku: 'VGP-881' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('/collections/all-xbox-series-x/products.json')) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 882,
+                  title: 'Dead Space - Xbox Series X',
+                  handle: 'dead-space-xsx',
+                  variants: [{ price: '49.99', sku: 'VGP-882' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('limitedgamenews.com/wp-json/wp/v2/categories')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify({ products: [] }), { status: 200 });
+      };
+
+      await fetchRetailBackCatalogSources(tmpDir, {
+        maxPages: 1,
+        fetchFn: mockFetch as typeof fetch,
+      });
+      const releases = loadRetailBackCatalogReleases(tmpDir);
+      expect(
+        releases.find((r) => r.raw_title === 'Control Ultimate Edition')
+          ?.platform_id,
+      ).toBe(49);
+      expect(
+        releases.find((r) => r.raw_title === 'Dead Space')?.platform_id,
+      ).toBe(50);
+    });
   });
 
   describe('community_csv', () => {

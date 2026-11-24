@@ -142,6 +142,12 @@ export function normalizeTitleForMatching(
     plantsvszombiesbattleneighborvillecomplete:
       'plantsvszombiesbattleneighborville',
     shantaeriskyrevengedirectorcut: 'shantaeriskyrevenge',
+    baldurgatebaldurgateiienhancededitions: 'baldurgatebaldurgateii',
+    overcokedgourmet: 'overcoked',
+    pacmance2: 'pacmanchampionship2',
+    insidelimbobundle: 'insidelimbo',
+    limboinsidebundle: 'insidelimbo',
+    megamanxlegacycollection12: 'megamanxlegacycollection',
   };
 
   if (
@@ -850,15 +856,19 @@ export function stripEditionSuffix(title: string): string {
   const norm = (title || '').replace(/[\u2018\u2019\u201B\u2032`]/g, "'");
   return norm
     .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|switch\s*2|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*edition/gi,
+      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*editions?/gi,
       '',
     )
     .replace(
-      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|nintendo switch(?:\s*2)?|switch\s*2|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*edition/gi,
+      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*editions?/gi,
       '',
     )
     .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|deathinitive|warmastered|owltimate|fully yoked|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2)\s+edition/gi,
+      /\s+(definitive|deluxe|ultimate|complete|standard|special|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|gourmet|enhanced|deathinitive|warmastered|owltimate|fully yoked|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one)\s+editions?/gi,
+      '',
+    )
+    .replace(
+      /\s*(?:[,:\-–—]\s*)?\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi,
       '',
     )
     .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
@@ -945,7 +955,7 @@ export function stripIgdbEditionWrapper(
     }
     current = current
       .replace(
-        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Year\s+One|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2)\s+Edition$/i,
+        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Gourmet|Enhanced|Year\s+One|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i,
         '',
       )
       .replace(
@@ -1048,6 +1058,22 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
   };
 
   addKey(title);
+  const cleanedTelltale = (title || '')
+    .replace(/[,:\-–—]?\s*\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi, '')
+    .trim();
+  if (cleanedTelltale && cleanedTelltale !== title) {
+    addKey(cleanedTelltale);
+  }
+  const remasterStripped = (title || '')
+    .replace(/\s*(?:[:\-–—]\s*|\s+)(?:hd\s+)?remaster(?:ed)?$/i, '')
+    .trim();
+  if (
+    remasterStripped &&
+    remasterStripped !== title &&
+    remasterStripped.length >= 2
+  ) {
+    addKey(remasterStripped);
+  }
   const splitEd = splitTitleEditionSuffix(title);
   if (splitEd && !splitEd.suffix.startsWith('+')) {
     addKey(splitEd.base);

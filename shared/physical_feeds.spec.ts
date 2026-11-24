@@ -419,6 +419,113 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       expect(results[250].platformId).toBe(35);
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
+
+    it('should parse multi-platform Shopify variants and enforce Xbox One forward-compat rules', async () => {
+      const mockShopify = {
+        products: [
+          {
+            id: 7001,
+            title: 'TUNIC',
+            handle: 'tunic',
+            tags: ['Physical Games'],
+            variants: [
+              { title: 'Nintendo Switch', price: '45.00', available: true },
+              { title: 'PlayStation 4', price: '45.00', available: true },
+              { title: 'Steam (Digital)', price: '29.99', available: true },
+            ],
+          },
+          {
+            id: 7002,
+            title: 'Psychonauts 2 (Xbox)',
+            handle: 'psychonauts-2-xbox',
+            tags: ['Xbox One'],
+            body_html:
+              '<p>Includes Xbox One and Xbox Series X Smart Delivery</p>',
+            variants: [
+              { title: 'Standard Edition', price: '49.99', available: true },
+            ],
+          },
+          {
+            id: 7003,
+            title: 'Mystic Dual Disc (Xbox One / Xbox Series X)',
+            handle: 'mystic-dual-disc',
+            tags: [],
+            variants: [
+              { title: 'Xbox One', price: '39.99', available: true },
+              { title: 'Xbox Series X', price: '39.99', available: true },
+            ],
+          },
+          {
+            id: 7004,
+            title: 'Series Exclusive Game',
+            handle: 'series-exclusive-game',
+            tags: ['Xbox Series X'],
+            variants: [{ title: 'Xbox', price: '59.99', available: true }],
+          },
+          {
+            id: 7005,
+            title: 'Ambiguous Bare Xbox Game (Xbox)',
+            handle: 'ambiguous-xbox-game',
+            tags: ['Xbox'],
+            variants: [
+              { title: 'Default Title', price: '39.99', available: true },
+            ],
+          },
+        ],
+      };
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => mockShopify,
+      });
+
+      const store: BoutiqueFeedConfig[] = [
+        {
+          store: 'Fangamer',
+          url: 'https://www.fangamer.com/collections/games/products.json?limit=250',
+          baseUrl: 'https://www.fangamer.com',
+          type: 'shopify',
+        },
+      ];
+
+      const results = await fetchBoutiquePreOrders(
+        mockFetch as unknown as typeof fetch,
+        store,
+      );
+
+      // TUNIC -> Switch (26) & PS4 (34), skipping Steam
+      const tunicItems = results.filter((r) => r.cleanTitle === 'TUNIC');
+      expect(tunicItems.map((r) => r.platformId)).toEqual([26, 34]);
+      expect(tunicItems.map((r) => r.id)).toEqual([
+        'Fangamer_7001_26',
+        'Fangamer_7001_34',
+      ]);
+
+      // Psychonauts 2 -> resolved to Xbox One (49) via tags/body, not ambiguous
+      const psychonauts = results.find((r) => r.cleanTitle === 'Psychonauts 2');
+      expect(psychonauts?.platformId).toBe(49);
+      expect(psychonauts?.ambiguousXbox).toBeUndefined();
+
+      // Dual Xbox One / Xbox Series X -> emits 49 only (never double-emits 50)
+      const dualItems = results.filter(
+        (r) => r.cleanTitle === 'Mystic Dual Disc',
+      );
+      expect(dualItems).toHaveLength(1);
+      expect(dualItems[0].platformId).toBe(49);
+
+      // Explicit XSX in tags without Xbox One -> resolves to 50
+      const seriesOnly = results.find(
+        (r) => r.cleanTitle === 'Series Exclusive Game',
+      );
+      expect(seriesOnly?.platformId).toBe(50);
+
+      // Bare Xbox without clarifying tags -> defaults 49 with ambiguousXbox=true
+      const ambig = results.find(
+        (r) => r.cleanTitle === 'Ambiguous Bare Xbox Game',
+      );
+      expect(ambig?.platformId).toBe(49);
+      expect(ambig?.ambiguousXbox).toBe(true);
+    });
   });
 
   describe('fetchLimitedGameNewsReleases', () => {

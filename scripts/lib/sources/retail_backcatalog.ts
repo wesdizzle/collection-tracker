@@ -60,64 +60,97 @@ async function fetchVgpCatalogPages(
   maxPages: number,
   cadToUsdRate = DEFAULT_CAD_TO_USD_RATE,
 ): Promise<RetailDealItem[]> {
-  const items: RetailDealItem[] = [];
-  for (let page = 1; page <= maxPages; page++) {
-    const url = `https://videogamesplus.ca/collections/all/products.json?limit=250&page=${page}`;
-    try {
-      const res = await fetchFn(url, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'CollectionTracker/2.0 (RetailBackCatalogFetch)',
-        },
-        signal: AbortSignal.timeout(20000),
-      });
-      if (!res.ok) break;
-      const payload = (await res.json()) as { products?: ShopifyProductRaw[] };
-      const products = payload.products || [];
-      if (products.length === 0) break;
+  const byUrl = new Map<string, RetailDealItem>();
+  const endpoints: Array<{ urlBase: string; forcedPlatformId?: number }> = [
+    { urlBase: 'https://videogamesplus.ca/collections/all/products.json' },
+    {
+      urlBase:
+        'https://videogamesplus.ca/collections/all-xbox-one/products.json',
+      forcedPlatformId: 49,
+    },
+    {
+      urlBase:
+        'https://videogamesplus.ca/collections/all-xbox-series-x/products.json',
+      forcedPlatformId: 50,
+    },
+  ];
 
-      for (const prod of products) {
-        if (
-          !prod.title ||
-          isNonGameRetailTitle(prod.title, prod.product_type)
-        ) {
-          continue;
-        }
-        const platformId = resolveRetailPlatformId(
-          prod.product_type,
-          prod.title,
-        );
-        if (!platformId) continue;
-        const firstVariant = prod.variants?.[0];
-        const priceCad = parseFloat(firstVariant?.price || '0') || 0;
-        const rawBarcode = (firstVariant?.barcode || '').trim();
-        const barcode =
-          rawBarcode.length >= 8 && /^\d+$/.test(rawBarcode)
-            ? rawBarcode
-            : undefined;
-        const item: RetailDealItem = {
-          store: 'VGP',
-          sku: firstVariant?.sku || String(prod.id),
-          upc: barcode,
-          name: prod.title,
-          regularPrice: Number((priceCad * cadToUsdRate).toFixed(2)),
-          salePrice: Number((priceCad * cadToUsdRate).toFixed(2)),
-          onSale: false,
-          percentSavings: 0,
-          url: `https://videogamesplus.ca/products/${prod.handle}`,
-          platform: prod.product_type || undefined,
-          onlineAvailability: true,
-          categoryHint: 'game',
+  for (const endpoint of endpoints) {
+    for (let page = 1; page <= maxPages; page++) {
+      const url = `${endpoint.urlBase}?limit=250&page=${page}`;
+      try {
+        const res = await fetchFn(url, {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'CollectionTracker/2.0 (RetailBackCatalogFetch)',
+          },
+          signal: AbortSignal.timeout(20000),
+        });
+        if (!res.ok) break;
+        const payload = (await res.json()) as {
+          products?: ShopifyProductRaw[];
         };
-        if (isStandaloneToyListing(item)) continue;
-        items.push(item);
+        const products = payload.products || [];
+        if (products.length === 0) break;
+
+        for (const prod of products) {
+          if (
+            !prod.title ||
+            isNonGameRetailTitle(prod.title, prod.product_type)
+          ) {
+            continue;
+          }
+          // Dual Xbox One / Series X always resolves to Xbox One (49); never override Xbox One to 50
+          let platformId = resolveRetailPlatformId(
+            prod.product_type,
+            prod.title,
+          );
+          if (!platformId && endpoint.forcedPlatformId) {
+            platformId = endpoint.forcedPlatformId;
+          }
+          if (!platformId) continue;
+
+          const firstVariant = prod.variants?.[0];
+          const priceCad = parseFloat(firstVariant?.price || '0') || 0;
+          const rawBarcode = (firstVariant?.barcode || '').trim();
+          const barcode =
+            rawBarcode.length >= 8 && /^\d+$/.test(rawBarcode)
+              ? rawBarcode
+              : undefined;
+          const itemUrl = `https://videogamesplus.ca/products/${prod.handle}`;
+          const item: RetailDealItem = {
+            store: 'VGP',
+            sku: firstVariant?.sku || String(prod.id),
+            upc: barcode,
+            name: prod.title,
+            regularPrice: Number((priceCad * cadToUsdRate).toFixed(2)),
+            salePrice: Number((priceCad * cadToUsdRate).toFixed(2)),
+            onSale: false,
+            percentSavings: 0,
+            url: itemUrl,
+            platform:
+              prod.product_type ||
+              (platformId === 49
+                ? 'Xbox One'
+                : platformId === 50
+                  ? 'Xbox Series X'
+                  : undefined),
+            onlineAvailability: true,
+            categoryHint: 'game',
+          };
+          if (isStandaloneToyListing(item)) continue;
+          const existing = byUrl.get(itemUrl);
+          if (!existing || platformId === 49) {
+            byUrl.set(itemUrl, item);
+          }
+        }
+        if (products.length < 250) break;
+      } catch {
+        break;
       }
-      if (products.length < 250) break;
-    } catch {
-      break;
     }
   }
-  return items;
+  return Array.from(byUrl.values());
 }
 
 export function parseRetailBackCatalog(
@@ -239,7 +272,7 @@ export async function fetchRetailBackCatalogSources(
   options?: { maxPages?: number; fetchFn?: typeof fetch },
 ): Promise<{ savedPath: string; totalParsed: number }> {
   fs.mkdirSync(sourcesDir, { recursive: true });
-  const maxPages = options?.maxPages ?? 5;
+  const maxPages = options?.maxPages ?? 15;
   const fetchFn = options?.fetchFn ?? fetch;
 
   const [boutique, lgn, vgpPre, pnpPre, vgpCatalog] = await Promise.all([

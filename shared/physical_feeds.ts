@@ -24,8 +24,11 @@ export interface ShopifyProductItem {
   id?: number | string;
   title?: string;
   handle?: string;
+  product_type?: string;
+  body_html?: string;
   tags?: string[] | string;
   variants?: Array<{
+    title?: string;
     price?: string | number;
     compare_at_price?: string | number;
     available?: boolean;
@@ -78,6 +81,7 @@ export interface BoutiquePreOrder {
   rawTitle: string;
   cleanTitle: string;
   platformId: number | null;
+  ambiguousXbox?: boolean;
   productUrl: string;
   imageUrl?: string;
   priceUsd?: number;
@@ -260,8 +264,10 @@ const BOUTIQUE_PLATFORM_PATTERNS: Array<{ regex: RegExp; id: number }> = [
   { regex: /\b(?:PlayStation\s+3|PS3)\b/i, id: 32 },
   { regex: /\b(?:PlayStation\s+VR2|PSVR2)\b/i, id: 35 },
   { regex: /\b(?:PlayStation\s+VR|PSVR)\b/i, id: 34 },
-  { regex: /\b(?:Xbox\s+Series\s+X(?:[|/]S)?|XSX)\b/i, id: 50 },
+  // Xbox One / forward-compatible dual Xbox One + Series X discs classify strictly as Xbox One (49)
   { regex: /\b(?:Xbox\s+One|XB1)\b/i, id: 49 },
+  { regex: /\b(?:Xbox\s+Series\s+[XS](?:[|/]S)?|XSX)\b/i, id: 50 },
+  { regex: /\b(?:Xbox\s+360|X360)\b/i, id: 48 },
   { regex: /\b(?:Sega\s+Genesis|Mega\s+Drive)\b/i, id: 37 },
   { regex: /\b(?:Super\s+Nintendo|SNES)\b/i, id: 15 },
   { regex: /\b(?:Nintendo\s+Entertainment\s+System|NES)\b/i, id: 13 },
@@ -270,6 +276,9 @@ const BOUTIQUE_PLATFORM_PATTERNS: Array<{ regex: RegExp; id: number }> = [
   { regex: /\b(?:Game\s+Boy|GB)\b/i, id: 14 },
   { regex: /\b(?:Nintendo\s+64|N64)\b/i, id: 17 },
 ];
+
+const BARE_XBOX_PLATFORM_REGEX =
+  /\bXbox\b(?!\s*(?:360|One|Series|Live|Game\s*Pass|Design\s*Lab))/i;
 
 /**
  * Extracts platform ID, region, edition, and sanitizes the title from boutique store listing formats.
@@ -280,6 +289,7 @@ export function cleanBoutiqueTitle(
 ): {
   cleanTitle: string;
   platformId: number | null;
+  ambiguousXbox?: boolean;
   edition?: string | null;
   region?: string | null;
   isPreOrder: boolean;
@@ -289,6 +299,7 @@ export function cleanBoutiqueTitle(
     return {
       cleanTitle: '',
       platformId: null,
+      ambiguousXbox: false,
       edition: null,
       region: null,
       isPreOrder: false,
@@ -303,6 +314,7 @@ export function cleanBoutiqueTitle(
     return {
       cleanTitle: rawTitle,
       platformId: null,
+      ambiguousXbox: false,
       edition: null,
       region: null,
       isPreOrder: false,
@@ -374,14 +386,25 @@ export function cleanBoutiqueTitle(
 
   // 3. Identify platform
   let platformId: number | null = null;
+  let ambiguousXbox = false;
 
   // First, check if any parenthetical/bracket contains platform keywords or pre-order
   title = title.replace(/[([][^)\]]*[)\]]/g, (bracketContent) => {
     for (const p of BOUTIQUE_PLATFORM_PATTERNS) {
       if (p.regex.test(bracketContent)) {
-        if (!platformId) platformId = p.id;
+        if (!platformId) {
+          platformId = p.id;
+          ambiguousXbox = false;
+        }
         return '';
       }
+    }
+    if (BARE_XBOX_PLATFORM_REGEX.test(bracketContent)) {
+      if (!platformId) {
+        platformId = 49;
+        ambiguousXbox = true;
+      }
+      return '';
     }
     if (/pre-?order/i.test(bracketContent)) return '';
     return bracketContent;
@@ -393,9 +416,25 @@ export function cleanBoutiqueTitle(
       if (p.regex.test(title)) {
         platformId = p.id;
         title = title.replace(p.regex, '').trim();
+        if (p.id === 49) {
+          // Strip paired Series X|S mention on dual Xbox One / Xbox Series X listings
+          title = title
+            .replace(
+              /\s*[/|,&]?\s*\b(?:Xbox\s+Series\s+[XS](?:[|/]S)?|XSX)\b/gi,
+              '',
+            )
+            .trim();
+        }
         break;
       }
     }
+  }
+
+  // Fallback for bare "Xbox" (without 360 / One / Series): mark ambiguousXbox for tag/body/catalog resolution
+  if (!platformId && BARE_XBOX_PLATFORM_REGEX.test(title)) {
+    platformId = 49;
+    ambiguousXbox = true;
+    title = title.replace(BARE_XBOX_PLATFORM_REGEX, '').trim();
   }
 
   // 4. Detect and strip Edition markers
@@ -468,6 +507,7 @@ export function cleanBoutiqueTitle(
   return {
     cleanTitle: title,
     platformId,
+    ambiguousXbox,
     edition: matchedEdition,
     region: matchedRegion,
     isPreOrder,
@@ -475,86 +515,256 @@ export function cleanBoutiqueTitle(
   };
 }
 
+function resolveXboxDisambiguationFromText(
+  initialPlatformId: number | null,
+  wasAmbiguousXbox: boolean,
+  contextText: string,
+): { platformId: number | null; ambiguousXbox: boolean } {
+  if (initialPlatformId !== 49 || !wasAmbiguousXbox) {
+    return { platformId: initialPlatformId, ambiguousXbox: false };
+  }
+  if (/\b(?:Xbox\s+One|XB1)\b/i.test(contextText)) {
+    return { platformId: 49, ambiguousXbox: false };
+  }
+  if (/\b(?:Xbox\s+Series\s+[XS](?:[|/]S)?|XSX)\b/i.test(contextText)) {
+    return { platformId: 50, ambiguousXbox: false };
+  }
+  if (/\b(?:Xbox\s+360|X360)\b/i.test(contextText)) {
+    return { platformId: 48, ambiguousXbox: false };
+  }
+  return { platformId: 49, ambiguousXbox: true };
+}
+
+function extractPlatformFromShopifyText(text: string): {
+  platformId: number | null;
+  ambiguousXbox: boolean;
+} {
+  if (!text) return { platformId: null, ambiguousXbox: false };
+  for (const p of BOUTIQUE_PLATFORM_PATTERNS) {
+    if (p.regex.test(text)) {
+      return { platformId: p.id, ambiguousXbox: false };
+    }
+  }
+  if (BARE_XBOX_PLATFORM_REGEX.test(text)) {
+    return { platformId: 49, ambiguousXbox: true };
+  }
+  return { platformId: null, ambiguousXbox: false };
+}
+
 function parseShopifyBoutiqueItem(
   config: BoutiqueFeedConfig,
   item: ShopifyProductItem,
-): BoutiquePreOrder | null {
+): BoutiquePreOrder[] {
   const rawTitle = item.title || '';
-  const cleaned = cleanBoutiqueTitle(rawTitle);
-
-  if (!cleaned.isGame) {
-    return null;
+  if (
+    !rawTitle ||
+    NON_GAME_REGEXES.some((rx) => rx.test(rawTitle)) ||
+    (item.product_type &&
+      NON_GAME_REGEXES.some((rx) => rx.test(item.product_type!)))
+  ) {
+    return [];
   }
 
-  // Check tags for pre-order if not in title
-  let isPre = cleaned.isPreOrder;
-  if (!isPre && Array.isArray(item.tags)) {
-    isPre = item.tags.some((t: string) =>
-      /pre-?order/i.test(typeof t === 'string' ? t : ''),
-    );
+  const baseCleaned = cleanBoutiqueTitle(rawTitle, { requirePlatform: false });
+  if (!baseCleaned.isGame || baseCleaned.cleanTitle.length <= 1) {
+    return [];
   }
 
-  const isAvailable =
-    Array.isArray(item.variants) &&
-    item.variants.length > 0 &&
-    item.variants.some((v) => v.available !== false);
+  const tagsStr = Array.isArray(item.tags)
+    ? item.tags.join(' ')
+    : typeof item.tags === 'string'
+      ? item.tags
+      : '';
+  const bodyPlain = decodeHtmlEntities(
+    (item.body_html || '').replace(/<[^>]+>/g, ' '),
+  );
+  const xboxContext = `${tagsStr} ${item.product_type || ''} ${bodyPlain}`;
 
-  const region = cleaned.region || STORE_DEFAULT_REGIONS[config.store] || null;
-
-  let priceUsd: number | undefined;
-  let priceCents: number | undefined;
-  let regularPriceCents: number | undefined;
-  let discountPct: number | undefined;
-  let onSale: boolean | undefined;
-  if (Array.isArray(item.variants) && item.variants.length > 0) {
-    const rawPrice = parseFloat(String(item.variants[0].price || ''));
-    if (!isNaN(rawPrice)) {
-      priceUsd = config.isCad
-        ? Math.round(rawPrice * DEFAULT_CAD_TO_USD_RATE * 100) / 100
-        : rawPrice;
-      priceCents = Math.round(priceUsd * 100);
-
-      const rawCompare = parseFloat(
-        String(item.variants[0].compare_at_price || ''),
-      );
-      if (!isNaN(rawCompare) && rawCompare > rawPrice) {
-        const regUsd = config.isCad
-          ? Math.round(rawCompare * DEFAULT_CAD_TO_USD_RATE * 100) / 100
-          : rawCompare;
-        regularPriceCents = Math.round(regUsd * 100);
-        discountPct = Math.round(
-          ((regularPriceCents - priceCents) / regularPriceCents) * 100,
-        );
-        onSale = discountPct > 0;
-      }
-    }
+  let isPre = baseCleaned.isPreOrder;
+  if (!isPre && tagsStr) {
+    isPre = /pre-?order/i.test(tagsStr);
   }
 
+  const baseRegion =
+    baseCleaned.region || STORE_DEFAULT_REGIONS[config.store] || null;
   const productUrl = `${config.baseUrl}/products/${item.handle}`;
   const imageUrl =
     Array.isArray(item.images) && item.images.length > 0
       ? item.images[0].src
       : undefined;
 
-  return {
-    store: config.store,
-    id: `${config.store}_${item.id}`,
-    rawTitle,
-    cleanTitle: cleaned.cleanTitle,
-    platformId: cleaned.platformId,
-    productUrl,
-    imageUrl,
-    priceUsd,
-    priceCents,
-    regularPriceCents,
-    discountPct,
-    onSale,
-    edition: cleaned.edition,
-    region,
-    isAvailable,
-    isPreOrder: isPre,
-    publishedAt: item.published_at || item.created_at,
+  const variants = Array.isArray(item.variants) ? item.variants : [];
+  type VariantItem = NonNullable<ShopifyProductItem['variants']>[number];
+
+  const computePricing = (groupVariants: VariantItem[]) => {
+    const isAvailable =
+      groupVariants.length > 0 &&
+      groupVariants.some((v) => v.available !== false);
+    let priceUsd: number | undefined;
+    let priceCents: number | undefined;
+    let regularPriceCents: number | undefined;
+    let discountPct: number | undefined;
+    let onSale: boolean | undefined;
+
+    for (const v of groupVariants) {
+      const rawPrice = parseFloat(String(v.price || ''));
+      if (isNaN(rawPrice)) continue;
+      const candUsd = config.isCad
+        ? Math.round(rawPrice * DEFAULT_CAD_TO_USD_RATE * 100) / 100
+        : rawPrice;
+      const candCents = Math.round(candUsd * 100);
+      if (priceCents === undefined || candCents < priceCents) {
+        priceUsd = candUsd;
+        priceCents = candCents;
+        const rawCompare = parseFloat(String(v.compare_at_price || ''));
+        if (!isNaN(rawCompare) && rawCompare > rawPrice) {
+          const regUsd = config.isCad
+            ? Math.round(rawCompare * DEFAULT_CAD_TO_USD_RATE * 100) / 100
+            : rawCompare;
+          regularPriceCents = Math.round(regUsd * 100);
+          discountPct = Math.round(
+            ((regularPriceCents - priceCents) / regularPriceCents) * 100,
+          );
+          onSale = discountPct > 0;
+        } else {
+          regularPriceCents = undefined;
+          discountPct = undefined;
+          onSale = undefined;
+        }
+      }
+    }
+
+    return {
+      isAvailable,
+      priceUsd,
+      priceCents,
+      regularPriceCents,
+      discountPct,
+      onSale,
+    };
   };
+
+  // Detect per-variant platforms when a single product page bundles Switch / PS4 / PS5 / Xbox variants
+  const variantGroups = new Map<
+    number,
+    {
+      platformId: number;
+      ambiguousXbox: boolean;
+      edition: string | null | undefined;
+      variants: VariantItem[];
+    }
+  >();
+
+  for (const v of variants) {
+    const vTitle = (v.title || '').trim();
+    if (!vTitle || /^default\s+title$/i.test(vTitle)) continue;
+    const vParsed = cleanBoutiqueTitle(vTitle, { requirePlatform: false });
+    if (!vParsed.platformId) continue;
+
+    const resolvedXbox = resolveXboxDisambiguationFromText(
+      vParsed.platformId,
+      Boolean(vParsed.ambiguousXbox),
+      `${vTitle} ${xboxContext}`,
+    );
+    const pid = resolvedXbox.platformId!;
+    let grp = variantGroups.get(pid);
+    if (!grp) {
+      grp = {
+        platformId: pid,
+        ambiguousXbox: resolvedXbox.ambiguousXbox,
+        edition: baseCleaned.edition || vParsed.edition,
+        variants: [],
+      };
+      variantGroups.set(pid, grp);
+    } else {
+      grp.ambiguousXbox = grp.ambiguousXbox && resolvedXbox.ambiguousXbox;
+    }
+    grp.variants.push(v);
+  }
+
+  // Forward-compat guard: if a Shopify item contains both Xbox One (49) and XSX (50) variants, consolidate onto 49 only
+  if (variantGroups.has(49) && variantGroups.has(50)) {
+    const g49 = variantGroups.get(49)!;
+    const g50 = variantGroups.get(50)!;
+    g49.variants.push(...g50.variants);
+    g49.ambiguousXbox = false;
+    variantGroups.delete(50);
+  }
+
+  if (variantGroups.size > 0) {
+    const multiPlatform = variantGroups.size > 1;
+    const out: BoutiquePreOrder[] = [];
+    for (const grp of variantGroups.values()) {
+      const pricing = computePricing(grp.variants);
+      out.push({
+        store: config.store,
+        id: multiPlatform
+          ? `${config.store}_${item.id}_${grp.platformId}`
+          : `${config.store}_${item.id}`,
+        rawTitle,
+        cleanTitle: baseCleaned.cleanTitle,
+        platformId: grp.platformId,
+        ...(grp.ambiguousXbox ? { ambiguousXbox: true } : {}),
+        productUrl,
+        imageUrl,
+        priceUsd: pricing.priceUsd,
+        priceCents: pricing.priceCents,
+        regularPriceCents: pricing.regularPriceCents,
+        discountPct: pricing.discountPct,
+        onSale: pricing.onSale,
+        edition: grp.edition,
+        region: baseRegion,
+        isAvailable: pricing.isAvailable,
+        isPreOrder: isPre,
+        publishedAt: item.published_at || item.created_at,
+      });
+    }
+    return out;
+  }
+
+  // Single-platform fallback: rawTitle platform -> product_type / tags
+  let resolvedPid = baseCleaned.platformId;
+  let resolvedAmbiguous = Boolean(baseCleaned.ambiguousXbox);
+  if (resolvedPid === null) {
+    const metaHit = extractPlatformFromShopifyText(
+      `${item.product_type || ''} ${tagsStr}`,
+    );
+    resolvedPid = metaHit.platformId;
+    resolvedAmbiguous = metaHit.ambiguousXbox;
+  }
+  if (resolvedPid === null) {
+    return [];
+  }
+
+  const finalXbox = resolveXboxDisambiguationFromText(
+    resolvedPid,
+    resolvedAmbiguous,
+    xboxContext,
+  );
+  const pricing = computePricing(variants);
+
+  return [
+    {
+      store: config.store,
+      id: `${config.store}_${item.id}`,
+      rawTitle,
+      cleanTitle: baseCleaned.cleanTitle,
+      platformId: finalXbox.platformId,
+      ...(finalXbox.ambiguousXbox ? { ambiguousXbox: true } : {}),
+      productUrl,
+      imageUrl,
+      priceUsd: pricing.priceUsd,
+      priceCents: pricing.priceCents,
+      regularPriceCents: pricing.regularPriceCents,
+      discountPct: pricing.discountPct,
+      onSale: pricing.onSale,
+      edition: baseCleaned.edition,
+      region: baseRegion,
+      isAvailable: pricing.isAvailable,
+      isPreOrder: isPre,
+      publishedAt: item.published_at || item.created_at,
+    },
+  ];
 }
 
 function parseWooBoutiqueItem(
@@ -650,8 +860,8 @@ export async function fetchBoutiquePreOrders(
         ) {
           if (json.products.length === 0) break;
           for (const item of json.products) {
-            const parsed = parseShopifyBoutiqueItem(config, item);
-            if (parsed) results.push(parsed);
+            const parsedItems = parseShopifyBoutiqueItem(config, item);
+            if (parsedItems.length > 0) results.push(...parsedItems);
           }
           if (json.products.length < 250) break;
         } else if (config.type === 'woocommerce' && Array.isArray(json)) {
@@ -737,6 +947,10 @@ function extractAllPlatformIds(text: string): number[] {
     if (p.regex.test(text) && !found.includes(p.id)) {
       found.push(p.id);
     }
+  }
+  // Dual Xbox One + Xbox Series X announcements belong strictly to Xbox One (49)
+  if (found.includes(49) && found.includes(50)) {
+    return found.filter((id) => id !== 50);
   }
   return found;
 }

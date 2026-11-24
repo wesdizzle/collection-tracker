@@ -1236,6 +1236,30 @@ describe('Title Matching Strategies', () => {
         'Metroid Prime 4: Beyond - Nintendo Switch 2 Edition',
       );
       expect(sw2Keys).toContain('metroidprime4beyond');
+
+      expect(
+        buildCanonicalLinkerMatchKeys('Resident Evil 5 Remastered'),
+      ).toContain('residentevil5');
+      expect(
+        buildCanonicalLinkerMatchKeys('Minecraft - Xbox One Edition'),
+      ).toContain('minecraft');
+      expect(
+        buildCanonicalLinkerMatchKeys(
+          "Baldur's Gate and Baldur's Gate II: Enhanced Editions",
+        ),
+      ).toContain('baldurgatebaldurgateii');
+      expect(
+        buildCanonicalLinkerMatchKeys('Overcooked: Gourmet Edition'),
+      ).toContain('overcoked');
+      expect(buildCanonicalLinkerMatchKeys('Pac-Man CE 2')).toContain(
+        'pacmanchampionship2',
+      );
+      expect(buildCanonicalLinkerMatchKeys('Inside & Limbo Bundle')).toContain(
+        'insidelimbo',
+      );
+      expect(
+        buildCanonicalLinkerMatchKeys('Mega Man X: Legacy Collection 1+2'),
+      ).toContain('megamanxlegacycollection');
     });
   });
 });
