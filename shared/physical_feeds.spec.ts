@@ -521,5 +521,45 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       );
       expect(items[5].platformId).toBe(26);
     });
+
+    it('should skip promotional deal roundup headlines such as Free Shipping Deals', async () => {
+      const mockFetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/categories')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => [{ id: 3, name: 'PS5', slug: 'ps5' }],
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              id: 601,
+              date_gmt: '2026-11-23T12:00:00',
+              link: 'https://limitedgamenews.com/2026/11/playasia-week-2026-free-shipping-deals/',
+              title: {
+                rendered: 'Playasia Week-2026 &#8211; Free Shipping Deals',
+              },
+              excerpt: { rendered: '<p>Save on weekly Playasia deals.</p>' },
+              categories: [3],
+            },
+            {
+              id: 602,
+              date_gmt: '2026-11-23T13:00:00',
+              link: 'https://limitedgamenews.com/2026/11/actual-game/',
+              title: { rendered: 'Valid Physical Title | PlayStation 5' },
+              excerpt: { rendered: '<p>Physical release announced.</p>' },
+              categories: [3],
+            },
+          ],
+        });
+      });
+
+      const items = await fetchLimitedGameNewsReleases(
+        mockFetch as unknown as typeof fetch,
+      );
+      expect(items).toHaveLength(1);
+      expect(items[0].cleanTitle).toBe('Valid Physical Title');
+    });
   });
 });

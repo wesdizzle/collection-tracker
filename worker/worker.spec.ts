@@ -2529,6 +2529,278 @@ describe('Worker API Logic', () => {
       }
     });
 
+    it('syncWorkerBoutiquePreOrders deduplicates IGDB edition-renamed LGN titles across feed hash changes without repeating Seeking alerts', async () => {
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (1, 'series', 'The Lord of the Rings', 2, 'home', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
+         VALUES ('sub-lotr', 1, 'https://push.example.com/sub-lotr', 'p256', 'auth', '{"enabled": true, "notify_watched_series": true}', 'agent', datetime('now'), datetime('now'))`,
+      ).run();
+
+      let lgnPostVersion = 1;
+      const webPushSpy = vi
+        .spyOn(webPush, 'sendWebPushNotification')
+        .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (url.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 413144,
+                    name: 'The Lord of the Rings: War in the North - Legacy Edition',
+                    platforms: [167],
+                    collections: [{ name: 'The Lord of the Rings' }],
+                    franchises: [{ name: 'The Lord of the Rings' }],
+                    url: 'https://www.igdb.com/games/the-lord-of-the-rings-war-in-the-north-legacy-edition',
+                  },
+                ],
+              },
+            ]);
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 8801,
+                  date_gmt: '2026-10-01T12:00:00',
+                  link: 'https://limitedgamenews.com/2026/10/01/the-lord-of-the-rings-war-in-the-north-ps5/',
+                  title: {
+                    rendered:
+                      lgnPostVersion === 1
+                        ? 'The Lord of the Rings: War in the North | PlayStation 5'
+                        : 'The Lord of the Rings: War in the North - PS5',
+                  },
+                  excerpt: {
+                    rendered: '<p>Physical release announced for PS5.</p>',
+                  },
+                  categories: [],
+                },
+              ],
+            } as unknown as Response;
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/categories')) {
+            return { ok: true, json: async () => [] } as unknown as Response;
+          }
+          // Shift unrelated boutique feed price between runs so boutique_feed_hash changes
+          if (url.includes('strictlylimitedgames.com')) {
+            return {
+              ok: true,
+              json: async () => ({
+                products: [
+                  {
+                    id: 9999,
+                    title: 'Unrelated Game (PS5)',
+                    handle: 'unrelated-game-ps5',
+                    tags: [],
+                    variants: [
+                      {
+                        price: lgnPostVersion === 1 ? '39.99' : '29.99',
+                        available: true,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const res1 = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res1.ingestedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+
+        lgnPostVersion = 2;
+        const res2 = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res2.ingestedCount).toBe(0);
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+
+        const rows = db
+          .prepare(
+            `SELECT stable_id, title, igdb_id FROM games WHERE platform_id = 35 AND igdb_id = 413144`,
+          )
+          .all() as Array<{
+          stable_id: number;
+          title: string;
+          igdb_id: number;
+        }>;
+        expect(rows).toHaveLength(1);
+        expect(rows[0].title).toBe(
+          'The Lord of the Rings: War in the North - Legacy Edition',
+        );
+      } finally {
+        fetchSpy.mockRestore();
+        webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders deduplicates Roman/Arabic numeral renames across repeated runs', async () => {
+      let feedTick = 1;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (url.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 329138,
+                    name: 'Endless Legend 2',
+                    platforms: [167],
+                    url: 'https://www.igdb.com/games/endless-legend-2',
+                  },
+                ],
+              },
+              {
+                name: 'q1',
+                result: [
+                  {
+                    id: 350035,
+                    name: 'Beholgar II',
+                    platforms: [167],
+                    url: 'https://www.igdb.com/games/beholgar-ii',
+                  },
+                ],
+              },
+            ]);
+          }
+          if (url.includes('strictlylimitedgames.com')) {
+            return {
+              ok: true,
+              json: async () => ({
+                products: [
+                  {
+                    id: 7711,
+                    title: 'ENDLESS Legend II Collector Edition (PS5)',
+                    handle: 'endless-legend-2-collectors-edition-playstation-5',
+                    tags: ['pre-order'],
+                    variants: [
+                      {
+                        price: feedTick === 1 ? '59.99' : '54.99',
+                        available: true,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            } as unknown as Response;
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 8802,
+                  date_gmt: '2026-09-15T12:00:00',
+                  link: 'https://limitedgamenews.com/2026/09/15/beholgar-2-playstation-5/',
+                  title: { rendered: 'Beholgar 2 | PlayStation 5' },
+                  excerpt: { rendered: '<p>Physical release announced.</p>' },
+                  categories: [],
+                },
+              ],
+            } as unknown as Response;
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/categories')) {
+            return { ok: true, json: async () => [] } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const res1 = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res1.ingestedCount).toBe(2);
+
+        feedTick = 2;
+        const res2 = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res2.ingestedCount).toBe(0);
+
+        const countEndless = db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM games WHERE platform_id = 35 AND igdb_id = 329138`,
+          )
+          .get() as { cnt: number };
+        const countBeholgar = db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM games WHERE platform_id = 35 AND igdb_id = 350035`,
+          )
+          .get() as { cnt: number };
+        expect(countEndless.cnt).toBe(1);
+        expect(countBeholgar.cnt).toBe(1);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders matches existing row by (platform_id, retail_url) when stored title formatting differs', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, retail_store, retail_url)
+         VALUES (955, '955', 'Aeruta | PlayStation 5,', 35, 'Limited Game News', 'https://limitedgamenews.com/2026/09/11/aeruta-playstation-5/')`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 8803,
+                  date_gmt: '2026-09-11T12:00:00',
+                  link: 'https://limitedgamenews.com/2026/09/11/aeruta-playstation-5/',
+                  title: { rendered: 'Aeruta | PlayStation 5' },
+                  excerpt: { rendered: '<p>Physical edition announced.</p>' },
+                  categories: [],
+                },
+              ],
+            } as unknown as Response;
+          }
+          if (url.includes('limitedgamenews.com/wp-json/wp/v2/categories')) {
+            return { ok: true, json: async () => [] } as unknown as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ products: [] }),
+          } as unknown as Response;
+        });
+
+      try {
+        const res = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res.ingestedCount).toBe(0);
+        const rows = db
+          .prepare(`SELECT stable_id FROM games WHERE platform_id = 35`)
+          .all();
+        expect(rows).toHaveLength(1);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('GET /api/games/:id prioritizes owned release matching game region over unowned foreign releases', async () => {
       db.prepare(
         `INSERT INTO games (stable_id, id, title, platform_id, region)
@@ -9619,6 +9891,106 @@ describe('Worker API Logic', () => {
           .prepare(`SELECT 1 FROM games WHERE title LIKE '%Random Unverified%'`)
           .get();
         expect(rejectedGame).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerRetailDeals skips duplicate auto-ingestion on existing (platform_id, igdb_id), URL, or numeral-equivalent title', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, igdb_id, retail_url)
+         VALUES (9950, '9950', 'Beholgar II', 35, 350035, 'https://videogamesplus.ca/products/beholgar-ii-ps5'),
+                (9951, '9951', 'Existing By IGDB', 26, 228918, 'https://videogamesplus.ca/products/other-url-switch')`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('open.er-api.com')) {
+            return new Response(JSON.stringify({ rates: { USD: 0.75 } }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 228918,
+                    name: 'Haste',
+                    platforms: [130],
+                    url: 'https://www.igdb.com/games/haste',
+                  },
+                ],
+              },
+            ]);
+          }
+          if (
+            urlStr.includes('videogamesplus.ca/collections/sales/products.json')
+          ) {
+            return new Response(
+              JSON.stringify({
+                products: [
+                  {
+                    id: 7701,
+                    title: 'Beholgar 2 - PlayStation 5',
+                    handle: 'beholgar-2-different-handle-ps5',
+                    product_type: 'PlayStation 5',
+                    variants: [
+                      {
+                        id: 77011,
+                        sku: '7701',
+                        price: '29.99',
+                        compare_at_price: '39.99',
+                        barcode: '011122233344',
+                        available: true,
+                      },
+                    ],
+                  },
+                  {
+                    id: 7702,
+                    title: 'Haste - Nintendo Switch',
+                    handle: 'haste-switch',
+                    product_type: 'Nintendo Switch',
+                    variants: [
+                      {
+                        id: 77021,
+                        sku: '7702',
+                        price: '24.99',
+                        compare_at_price: '34.99',
+                        available: true,
+                      },
+                    ],
+                  },
+                ],
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          if (urlStr.includes('pnpgamesonline.com')) {
+            return new Response(JSON.stringify([]), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
+          return new Response(JSON.stringify({ products: [] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        });
+
+      try {
+        await syncWorkerRetailDeals(mockEnv);
+        const total = db
+          .prepare(`SELECT COUNT(*) AS cnt FROM games WHERE stable_id >= 9950`)
+          .get() as { cnt: number };
+        expect(total.cnt).toBe(2);
       } finally {
         fetchSpy.mockRestore();
       }

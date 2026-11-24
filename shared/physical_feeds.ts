@@ -690,7 +690,7 @@ interface LimitedGameNewsCategory {
 }
 
 const LGN_NON_ANNOUNCEMENT_REGEX =
-  /\b(roundup|weekly\s+recap|giveaway|contest|podcast|shipping\s+update|flash\s+sale|newsletter|interview|merchandise\s+drop|shipping\s+schedule)\b/i;
+  /\b(roundup|weekly\s+(?:recap|deals?)|free\s+shipping\s+deals?|giveaway|contest|podcast|shipping\s+update|flash\s+sale|newsletter|interview|merchandise\s+drop|shipping\s+schedule)\b/i;
 
 function stripWpHtml(html?: string): string {
   if (!html) return '';

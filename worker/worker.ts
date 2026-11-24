@@ -100,6 +100,7 @@ import {
   extractTitleSequelSignature,
   isCompilationOrBundleTitle,
   normalizeForIgdbMatch,
+  normalizeSafeSequelNumerals,
   normalizeTitleForMatching,
   resolveCanonicalDisplayTitle,
   stripEditionSuffix,
@@ -11287,6 +11288,178 @@ export default {
   },
 };
 
+interface CatalogRetailLookupEntry {
+  stable_id: number;
+  title: string;
+  platform_id: number;
+  igdb_id?: number | null;
+  retail_url?: string | null;
+  barcode?: string | null;
+}
+
+/**
+ * Indexes existing and newly ingested catalog rows per platform across URL,
+ * exact/numeral-normalized titles, edition-stripped canonical keys, IGDB IDs,
+ * and barcodes so retail/boutique cron runs cannot re-ingest duplicates when
+ * IGDB renames or numeral/pipe formatting diverges from the store feed.
+ */
+class PlatformCatalogDedupeIndex<T extends CatalogRetailLookupEntry> {
+  private byPlatformUrl = new Map<string, T>();
+  private byPlatformDirectKey = new Map<string, T[]>();
+  private byPlatformLinkerKey = new Map<string, T[]>();
+  private byPlatformLowerTitle = new Map<string, T>();
+  private igdbKeys = new Set<string>();
+  private barcodes = new Set<string>();
+
+  constructor(entries: Iterable<T> = []) {
+    for (const entry of entries) {
+      this.register(entry);
+    }
+  }
+
+  private normalizeUrl(url?: string | null): string {
+    return (url || '').trim().toLowerCase();
+  }
+
+  private addToKeyBucket(
+    map: Map<string, T[]>,
+    platformId: number,
+    key: string,
+    entry: T,
+  ): void {
+    if (!key) return;
+    const mapKey = `${platformId}::${key}`;
+    let list = map.get(mapKey);
+    if (!list) {
+      list = [];
+      map.set(mapKey, list);
+    }
+    if (!list.some((item) => item.stable_id === entry.stable_id)) {
+      list.push(entry);
+    }
+  }
+
+  private getDirectKeys(title: string): string[] {
+    const trimmed = (title || '').trim();
+    if (!trimmed) return [];
+    const exact = normalizeTitleForMatching(trimmed);
+    const numeralVol = normalizeTitleForMatching(
+      normalizeSafeSequelNumerals(trimmed.replace(/\bvolume\b/gi, 'vol')),
+    );
+    const keys: string[] = [];
+    if (exact) keys.push(exact);
+    if (numeralVol && numeralVol !== exact) keys.push(numeralVol);
+    return keys;
+  }
+
+  register(entry: T): void {
+    const pid = entry.platform_id;
+    const normUrl = this.normalizeUrl(entry.retail_url);
+    if (normUrl) {
+      const urlKey = `${pid}::${normUrl}`;
+      if (!this.byPlatformUrl.has(urlKey)) {
+        this.byPlatformUrl.set(urlKey, entry);
+      }
+    }
+    const lowerTitle = (entry.title || '').trim().toLowerCase();
+    if (lowerTitle) {
+      const lowerKey = `${pid}::${lowerTitle}`;
+      if (!this.byPlatformLowerTitle.has(lowerKey)) {
+        this.byPlatformLowerTitle.set(lowerKey, entry);
+      }
+    }
+    for (const directKey of this.getDirectKeys(entry.title)) {
+      this.addToKeyBucket(this.byPlatformDirectKey, pid, directKey, entry);
+    }
+    for (const linkerKey of buildCanonicalLinkerMatchKeys(entry.title)) {
+      this.addToKeyBucket(this.byPlatformLinkerKey, pid, linkerKey, entry);
+    }
+    if (entry.igdb_id && Number(entry.igdb_id) > 0) {
+      this.igdbKeys.add(`${pid}::${entry.igdb_id}`);
+    }
+    if (entry.barcode && entry.barcode.trim()) {
+      this.barcodes.add(entry.barcode.trim());
+    }
+  }
+
+  registerAliases(platformId: number, titles: string[], entry: T): void {
+    for (const title of titles) {
+      for (const directKey of this.getDirectKeys(title)) {
+        this.addToKeyBucket(
+          this.byPlatformDirectKey,
+          platformId,
+          directKey,
+          entry,
+        );
+      }
+      for (const linkerKey of buildCanonicalLinkerMatchKeys(title)) {
+        this.addToKeyBucket(
+          this.byPlatformLinkerKey,
+          platformId,
+          linkerKey,
+          entry,
+        );
+      }
+    }
+  }
+
+  findByUrl(platformId: number, url?: string | null): T | undefined {
+    const normUrl = this.normalizeUrl(url);
+    if (!normUrl) return undefined;
+    return this.byPlatformUrl.get(`${platformId}::${normUrl}`);
+  }
+
+  findByTitle(platformId: number, title: string): T | undefined {
+    if (!title) return undefined;
+    // Pass 1: exact / Roman-Arabic numeral match before edition-stripped matches
+    for (const directKey of this.getDirectKeys(title)) {
+      const list = this.byPlatformDirectKey.get(`${platformId}::${directKey}`);
+      if (!list) continue;
+      for (const cand of list) {
+        if (areCanonicalTitlesSequelCompatible(title, cand.title)) {
+          return cand;
+        }
+      }
+    }
+    const lowerHit = this.byPlatformLowerTitle.get(
+      `${platformId}::${title.trim().toLowerCase()}`,
+    );
+    if (lowerHit) return lowerHit;
+
+    // Pass 2: edition-stripped canonical match keys (still sequel-guarded)
+    for (const linkerKey of buildCanonicalLinkerMatchKeys(title)) {
+      const list = this.byPlatformLinkerKey.get(`${platformId}::${linkerKey}`);
+      if (!list) continue;
+      for (const cand of list) {
+        if (areCanonicalTitlesSequelCompatible(title, cand.title)) {
+          return cand;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  findMatch(
+    platformId: number,
+    title: string,
+    url?: string | null,
+  ): T | undefined {
+    return (
+      this.findByUrl(platformId, url) ?? this.findByTitle(platformId, title)
+    );
+  }
+
+  hasIgdb(platformId: number, igdbId?: number | null): boolean {
+    if (!igdbId || Number(igdbId) <= 0) return false;
+    return this.igdbKeys.has(`${platformId}::${igdbId}`);
+  }
+
+  hasBarcode(barcode?: string | null): boolean {
+    const trim = (barcode || '').trim();
+    return Boolean(trim && this.barcodes.has(trim));
+  }
+}
+
 /**
  * Synchronizes active physical video game sales from VGP and PNP Games
  * directly into Cloudflare D1 within Free Tier subrequest limits.
@@ -11316,11 +11489,17 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
     ),
   );
 
-  let candidates: Array<CandidateGame & { id: string }> = [];
+  let candidates: Array<
+    CandidateGame & {
+      id: string;
+      igdb_id?: number | null;
+      retail_url?: string | null;
+    }
+  > = [];
   if (targetPlatforms.length > 0) {
     const placeholders = targetPlatforms.map(() => '?').join(', ');
     const candidateRows = await env.DB.prepare(
-      `SELECT g.stable_id, g.id, g.title, g.platform_id, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
+      `SELECT g.stable_id, g.id, g.title, g.platform_id, g.igdb_id, g.retail_url, 0 as ownership_status, COALESCE(r.barcode, g.barcode) as barcode
        FROM games g
        LEFT JOIN game_releases r ON r.game_id = g.stable_id
        WHERE g.platform_id IN (${placeholders})`,
@@ -11331,6 +11510,8 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
         id: string;
         title: string;
         platform_id: number;
+        igdb_id: number | null;
+        retail_url: string | null;
         ownership_status: number;
         barcode: string | null;
       }>();
@@ -11540,14 +11721,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
   // Auto-ingest unmatched physical retail games (up to 15 per run, requiring IGDB match or 8-14 digit barcode)
   let retailIngestedCount = 0;
   try {
-    const existingPlatformNormSet = new Set<string>();
-    const existingBarcodeSet = new Set<string>();
-    for (const c of candidates) {
-      existingPlatformNormSet.add(
-        `${c.platform_id}::${normalizeTitleForMatching(c.title)}`,
-      );
-      if (c.barcode) existingBarcodeSet.add(String(c.barcode).trim());
-    }
+    const catalogIndex = new PlatformCatalogDedupeIndex(candidates);
 
     const RETAIL_AUTO_INGEST_CAP = 15;
     const retailIngestMap = new Map<
@@ -11577,13 +11751,13 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
       if (!normTitle) continue;
       const dedupeKey = `${platformId}::${normTitle}`;
       if (
-        existingPlatformNormSet.has(dedupeKey) ||
-        retailIngestMap.has(dedupeKey)
+        retailIngestMap.has(dedupeKey) ||
+        catalogIndex.findMatch(platformId, cleanedTitle, item.url)
       ) {
         continue;
       }
       const upcTrim = (item.upc || '').trim();
-      if (upcTrim && existingBarcodeSet.has(upcTrim)) continue;
+      if (upcTrim && catalogIndex.hasBarcode(upcTrim)) continue;
 
       retailIngestMap.set(dedupeKey, {
         deal: item,
@@ -11628,12 +11802,32 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
           ? entry.upcTrim
           : null;
         if (!igdbMeta && !validBarcode) continue;
+        if (
+          igdbMeta?.igdb_id &&
+          catalogIndex.hasIgdb(entry.platformId, igdbMeta.igdb_id)
+        ) {
+          continue;
+        }
 
         const platInfo = platformById.get(entry.platformId);
         const canonicalTitle = resolveCanonicalDisplayTitle(
           entry.cleanedTitle,
           igdbMeta?.name,
         );
+        if (
+          catalogIndex.findMatch(
+            entry.platformId,
+            canonicalTitle,
+            entry.deal.url,
+          ) ||
+          catalogIndex.findMatch(
+            entry.platformId,
+            entry.cleanedTitle,
+            entry.deal.url,
+          )
+        ) {
+          continue;
+        }
         const canonicalSeries = computeGameCanonicalSeries({
           title: canonicalTitle,
           collections: igdbMeta?.collections ?? undefined,
@@ -11676,6 +11870,22 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
           ],
         });
         if (!inserted) continue;
+
+        const registeredEntry = {
+          stable_id: inserted.stableId,
+          id: inserted.gameSlug,
+          title: canonicalTitle,
+          platform_id: entry.platformId,
+          igdb_id: igdbMeta?.igdb_id ?? null,
+          retail_url: entry.deal.url,
+          barcode: validBarcode,
+        };
+        catalogIndex.register(registeredEntry);
+        catalogIndex.registerAliases(
+          entry.platformId,
+          [entry.cleanedTitle],
+          registeredEntry,
+        );
 
         retailIngestedCount++;
         retailIngestedForRules.push({
@@ -11795,35 +12005,21 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
 
   const placeholders = targetPlatforms.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.igdb_id, COALESCE(r.barcode, g.barcode) as barcode
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.igdb_id, g.retail_url, COALESCE(r.barcode, g.barcode) as barcode
      FROM games g
      LEFT JOIN game_releases r ON r.game_id = g.stable_id
      WHERE g.platform_id IN (${placeholders})`,
   )
     .bind(...targetPlatforms)
-    .all<CandidateGame & { igdb_id?: number | null }>();
+    .all<
+      CandidateGame & {
+        igdb_id?: number | null;
+        retail_url?: string | null;
+      }
+    >();
 
   const candidates = candidateRows.results || [];
-  const existingByPlatformNorm = new Map<string, CandidateGame>();
-  const existingIgdbByPlatform = new Set<string>();
-  const existingBarcodes = new Set<string>();
-  for (const c of candidates) {
-    if (c.igdb_id && Number(c.igdb_id) > 0) {
-      existingIgdbByPlatform.add(`${c.platform_id}::${c.igdb_id}`);
-    }
-    const norm = normalizeTitleForMatching(c.title);
-    if (norm && !existingByPlatformNorm.has(`${c.platform_id}::${norm}`)) {
-      existingByPlatformNorm.set(`${c.platform_id}::${norm}`, c);
-    }
-    const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(c.title));
-    if (
-      strippedNorm &&
-      !existingByPlatformNorm.has(`${c.platform_id}::${strippedNorm}`)
-    ) {
-      existingByPlatformNorm.set(`${c.platform_id}::${strippedNorm}`, c);
-    }
-    if (c.barcode) existingBarcodes.add(String(c.barcode).trim());
-  }
+  const catalogIndex = new PlatformCatalogDedupeIndex(candidates);
 
   let matchedCount = 0;
   const nowIso = new Date().toISOString();
@@ -11844,17 +12040,12 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
     const cleanedTitle = cleanRetailTitle(po.name);
     if (!cleanedTitle || cleanedTitle.length < 2) continue;
     const normTitle = normalizeTitleForMatching(cleanedTitle);
-    const strippedNorm = normalizeTitleForMatching(
-      stripEditionSuffix(cleanedTitle),
-    );
     const platformId = resolveRetailPlatformId(po.platform, po.name);
 
     let matchedId = matchRetailGameProduct(po, candidates);
-    if (matchedId === null && platformId && strippedNorm) {
+    if (matchedId === null && platformId) {
       matchedId =
-        existingByPlatformNorm.get(`${platformId}::${normTitle}`)?.stable_id ??
-        existingByPlatformNorm.get(`${platformId}::${strippedNorm}`)
-          ?.stable_id ??
+        catalogIndex.findMatch(platformId, cleanedTitle, po.url)?.stable_id ??
         null;
     }
 
@@ -11901,7 +12092,7 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
     if (
       !normTitle ||
       pendingIngest.has(dedupeKey) ||
-      (upcTrim && existingBarcodes.has(upcTrim))
+      (upcTrim && catalogIndex.hasBarcode(upcTrim))
     ) {
       continue;
     }
@@ -11962,7 +12153,7 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
       const igdbMeta = igdbMetaMap.get(key) ?? null;
       if (
         igdbMeta?.igdb_id &&
-        existingIgdbByPlatform.has(`${entry.platformId}::${igdbMeta.igdb_id}`)
+        catalogIndex.hasIgdb(entry.platformId, igdbMeta.igdb_id)
       ) {
         continue;
       }
@@ -11974,6 +12165,20 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
         entry.cleanedTitle,
         igdbMeta?.name,
       );
+      if (
+        catalogIndex.findMatch(
+          entry.platformId,
+          canonicalTitle,
+          entry.item.url,
+        ) ||
+        catalogIndex.findMatch(
+          entry.platformId,
+          entry.cleanedTitle,
+          entry.item.url,
+        )
+      ) {
+        continue;
+      }
       const canonicalSeries = computeGameCanonicalSeries({
         title: canonicalTitle,
         collections: igdbMeta?.collections ?? undefined,
@@ -12011,6 +12216,22 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
         ],
       });
       if (!inserted) continue;
+
+      const registeredEntry = {
+        stable_id: inserted.stableId,
+        id: inserted.gameSlug,
+        title: canonicalTitle,
+        platform_id: entry.platformId,
+        igdb_id: igdbMeta?.igdb_id ?? null,
+        retail_url: entry.item.url,
+        barcode: validBarcode,
+      };
+      catalogIndex.register(registeredEntry);
+      catalogIndex.registerAliases(
+        entry.platformId,
+        [entry.cleanedTitle],
+        registeredEntry,
+      );
 
       ingestedCount++;
       ingestedForRules.push({
@@ -14028,7 +14249,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
   const placeholders = targetPlatforms.map(() => '?').join(', ');
   const candidateRows = await env.DB.prepare(
-    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.retail_url,
+    `SELECT g.stable_id, g.id, g.title, g.platform_id, g.igdb_id, g.retail_url,
             0 AS ownership_status,
             0 AS has_owned_physical,
             NULL AS owned_variants
@@ -14041,6 +14262,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       id: string;
       title: string;
       platform_id: number;
+      igdb_id: number | null;
       retail_url: string | null;
       ownership_status: number;
       has_owned_physical: number;
@@ -14048,10 +14270,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     }>();
 
   const games = candidateRows.results || [];
-  const gamesWithNorm = games.map((g) => ({
-    ...g,
-    normTitle: normalizeTitleForMatching(g.title),
-  }));
+  const catalogIndex = new PlatformCatalogDedupeIndex(games);
 
   // Read previously announced URLs from sync_state to avoid repeating uncataloged notifications
   let announcedUrls = new Set<string>();
@@ -14123,11 +14342,10 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
     const isActionableAnnouncement = po.isPreOrder || isRecent;
 
-    const match = gamesWithNorm.find(
-      (g) =>
-        g.platform_id === po.platformId &&
-        (g.normTitle === poNorm ||
-          g.title.toLowerCase() === po.cleanTitle.toLowerCase()),
+    const match = catalogIndex.findMatch(
+      po.platformId,
+      po.cleanTitle,
+      po.productUrl,
     );
 
     const priceCents =
@@ -14290,11 +14508,23 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       for (const [key, entry] of pendingBoutiqueIngest.entries()) {
         const { po, platformId } = entry;
         const igdbMeta = igdbMetaMap.get(key) ?? null;
+        if (
+          igdbMeta?.igdb_id &&
+          catalogIndex.hasIgdb(platformId, igdbMeta.igdb_id)
+        ) {
+          continue;
+        }
         const platInfo = platformById.get(platformId);
         const canonicalTitle = resolveCanonicalDisplayTitle(
           po.cleanTitle,
           igdbMeta?.name,
         );
+        if (
+          catalogIndex.findMatch(platformId, canonicalTitle, po.productUrl) ||
+          catalogIndex.findMatch(platformId, po.cleanTitle, po.productUrl)
+        ) {
+          continue;
+        }
         const canonicalSeries = computeGameCanonicalSeries({
           title: canonicalTitle,
           collections: igdbMeta?.collections ?? undefined,
@@ -14328,6 +14558,23 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         });
 
         if (inserted) {
+          const registeredEntry = {
+            stable_id: inserted.stableId,
+            id: inserted.gameSlug,
+            title: canonicalTitle,
+            platform_id: platformId,
+            igdb_id: igdbMeta?.igdb_id ?? null,
+            retail_url: po.productUrl,
+            ownership_status: 0,
+            has_owned_physical: 0,
+            owned_variants: null,
+          };
+          catalogIndex.register(registeredEntry);
+          catalogIndex.registerAliases(
+            platformId,
+            [po.cleanTitle],
+            registeredEntry,
+          );
           boutiqueIngestedCount++;
           boutiqueIngestedForRules.push({
             stableId: inserted.stableId,
