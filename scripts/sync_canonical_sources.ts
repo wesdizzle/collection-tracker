@@ -23,7 +23,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { parseDatFile } from './lib/dat_parser.js';
-import { findDatFileForPlatform, PlatformRecord } from './lib/dat_cache.js';
+import { findDatFilesForPlatform, PlatformRecord } from './lib/dat_cache.js';
 import {
   CanonicalRelease,
   deduplicateDatReleases,
@@ -683,11 +683,13 @@ export async function syncCanonicalSources(
             continue; // Switch 1 & 2 handled via Nintendo Revised & r/NSCollectors
           }
 
-          const datInfo = findDatFileForPlatform(db, plat.id);
-          if (!datInfo) continue;
+          const datMatches = findDatFilesForPlatform(db, plat.id);
+          if (datMatches.length === 0) continue;
 
-          const parsed = parseDatFile(datInfo.filePath);
-          syncDatReleasesForPlatform(plat, parsed.releases);
+          const combinedReleases = datMatches.flatMap(
+            (m) => parseDatFile(m.filePath).releases,
+          );
+          syncDatReleasesForPlatform(plat, combinedReleases);
         }
       }
 
@@ -1426,7 +1428,7 @@ export async function syncCanonicalSources(
 
           const unlinkedReleases = db
             .prepare(
-              `SELECT gr.id, gr.region, gr.variants, gr.barcode, g.title, g.platform_id
+              `SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.barcode, g.title, g.platform_id
                FROM game_releases gr
                JOIN games g ON g.stable_id = gr.game_id
                WHERE gr.canonical_release_id IS NULL
@@ -1434,12 +1436,34 @@ export async function syncCanonicalSources(
             )
             .all(...Array.from(syncedNonDatPlatforms)) as Array<{
             id: string;
+            game_id: number;
             region: string | null;
             variants: string | null;
             barcode: string | null;
             title: string;
             platform_id: number;
           }>;
+
+          const usedCanonicalByGame = new Map<number, Set<number>>();
+          for (const existingLink of db
+            .prepare(
+              `SELECT gr.game_id, gr.canonical_release_id
+               FROM game_releases gr
+               JOIN games g ON g.stable_id = gr.game_id
+               WHERE gr.canonical_release_id IS NOT NULL
+                 AND g.platform_id IN (${ph})`,
+            )
+            .all(...Array.from(syncedNonDatPlatforms)) as Array<{
+            game_id: number;
+            canonical_release_id: number;
+          }>) {
+            let set = usedCanonicalByGame.get(existingLink.game_id);
+            if (!set) {
+              set = new Set<number>();
+              usedCanonicalByGame.set(existingLink.game_id, set);
+            }
+            set.add(existingLink.canonical_release_id);
+          }
 
           const linkStmt = isDryRun
             ? null
@@ -1520,7 +1544,19 @@ export async function syncCanonicalSources(
               return (b.barcode ? 1 : 0) - (a.barcode ? 1 : 0);
             });
 
-            const best = candidates[0];
+            const best = candidates.find(
+              (c) =>
+                !(c.id > 0 && usedCanonicalByGame.get(gr.game_id)?.has(c.id)),
+            );
+            if (!best) continue;
+            if (best.id > 0) {
+              let set = usedCanonicalByGame.get(gr.game_id);
+              if (!set) {
+                set = new Set<number>();
+                usedCanonicalByGame.set(gr.game_id, set);
+              }
+              set.add(best.id);
+            }
             if (linkStmt) {
               if (hasDenormalizedCols) {
                 linkStmt.run(

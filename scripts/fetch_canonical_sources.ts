@@ -18,13 +18,34 @@
 import * as fs from 'fs';
 import * as os from 'node:os';
 import * as path from 'path';
-import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { fetchNeoGeoSources } from './lib/sources/neogeo.js';
 import { fetchNsCollectorsSources } from './lib/sources/nscollectors_sync.js';
 import { fetchPs5DbSource } from './lib/sources/ps5db.js';
 import { fetchSerialStationSources } from './lib/sources/serialstation.js';
 import { fetchRetailBackCatalogSources } from './lib/sources/retail_backcatalog.js';
+
+import {
+  getRedumpInfoDatUrl,
+  NO_INTRO_TARGETS,
+  REDUMP_TARGETS,
+  REDUMP_WIP_TARGETS,
+  type NoIntroPlatformTarget,
+  type RedumpPlatformTarget,
+} from '../shared/dat_targets.js';
+import { extractFirstMatchingZipEntry, isZipBuffer } from '../shared/zip.js';
+
+export {
+  NO_INTRO_TARGETS,
+  REDUMP_TARGETS,
+  REDUMP_WIP_TARGETS,
+  type NoIntroPlatformTarget,
+  type RedumpPlatformTarget,
+};
+
+export interface RedumpWipPlatformTarget extends RedumpPlatformTarget {
+  canonicalFileName: string;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,322 +54,8 @@ const datsDir = path.join(rootDir, 'dats');
 const noIntroDir = path.join(datsDir, 'No-Intro');
 const tempDir = path.join(rootDir, 'scripts', 'temp');
 
-export interface RedumpPlatformTarget {
-  name: string;
-  slug: string;
-  pattern: RegExp;
-}
-
-export interface NoIntroPlatformTarget {
-  name: string;
-  remoteFileName: string;
-  canonicalFileName?: string;
-  pattern: RegExp;
-  manualOnly?: boolean;
-}
-
 /**
- * Optical disc platforms sourced from Redump.
- */
-export const REDUMP_TARGETS: RedumpPlatformTarget[] = [
-  {
-    name: 'Panasonic 3DO',
-    slug: '3do',
-    pattern: /3DO Interactive Multiplayer/i,
-  },
-  { name: 'Atari Jaguar CD', slug: 'ajcd', pattern: /Jaguar CD/i },
-  { name: 'SNK Neo Geo CD', slug: 'ngcd', pattern: /Neo Geo CD/i },
-  { name: 'Nintendo GameCube', slug: 'gc', pattern: /Nintendo - GameCube/i },
-  { name: 'Nintendo Wii', slug: 'wii', pattern: /Nintendo - Wii -/i },
-  { name: 'Philips CD-i', slug: 'cdi', pattern: /Philips - CD-i/i },
-  { name: 'Sony PlayStation', slug: 'psx', pattern: /Sony - PlayStation -/i },
-  {
-    name: 'Sony PlayStation 2',
-    slug: 'ps2',
-    pattern: /Sony - PlayStation 2 -/i,
-  },
-  {
-    name: 'Sony PlayStation Portable',
-    slug: 'psp',
-    pattern: /Sony - PlayStation Portable/i,
-  },
-  { name: 'Sony PlayStation 3', slug: 'ps3', pattern: /Sony - PlayStation 3/i },
-  { name: 'Sega CD', slug: 'mcd', pattern: /Mega CD & Sega CD/i },
-  { name: 'Sega Saturn', slug: 'ss', pattern: /Sega - Saturn/i },
-  { name: 'Sega Dreamcast', slug: 'dc', pattern: /Sega - Dreamcast/i },
-  {
-    name: 'TurboGrafx CD / PC Engine CD',
-    slug: 'pce',
-    pattern: /PC Engine CD & TurboGrafx CD/i,
-  },
-  { name: 'Microsoft Xbox', slug: 'xbox', pattern: /Microsoft - Xbox -/i },
-  {
-    name: 'Microsoft Xbox 360',
-    slug: 'xbox360',
-    pattern: /Microsoft - Xbox 360 -/i,
-  },
-];
-
-export interface RedumpWipPlatformTarget {
-  name: string;
-  slug: string;
-  canonicalFileName: string;
-  pattern: RegExp;
-  communityUrl?: string;
-  mirrorUrls?: string[];
-}
-
-/**
- * Modern optical disc platforms requiring community mirrors or Work-In-Progress fallback.
- */
-export const REDUMP_WIP_TARGETS: RedumpWipPlatformTarget[] = [
-  {
-    name: 'Nintendo Wii U',
-    slug: 'wiiu',
-    canonicalFileName: 'Nintendo - Wii U.dat',
-    pattern: /^Nintendo\s*-\s*Wii U/i,
-    mirrorUrls: [
-      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
-    ],
-  },
-  {
-    name: 'Sony PlayStation 4',
-    slug: 'ps4',
-    canonicalFileName: 'Sony - PlayStation 4.dat',
-    pattern: /^Sony\s*-\s*PlayStation 4/i,
-    mirrorUrls: [
-      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
-    ],
-  },
-  {
-    name: 'Sony PlayStation 5',
-    slug: 'ps5',
-    canonicalFileName: 'Sony - PlayStation 5.dat',
-    pattern: /^Sony\s*-\s*PlayStation 5/i,
-    mirrorUrls: [
-      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
-    ],
-  },
-  {
-    name: 'Microsoft Xbox One',
-    slug: 'xbone',
-    canonicalFileName: 'Microsoft - Xbox One.dat',
-    pattern: /^Microsoft\s*-\s*Xbox One/i,
-    mirrorUrls: [
-      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
-    ],
-  },
-  {
-    name: 'Microsoft Xbox Series X',
-    slug: 'xsx',
-    canonicalFileName: 'Microsoft - Xbox Series X.dat',
-    pattern: /^Microsoft\s*-\s*Xbox Series X/i,
-    mirrorUrls: [
-      'https://archive.org/download/redump-priv-dat/Redump%202025-05-01.zip',
-    ],
-  },
-];
-
-/**
- * Cartridge and ROM platforms sourced from No-Intro.
- */
-export const NO_INTRO_TARGETS: NoIntroPlatformTarget[] = [
-  {
-    name: 'Atari 2600',
-    remoteFileName: 'Atari - 2600.dat',
-    canonicalFileName: 'Atari - Atari 2600.dat',
-    pattern: /^Atari\s*-\s*(Atari\s*)?2600/i,
-  },
-  {
-    name: 'Atari 5200',
-    remoteFileName: 'Atari - 5200.dat',
-    canonicalFileName: 'Atari - Atari 5200.dat',
-    pattern: /^Atari\s*-\s*(Atari\s*)?5200/i,
-  },
-  {
-    name: 'Atari 7800',
-    remoteFileName: 'Atari - 7800.dat',
-    canonicalFileName: 'Atari - Atari 7800 (BIN).dat',
-    pattern: /^Atari\s*-\s*(Atari\s*)?7800/i,
-  },
-  {
-    name: 'Atari Lynx',
-    remoteFileName: 'Atari - Lynx.dat',
-    canonicalFileName: 'Atari - Atari Lynx (LYX).dat',
-    pattern: /^Atari\s*-\s*(Atari\s*)?Lynx/i,
-  },
-  {
-    name: 'Atari Jaguar',
-    remoteFileName: 'Atari - Jaguar.dat',
-    canonicalFileName: 'Atari - Atari Jaguar (ROM).dat',
-    pattern: /^Atari\s*-\s*(Atari\s*)?Jaguar/i,
-  },
-  {
-    name: 'ColecoVision',
-    remoteFileName: 'Coleco - ColecoVision.dat',
-    canonicalFileName: 'Coleco - ColecoVision.dat',
-    pattern: /^Coleco\s*-\s*ColecoVision/i,
-  },
-  {
-    name: 'Intellivision',
-    remoteFileName: 'Mattel - Intellivision.dat',
-    canonicalFileName: 'Mattel - Intellivision.dat',
-    pattern: /^Mattel\s*-\s*Intellivision/i,
-  },
-  {
-    name: 'Neo Geo Pocket',
-    remoteFileName: 'SNK - Neo Geo Pocket.dat',
-    canonicalFileName: 'SNK - Neo Geo Pocket.dat',
-    pattern: /^SNK\s*-\s*Neo Geo Pocket(?!\s*Color)/i,
-  },
-  {
-    name: 'Neo Geo Pocket Color',
-    remoteFileName: 'SNK - Neo Geo Pocket Color.dat',
-    canonicalFileName: 'SNK - Neo Geo Pocket Color.dat',
-    pattern: /^SNK\s*-\s*Neo Geo Pocket Color/i,
-  },
-  {
-    name: 'Nintendo Entertainment System',
-    remoteFileName: 'Nintendo - Nintendo Entertainment System.dat',
-    canonicalFileName: 'Nintendo - Nintendo Entertainment System.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo Entertainment System/i,
-  },
-  {
-    name: 'Famicom Disk System',
-    remoteFileName: 'Nintendo - Family Computer Disk System.dat',
-    canonicalFileName: 'Nintendo - Family Computer Disk System.dat',
-    pattern: /^Nintendo\s*-\s*Family Computer Disk System/i,
-  },
-  {
-    name: 'Super Nintendo Entertainment System',
-    remoteFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
-    canonicalFileName: 'Nintendo - Super Nintendo Entertainment System.dat',
-    pattern: /^Nintendo\s*-\s*Super Nintendo Entertainment System/i,
-  },
-  {
-    name: 'Nintendo 64',
-    remoteFileName: 'Nintendo - Nintendo 64.dat',
-    canonicalFileName: 'Nintendo - Nintendo 64.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo 64(?!\s*DD)/i,
-  },
-  {
-    name: 'Nintendo 64DD',
-    remoteFileName: 'Nintendo - Nintendo 64DD.dat',
-    canonicalFileName: 'Nintendo - Nintendo 64DD.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo 64DD/i,
-  },
-  {
-    name: 'Game Boy',
-    remoteFileName: 'Nintendo - Game Boy.dat',
-    canonicalFileName: 'Nintendo - Game Boy.dat',
-    pattern: /^Nintendo\s*-\s*Game Boy(?!\s*(Advance|Color))/i,
-  },
-  {
-    name: 'Game Boy Color',
-    remoteFileName: 'Nintendo - Game Boy Color.dat',
-    canonicalFileName: 'Nintendo - Game Boy Color.dat',
-    pattern: /^Nintendo\s*-\s*Game Boy Color/i,
-  },
-  {
-    name: 'Game Boy Advance',
-    remoteFileName: 'Nintendo - Game Boy Advance.dat',
-    canonicalFileName: 'Nintendo - Game Boy Advance.dat',
-    pattern: /^Nintendo\s*-\s*Game Boy Advance/i,
-  },
-  {
-    name: 'Nintendo DS',
-    remoteFileName: 'Nintendo - Nintendo DS.dat',
-    canonicalFileName: 'Nintendo - Nintendo DS.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo DS(?!\w)/i,
-  },
-  {
-    name: 'Nintendo 3DS',
-    remoteFileName: 'Nintendo - Nintendo 3DS.dat',
-    canonicalFileName: 'Nintendo - Nintendo 3DS.dat',
-    pattern: /^Nintendo\s*-\s*Nintendo 3DS/i,
-  },
-  {
-    name: 'New Nintendo 3DS',
-    remoteFileName: 'Nintendo - New Nintendo 3DS.dat',
-    canonicalFileName: 'Nintendo - New Nintendo 3DS.dat',
-    pattern: /^Nintendo\s*-\s*New Nintendo 3DS/i,
-  },
-  {
-    name: 'Virtual Boy',
-    remoteFileName: 'Nintendo - Virtual Boy.dat',
-    canonicalFileName: 'Nintendo - Virtual Boy.dat',
-    pattern: /^Nintendo\s*-\s*Virtual Boy/i,
-  },
-  {
-    name: 'Pokemon Mini',
-    remoteFileName: 'Nintendo - Pokemon Mini.dat',
-    canonicalFileName: 'Nintendo - Pokemon Mini.dat',
-    pattern: /^Nintendo\s*-\s*Pokemon Mini/i,
-  },
-  {
-    name: 'PlayStation Vita',
-    remoteFileName: 'Unofficial - Sony - PlayStation Vita (PSVgameSD).xml',
-    canonicalFileName: 'Sony - PlayStation Vita (PSVgameSD).dat',
-    pattern: /^(?:Unofficial\s*-\s*)?Sony\s*-\s*PlayStation Vita/i,
-  },
-  {
-    name: 'Sega Master System',
-    remoteFileName: 'Sega - Master System - Mark III.dat',
-    canonicalFileName: 'Sega - Master System - Mark III.dat',
-    pattern: /^Sega\s*-\s*Master System/i,
-  },
-  {
-    name: 'Sega Genesis / Mega Drive',
-    remoteFileName: 'Sega - Mega Drive - Genesis.dat',
-    canonicalFileName: 'Sega - Mega Drive - Genesis.dat',
-    pattern: /^Sega\s*-\s*Mega Drive\s*-\s*Genesis/i,
-  },
-  {
-    name: 'Sega Game Gear',
-    remoteFileName: 'Sega - Game Gear.dat',
-    canonicalFileName: 'Sega - Game Gear.dat',
-    pattern: /^Sega\s*-\s*Game Gear/i,
-  },
-  {
-    name: 'Sega Pico',
-    remoteFileName: 'Sega - PICO.dat',
-    canonicalFileName: 'Sega - PICO.dat',
-    pattern: /^Sega\s*-\s*PICO/i,
-  },
-  {
-    name: 'Sega 32X',
-    remoteFileName: 'Sega - 32X.dat',
-    canonicalFileName: 'Sega - 32X.dat',
-    pattern: /^Sega\s*-\s*32X/i,
-  },
-  {
-    name: 'TurboGrafx-16 / PC Engine',
-    remoteFileName: 'NEC - PC Engine - TurboGrafx 16.dat',
-    canonicalFileName: 'NEC - PC Engine - TurboGrafx 16.dat',
-    pattern: /^NEC\s*-\s*PC Engine/i,
-  },
-  {
-    name: 'Tiger Game.com',
-    remoteFileName: 'Tiger - Game.com.dat',
-    canonicalFileName: 'Tiger - Game.com.dat',
-    pattern: /^Tiger\s*-\s*Game\.com/i,
-  },
-  {
-    name: 'WonderSwan',
-    remoteFileName: 'Bandai - WonderSwan.dat',
-    canonicalFileName: 'Bandai - WonderSwan.dat',
-    pattern: /^Bandai\s*-\s*WonderSwan(?!\s*Color)/i,
-  },
-  {
-    name: 'WonderSwan Color',
-    remoteFileName: 'Bandai - WonderSwan Color.dat',
-    canonicalFileName: 'Bandai - WonderSwan Color.dat',
-    pattern: /^Bandai\s*-\s*WonderSwan Color/i,
-  },
-];
-
-/**
- * Downloads a Redump DAT zip archive and extracts it into the target directory.
+ * Downloads a Redump DAT zip archive from redump.info and extracts it into destinationDir.
  */
 export async function downloadRedumpDat(
   target: RedumpPlatformTarget | RedumpWipPlatformTarget,
@@ -359,9 +66,7 @@ export async function downloadRedumpDat(
   sizeBytes?: number;
   error?: string;
 }> {
-  const url = `http://redump.org/datfile/${target.slug}/`;
-  const tempZipPath = path.join(tempDir, `redump_${target.slug}.zip`);
-  const extractTempDir = path.join(tempDir, `extract_${target.slug}`);
+  const url = getRedumpInfoDatUrl(target.slug);
 
   const findExistingDat = () => {
     if (fs.existsSync(destinationDir)) {
@@ -380,6 +85,7 @@ export async function downloadRedumpDat(
       headers: {
         'User-Agent': 'CollectionTracker/2.0 (DAT Synchronizer)',
       },
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -392,40 +98,23 @@ export async function downloadRedumpDat(
       };
     }
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length < 500) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length < 30 || !isZipBuffer(bytes)) {
       const existing = findExistingDat();
       if (existing) return existing;
 
       return {
         success: false,
-        error: 'Downloaded file is unexpectedly small / empty.',
+        error: 'Downloaded response is not a valid Redump ZIP archive.',
       };
     }
 
-    fs.writeFileSync(tempZipPath, buffer);
-
-    if (fs.existsSync(extractTempDir)) {
-      fs.rmSync(extractTempDir, { recursive: true, force: true });
-    }
-    fs.mkdirSync(extractTempDir, { recursive: true });
-
-    // Extract zip using system tar
-    execSync(`tar -xf "${tempZipPath}" -C "${extractTempDir}"`);
-
-    const extractedFiles = fs.readdirSync(extractTempDir);
-    const datFile = extractedFiles.find(
-      (f) => f.endsWith('.dat') || f.endsWith('.xml'),
+    const entry = await extractFirstMatchingZipEntry(
+      bytes,
+      (name) => name.endsWith('.dat') || name.endsWith('.xml'),
     );
-
-    if (!datFile) {
-      return {
-        success: false,
-        error: 'No .dat or .xml file found in extracted archive.',
-      };
-    }
-
-    const extractedFilePath = path.join(extractTempDir, datFile);
+    const datFile = path.basename(entry.fileName);
+    fs.mkdirSync(destinationDir, { recursive: true });
     const finalDestination = path.join(destinationDir, datFile);
 
     // Remove any older existing versions of this DAT in destinationDir
@@ -440,7 +129,7 @@ export async function downloadRedumpDat(
       }
     }
 
-    fs.copyFileSync(extractedFilePath, finalDestination);
+    fs.writeFileSync(finalDestination, entry.data);
     const size = fs.statSync(finalDestination).size;
 
     return { success: true, fileName: datFile, sizeBytes: size };
@@ -450,22 +139,6 @@ export async function downloadRedumpDat(
 
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
-  } finally {
-    // Cleanup temporary files
-    if (fs.existsSync(tempZipPath)) {
-      try {
-        fs.unlinkSync(tempZipPath);
-      } catch {
-        // Ignore removal error
-      }
-    }
-    if (fs.existsSync(extractTempDir)) {
-      try {
-        fs.rmSync(extractTempDir, { recursive: true, force: true });
-      } catch {
-        // Ignore removal error
-      }
-    }
   }
 }
 

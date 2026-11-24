@@ -923,6 +923,21 @@ export function reconcileGameReleasesWithCanonical(
   const escapeSqlGlobal = (s: string | null | undefined) =>
     s !== null && s !== undefined ? `'${s.replace(/'/g, "''")}'` : 'NULL';
 
+  // Map parent platform relationships (e.g. New 3DS 25 -> 3DS 23, Famicom 53 -> NES 13)
+  const parentPlatformMap = new Map<number, number>();
+  try {
+    const platformRows = db
+      .prepare(
+        'SELECT id, parent_platform_id FROM platforms WHERE parent_platform_id IS NOT NULL',
+      )
+      .all() as Array<{ id: number; parent_platform_id: number }>;
+    for (const p of platformRows) {
+      parentPlatformMap.set(p.id, p.parent_platform_id);
+    }
+  } catch {
+    // Platforms table lacks parent_platform_id column in simplified test mocks
+  }
+
   // Sync existing game_releases metadata (canonical_release_id, rom_name, rom_crc, also_released_as, variants) from canonical_releases
   try {
     const grTableInfoPre = db.pragma('table_info(game_releases)') as Array<{
@@ -995,19 +1010,26 @@ export function reconcileGameReleasesWithCanonical(
 
     if (unlinkedWithRom.length > 0) {
       const findByRomStmt = db.prepare(
-        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id = ? AND rom_name = ? LIMIT 1`,
+        `SELECT id, platform_id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id IN (?, ?) AND rom_name = ? LIMIT 1`,
       );
       const findByCrcStmt = db.prepare(
-        `SELECT id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id = ? AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
+        `SELECT id, platform_id, raw_title, region, rom_name, rom_crc, variants, ${selectCrAlsoPre}, ${selectCrSourcePre}, ${selectCrSerialPre}, ${selectCrPublisherPre} FROM canonical_releases WHERE platform_id IN (?, ?) AND LOWER(rom_crc) = LOWER(?) LIMIT 1`,
       );
       const isCanonicalUsedOnGameStmt = db.prepare(
         `SELECT 1 FROM game_releases WHERE game_id = ? AND canonical_release_id = ? AND id != ? LIMIT 1`,
       );
 
       for (const gr of unlinkedWithRom) {
-        let match = findByRomStmt.get(gr.platform_id, gr.rom_name) as
+        const parentPlatId =
+          parentPlatformMap.get(gr.platform_id) ?? gr.platform_id;
+        let match = findByRomStmt.get(
+          gr.platform_id,
+          parentPlatId,
+          gr.rom_name,
+        ) as
           | {
               id: number;
+              platform_id: number;
               raw_title: string | null;
               region: string | null;
               rom_name: string;
@@ -1021,9 +1043,11 @@ export function reconcileGameReleasesWithCanonical(
           | undefined;
 
         if (!match && gr.rom_crc) {
-          match = findByCrcStmt.get(gr.platform_id, gr.rom_crc) as
-            | typeof match
-            | undefined;
+          match = findByCrcStmt.get(
+            gr.platform_id,
+            parentPlatId,
+            gr.rom_crc,
+          ) as typeof match | undefined;
         }
 
         if (
@@ -1101,11 +1125,11 @@ export function reconcileGameReleasesWithCanonical(
           }
           if (hasGrDenormPre) {
             relinkSqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}), verified_source = ${escapeSqlGlobal(matchSource)}, serial_code = ${escapeSqlGlobal(match.serial_code)}, canonical_title = ${escapeSqlGlobal(match.raw_title)}, publisher = ${escapeSqlGlobal(match.publisher)} WHERE id = ${escapeSqlGlobal(gr.id)};`,
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${match.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}), verified_source = ${escapeSqlGlobal(matchSource)}, serial_code = ${escapeSqlGlobal(match.serial_code)}, canonical_title = ${escapeSqlGlobal(match.raw_title)}, publisher = ${escapeSqlGlobal(match.publisher)} WHERE id = ${escapeSqlGlobal(gr.id)};`,
             );
           } else {
             relinkSqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${gr.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}) WHERE id = ${escapeSqlGlobal(gr.id)};`,
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE rom_name = ${escapeSqlGlobal(match.rom_name)} AND platform_id = ${match.platform_id} LIMIT 1), rom_name = ${escapeSqlGlobal(match.rom_name)}, rom_crc = ${escapeSqlGlobal(match.rom_crc)}, variants = COALESCE(variants, ${escapeSqlGlobal(match.variants)}), also_released_as = COALESCE(also_released_as, ${escapeSqlGlobal(match.also_released_as)}) WHERE id = ${escapeSqlGlobal(gr.id)};`,
             );
           }
         }
@@ -1161,17 +1185,30 @@ export function reconcileGameReleasesWithCanonical(
     canonical_release_id: number | null;
   }>;
 
-  // Track already-assigned ROM names and CRCs per game_id and per platform_id to prevent duplicate overwrites
+  // Track already-assigned ROM names, CRCs, and canonical IDs per game_id to prevent duplicate overwrites
   const usedRomsByGameId = new Map<number, Set<string>>();
   const usedRomsByPlatformId = new Map<number, Set<string>>();
   const usedCrcsByGameId = new Map<number, Set<string>>();
   const usedCrcsByPlatformId = new Map<number, Set<string>>();
+  const usedCanonicalIdsByGameId = new Map<number, Set<number>>();
   const existingReleaseIds = new Set<string>();
   const maxSeqByGameId = new Map<number, number>();
   for (const r of db
-    .prepare('SELECT id, game_id FROM game_releases')
-    .all() as Array<{ id: string; game_id: number }>) {
+    .prepare('SELECT id, game_id, canonical_release_id FROM game_releases')
+    .all() as Array<{
+    id: string;
+    game_id: number;
+    canonical_release_id: number | null;
+  }>) {
     existingReleaseIds.add(r.id);
+    if (r.canonical_release_id != null) {
+      let canonSet = usedCanonicalIdsByGameId.get(r.game_id);
+      if (!canonSet) {
+        canonSet = new Set<number>();
+        usedCanonicalIdsByGameId.set(r.game_id, canonSet);
+      }
+      canonSet.add(r.canonical_release_id);
+    }
     const match = r.id.match(new RegExp(`^${r.game_id}-(\\d+)$`));
     if (match) {
       const seq = Number(match[1]);
@@ -1234,21 +1271,6 @@ export function reconcileGameReleasesWithCanonical(
       }
       pCrcSet.add(crcNorm);
     }
-  }
-
-  // Map parent platform relationships (e.g. New 3DS 25 -> 3DS 23, Famicom 53 -> NES 13)
-  const parentPlatformMap = new Map<number, number>();
-  try {
-    const platformRows = db
-      .prepare(
-        'SELECT id, parent_platform_id FROM platforms WHERE parent_platform_id IS NOT NULL',
-      )
-      .all() as Array<{ id: number; parent_platform_id: number }>;
-    for (const p of platformRows) {
-      parentPlatformMap.set(p.id, p.parent_platform_id);
-    }
-  } catch {
-    // Platforms table lacks parent_platform_id column in simplified test mocks
   }
 
   let datPlatformFilter = '';
@@ -1401,8 +1423,11 @@ export function reconcileGameReleasesWithCanonical(
 
     const usedSet = usedRomsByGameId.get(rel.game_id) ?? new Set<string>();
     const usedCrcSet = usedCrcsByGameId.get(rel.game_id) ?? new Set<string>();
+    const usedCanonSet =
+      usedCanonicalIdsByGameId.get(rel.game_id) ?? new Set<number>();
     const availableCandidates = candidates.filter((c) => {
       if (usedSet.has(c.rom_name)) return false;
+      if (usedCanonSet.has(c.id)) return false;
       if (c.rom_crc && usedCrcSet.has(c.rom_crc.toLowerCase())) {
         if (
           !rel.rom_crc ||
@@ -1450,6 +1475,8 @@ export function reconcileGameReleasesWithCanonical(
 
     usedSet.add(best.rom_name);
     usedRomsByGameId.set(rel.game_id, usedSet);
+    usedCanonSet.add(best.id);
+    usedCanonicalIdsByGameId.set(rel.game_id, usedCanonSet);
     if (best.rom_crc) {
       usedCrcSet.add(best.rom_crc.toLowerCase());
       usedCrcsByGameId.set(rel.game_id, usedCrcSet);
@@ -1663,6 +1690,8 @@ export function reconcileGameReleasesWithCanonical(
 
       const usedSet = usedRomsByGameId.get(g.stable_id) ?? new Set<string>();
       const usedCrcSet = usedCrcsByGameId.get(g.stable_id) ?? new Set<string>();
+      const usedCanonSet =
+        usedCanonicalIdsByGameId.get(g.stable_id) ?? new Set<number>();
       const platUsedSet =
         usedRomsByPlatformId.get(g.platform_id) ?? new Set<string>();
       const platUsedCrcSet =
@@ -1670,6 +1699,7 @@ export function reconcileGameReleasesWithCanonical(
 
       for (const c of cands) {
         if (usedSet.has(c.rom_name) || platUsedSet.has(c.rom_name)) continue;
+        if (usedCanonSet.has(c.id)) continue;
         const crcNorm = c.rom_crc ? c.rom_crc.toLowerCase() : null;
         if (
           crcNorm &&
@@ -1699,6 +1729,8 @@ export function reconcileGameReleasesWithCanonical(
         }
         usedSet.add(c.rom_name);
         usedRomsByGameId.set(g.stable_id, usedSet);
+        usedCanonSet.add(c.id);
+        usedCanonicalIdsByGameId.set(g.stable_id, usedCanonSet);
         platUsedSet.add(c.rom_name);
         usedRomsByPlatformId.set(g.platform_id, platUsedSet);
         if (crcNorm) {

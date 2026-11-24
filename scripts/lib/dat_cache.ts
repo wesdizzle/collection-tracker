@@ -64,17 +64,20 @@ function getFilesRecursive(dir: string): string[] {
   return results;
 }
 
+import { extractDatHeaderName } from '../../shared/dat_parser.js';
+
 /**
- * Searches the 'dats' folder to find the XML DAT file corresponding to a platform ID.
+ * Searches the 'dats' folder to find all DAT files matching a platform ID
+ * (e.g., Atari Jaguar 6 pairs Redump Jaguar CD with No-Intro Atari Jaguar cartridges).
  *
  * @param db Database instance.
  * @param platformId Platform ID.
- * @returns Object containing the XML file path and platform details, or null if not found.
+ * @returns Array of matching DAT files paired with platform metadata.
  */
-export function findDatFileForPlatform(
+export function findDatFilesForPlatform(
   db: Database.Database,
   platformId: number,
-): { filePath: string; platform: PlatformRecord } | null {
+): Array<{ filePath: string; platform: PlatformRecord }> {
   const platform = db
     .prepare('SELECT id, name, display_name FROM platforms WHERE id = ?')
     .get(platformId) as PlatformRecord | undefined;
@@ -82,11 +85,11 @@ export function findDatFileForPlatform(
     console.warn(
       `[DAT-Cache] Platform ID ${platformId} not found in database.`,
     );
-    return null;
+    return [];
   }
 
   const datsDir = path.resolve(process.cwd(), 'dats');
-  if (!fs.existsSync(datsDir)) return null;
+  if (!fs.existsSync(datsDir)) return [];
 
   const allFiles = getFilesRecursive(datsDir);
   const ignoredPatterns = [
@@ -139,23 +142,33 @@ export function findDatFileForPlatform(
   datFiles.sort((a, b) => {
     const aInRoot = path.dirname(a) === datsDir ? 0 : 1;
     const bInRoot = path.dirname(b) === datsDir ? 0 : 1;
-    return aInRoot - bInRoot;
+    if (aInRoot !== bInRoot) return aInRoot - bInRoot;
+    return a.localeCompare(b);
   });
 
+  // Platforms whose physical library intentionally spans two distinct DAT sets (e.g., cart + CD or BW + Color)
+  const allowMultiDat = platformId === 6 || platformId === 11;
+  const matched: Array<{ filePath: string; platform: PlatformRecord }> = [];
+  const seenNormalizedHeaders = new Set<string>();
   for (const filePath of datFiles) {
     try {
       // Speed Optimization: Read the first 2000 characters rather than parsing the full file
       const fileHead = fs
         .readFileSync(filePath, { encoding: 'utf8', flag: 'r' })
         .substring(0, 2000);
-      const nameMatch =
-        fileHead.match(/<name>([^<]+)<\/name>/i) ||
-        fileHead.match(/clrmamepro\s*\(\s*name\s*"([^"]+)"/i) ||
-        fileHead.match(/name\s*"([^"]+)"/i);
-      if (nameMatch) {
-        const platformName = nameMatch[1].trim();
-        if (isPlatformMatch(platformName, platform)) {
-          return { filePath, platform };
+      const platformName = extractDatHeaderName(fileHead);
+      if (platformName && isPlatformMatch(platformName, platform)) {
+        const headerKey = platformName
+          .replace(/&amp;/gi, ' and ')
+          .replace(/\(parent-clone\)/gi, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+        if (!seenNormalizedHeaders.has(headerKey)) {
+          seenNormalizedHeaders.add(headerKey);
+          matched.push({ filePath, platform });
+          if (!allowMultiDat) {
+            return matched;
+          }
         }
       }
     } catch (err) {
@@ -166,32 +179,45 @@ export function findDatFileForPlatform(
     }
   }
 
-  return null;
+  return matched;
+}
+
+/**
+ * Searches the 'dats' folder to find the primary XML DAT file corresponding to a platform ID.
+ *
+ * @param db Database instance.
+ * @param platformId Platform ID.
+ * @returns Object containing the XML file path and platform details, or null if not found.
+ */
+export function findDatFileForPlatform(
+  db: Database.Database,
+  platformId: number,
+): { filePath: string; platform: PlatformRecord } | null {
+  return findDatFilesForPlatform(db, platformId)[0] ?? null;
 }
 
 /**
  * Retrieves physical releases for a specific platform from the JSON cache.
- * If the cache does not exist or is older than the source XML DAT file, parses the source
- * XML DAT and writes a fresh JSON cache under 'scripts/temp/dat_cache_<platformId>.json'.
+ * If the cache does not exist or is older than any source XML DAT file, parses all
+ * matching DATs and writes a fresh JSON cache under 'scripts/temp/dat_cache_<platformId>.json'.
  *
  * @param db SQLite database instance.
  * @param platformId Platform ID.
  * @returns Array of CachedRelease objects.
- * @throws Error if the platform cannot be resolved or if parsing files fails.
  */
 export function getPlatformDatReleases(
   db: Database.Database,
   platformId: number,
 ): CachedRelease[] {
-  const datInfo = findDatFileForPlatform(db, platformId);
-  if (!datInfo) {
+  const datMatches = findDatFilesForPlatform(db, platformId);
+  if (datMatches.length === 0) {
     console.log(
       `[DAT-Cache] No matching DAT file found for Platform ID: ${platformId}`,
     );
     return [];
   }
 
-  const { filePath: datFilePath, platform } = datInfo;
+  const platform = datMatches[0].platform;
   const tempDir = path.resolve(process.cwd(), 'scripts', 'temp');
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
@@ -199,13 +225,15 @@ export function getPlatformDatReleases(
 
   const cachePath = path.join(tempDir, `dat_cache_${platformId}.json`);
 
-  // Verify cache freshness (MTime comparison)
+  // Verify cache freshness against every matching DAT file
   let isCacheValid = false;
   if (fs.existsSync(cachePath)) {
     try {
-      const sourceMtime = fs.statSync(datFilePath).mtimeMs;
+      const latestSourceMtime = Math.max(
+        ...datMatches.map((m) => fs.statSync(m.filePath).mtimeMs),
+      );
       const cacheMtime = fs.statSync(cachePath).mtimeMs;
-      if (cacheMtime >= sourceMtime) {
+      if (cacheMtime >= latestSourceMtime) {
         isCacheValid = true;
       }
     } catch (statErr) {
@@ -229,12 +257,14 @@ export function getPlatformDatReleases(
   }
 
   console.log(
-    `[DAT-Cache] Generating fresh JSON releases cache for platform: ${platform.display_name || platform.name} (DAT: ${path.basename(datFilePath)})`,
+    `[DAT-Cache] Generating fresh JSON releases cache for platform: ${platform.display_name || platform.name} (DATs: ${datMatches.map((m) => path.basename(m.filePath)).join(', ')})`,
   );
-  const parsedDat = parseDatFile(datFilePath);
+  const parsedReleases = datMatches.flatMap(
+    (m) => parseDatFile(m.filePath).releases,
+  );
   const cacheData: CachedRelease[] = [];
 
-  for (const release of parsedDat.releases) {
+  for (const release of parsedReleases) {
     let roms = release.roms;
 
     // Platform-specific rules: PS Vita (ID: 33) prefer .zip archives, disallow .psv and .vpk

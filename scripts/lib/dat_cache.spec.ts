@@ -13,6 +13,7 @@ import {
   extractRegions,
   extractVariants,
   isIgnoredFormatRelease,
+  findDatFilesForPlatform,
   getPlatformDatReleases,
 } from './dat_cache.js';
 
@@ -275,6 +276,47 @@ describe('DAT Cache', () => {
       const cachedData = JSON.parse(cachedRaw);
       expect(cachedData).toHaveLength(1);
       expect(cachedData[0].name).toBe('Super Mario Advance (USA, Europe)');
+    });
+
+    it('should combine both Redump Jaguar CD and No-Intro Atari Jaguar DAT files for platform 6', () => {
+      mockDb
+        .prepare(
+          'INSERT INTO platforms (id, name, display_name) VALUES (?, ?, ?)',
+        )
+        .run(6, 'Atari Jaguar', 'Atari Jaguar');
+
+      const noIntroDir = path.join(datsDir, 'No-Intro');
+      fs.mkdirSync(noIntroDir, { recursive: true });
+      const cdDat = path.join(datsDir, 'Atari - Jaguar CD - Test.dat');
+      const cartDat = path.join(
+        noIntroDir,
+        'Atari - Atari Jaguar (ROM) - Test.dat',
+      );
+      const jagCache = path.join(tempDir, 'dat_cache_6.json');
+
+      try {
+        fs.writeFileSync(
+          cdDat,
+          `<datafile><header><name>Atari - Jaguar CD Interactive Multimedia System</name></header><game name="Blue Lightning (USA)"><rom name="Blue Lightning (USA).cue" size="100" crc="11112222"/></game></datafile>`,
+          'utf8',
+        );
+        fs.writeFileSync(
+          cartDat,
+          `<datafile><header><name>Atari - Atari Jaguar (ROM)</name></header><game name="Doom (World)"><rom name="Doom (World).rom" size="200" crc="4ca68830"/></game></datafile>`,
+          'utf8',
+        );
+
+        const matches = findDatFilesForPlatform(mockDb, 6);
+        expect(matches.length).toBeGreaterThanOrEqual(2);
+        const releases = getPlatformDatReleases(mockDb, 6);
+        const romNames = releases.map((r) => r.romName);
+        expect(romNames).toContain('Blue Lightning (USA).cue');
+        expect(romNames).toContain('Doom (World).rom');
+      } finally {
+        if (fs.existsSync(cdDat)) fs.unlinkSync(cdDat);
+        if (fs.existsSync(cartDat)) fs.unlinkSync(cartDat);
+        if (fs.existsSync(jagCache)) fs.unlinkSync(jagCache);
+      }
     });
   });
 });

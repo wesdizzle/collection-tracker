@@ -195,6 +195,98 @@ describe('Canonical Sources Fetcher', () => {
     expect(fs.existsSync(preExistingPath)).toBe(true);
   });
 
+  it('should reject HTML responses and extract zipped redump.info DAT archives cleanly', async () => {
+    const htmlFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () =>
+        new TextEncoder().encode('<html>System does not exist</html>').buffer,
+    });
+    vi.stubGlobal('fetch', htmlFetch);
+
+    const xboneTarget = REDUMP_WIP_TARGETS.find((t) => t.slug === 'xbone')!;
+    const htmlRes = await downloadRedumpDat(xboneTarget, tempTestDir);
+    expect(htmlRes.success).toBe(false);
+    expect(htmlFetch).toHaveBeenCalledWith(
+      'https://redump.info/datfile/XBOXONE',
+      expect.any(Object),
+    );
+
+    // Test real deflated ZIP extraction from redump.info
+    const xmlText =
+      '<datafile><header><name>Microsoft - Xbox One</name></header><game name="Tunic (USA)"><rom name="Tunic (USA).iso" size="1024" crc="11223344"/></game></datafile>';
+    const raw = new TextEncoder().encode(xmlText);
+    const deflated = new Uint8Array(
+      await new Response(
+        new Blob([raw])
+          .stream()
+          .pipeThrough(new CompressionStream('deflate-raw')),
+      ).arrayBuffer(),
+    );
+    const entryName = new TextEncoder().encode(
+      'Microsoft - Xbox One - Datfile (1210).dat',
+    );
+    const out: number[] = [];
+    const u16 = (v: number) => out.push(v & 0xff, (v >> 8) & 0xff);
+    const u32 = (v: number) =>
+      out.push(v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff);
+    u32(0x04034b50);
+    u16(20);
+    u16(0);
+    u16(8);
+    u16(0);
+    u16(0);
+    u32(0);
+    u32(deflated.length);
+    u32(raw.length);
+    u16(entryName.length);
+    u16(0);
+    out.push(...entryName, ...deflated);
+    const cdStart = out.length;
+    u32(0x02014b50);
+    u16(20);
+    u16(20);
+    u16(0);
+    u16(8);
+    u16(0);
+    u16(0);
+    u32(0);
+    u32(deflated.length);
+    u32(raw.length);
+    u16(entryName.length);
+    u16(0);
+    u16(0);
+    u16(0);
+    u16(0);
+    u32(0);
+    u32(0);
+    out.push(...entryName);
+    const cdSize = out.length - cdStart;
+    u32(0x06054b50);
+    u16(0);
+    u16(0);
+    u16(1);
+    u16(1);
+    u32(cdSize);
+    u32(cdStart);
+    u16(0);
+    const zipBuf = new Uint8Array(out);
+
+    const zipFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => zipBuf.buffer,
+    });
+    vi.stubGlobal('fetch', zipFetch);
+
+    const okRes = await downloadRedumpDat(xboneTarget, tempTestDir);
+    expect(okRes.success).toBe(true);
+    expect(okRes.fileName).toBe('Microsoft - Xbox One - Datfile (1210).dat');
+    expect(
+      fs.readFileSync(path.join(tempTestDir, okRes.fileName!), 'utf8'),
+    ).toContain('Tunic (USA)');
+  });
+
   it('should define REDUMP_WIP_TARGETS for all modern optical disc consoles', () => {
     expect(REDUMP_WIP_TARGETS.length).toBe(5);
     const slugs = REDUMP_WIP_TARGETS.map((t) => t.slug);
