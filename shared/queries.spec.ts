@@ -12,6 +12,9 @@ import {
   buildCatalogGamesChunkQuery,
   buildCatalogDeltaGamesQuery,
   buildGamesListQuery,
+  buildGameDetailQuery,
+  getGameDetailQueryParams,
+  buildGameReleasesByGameIdQuery,
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
   ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
   CATALOG_GAMES_CHUNK_BOUND_QUERY,
@@ -451,6 +454,91 @@ describe('resolveLocalizedReleaseTitle', () => {
         id: string;
       }>;
       expect(deltaToys.map((t) => t.id)).toEqual(['t2']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('Stage B runtime queries read denormalized release columns without joining canonical_releases', () => {
+    const queriesToCheck = [
+      buildGamesListQuery(null),
+      buildGamesListQuery(1),
+      buildGameDetailQuery(null),
+      buildGameDetailQuery(1),
+      buildGameReleasesByGameIdQuery(null),
+      buildGameReleasesByGameIdQuery(1),
+    ];
+
+    for (const sql of queriesToCheck) {
+      expect(sql).toContain('r.verified_source');
+      expect(sql).not.toMatch(/\bJOIN\s+canonical_releases\b/i);
+    }
+
+    const schemaPath = path.join(process.cwd(), 'migrations', 'schema.sql');
+    const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+    const db = new Database(':memory:');
+
+    try {
+      db.exec(schemaSql);
+      db.prepare(
+        `INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, serial_code, publisher, source)
+         VALUES (999, 13, 'Legacy Canonical Title', 'legacy canonical title', 'LEGACY-000', 'Legacy Pub', 'igdb')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO games (id, stable_id, title, platform_id) VALUES ('1', 1, 'Demo Game Base', 13)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, canonical_release_id, verified_source, serial_code, canonical_title, publisher)
+         VALUES ('r1', 1, 'USA', 999, 'dat', 'SLUS-001', 'Demo Game Canonical', 'Demo Pub')`,
+      ).run();
+
+      const listPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${buildGamesListQuery(null)}`)
+        .all() as Array<{ detail: string }>;
+      expect(
+        listPlan.some((p) => p.detail.includes('canonical_releases')),
+      ).toBe(false);
+
+      const listRow = db
+        .prepare(`${buildGamesListQuery(null)} AND g.stable_id = 1`)
+        .get() as Record<string, unknown>;
+      expect(listRow['source']).toBe('dat');
+      expect(listRow['is_source_verified']).toBe(1);
+      expect(listRow['serial_code']).toBe('SLUS-001');
+      expect(listRow['raw_title']).toBe('Demo Game Canonical');
+      expect(listRow['title']).toBe('Demo Game Canonical');
+
+      const detailParams = getGameDetailQueryParams('1', null, 'r1');
+      const detailPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${buildGameDetailQuery(null)}`)
+        .all(...detailParams) as Array<{ detail: string }>;
+      expect(
+        detailPlan.some((p) => p.detail.includes('canonical_releases')),
+      ).toBe(false);
+
+      const detailRow = db
+        .prepare(buildGameDetailQuery(null))
+        .get(...detailParams) as Record<string, unknown>;
+      expect(detailRow['source']).toBe('dat');
+      expect(detailRow['is_source_verified']).toBe(1);
+      expect(detailRow['serial_code']).toBe('SLUS-001');
+      expect(detailRow['title']).toBe('Demo Game Canonical');
+
+      const releasesPlan = db
+        .prepare(`EXPLAIN QUERY PLAN ${buildGameReleasesByGameIdQuery(null)}`)
+        .all(1, 'USA') as Array<{ detail: string }>;
+      expect(
+        releasesPlan.some((p) => p.detail.includes('canonical_releases')),
+      ).toBe(false);
+
+      const releasesRow = db
+        .prepare(buildGameReleasesByGameIdQuery(null))
+        .get(1, 'USA') as Record<string, unknown>;
+      expect(releasesRow['source']).toBe('dat');
+      expect(releasesRow['is_source_verified']).toBe(1);
+      expect(releasesRow['serial_code']).toBe('SLUS-001');
+      expect(releasesRow['title']).toBe('Demo Game Canonical');
+      expect(releasesRow['comments']).toBe('Demo Pub');
     } finally {
       db.close();
     }

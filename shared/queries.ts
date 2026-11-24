@@ -56,9 +56,9 @@ export function buildGamesListQuery(userId?: number | null): string {
     SELECT COALESCE(r.id, g.id) as id,
            g.id as game_id,
            g.stable_id,
-           COALESCE(r.canonical_title, cr.raw_title, g.title) as title,
+           COALESCE(r.canonical_title, g.title) as title,
            g.title as base_title,
-           COALESCE(r.canonical_title, cr.raw_title) as raw_title,
+           r.canonical_title as raw_title,
            g.series,
            g.canonical_series,
            r.release_date as release_date,
@@ -109,16 +109,15 @@ export function buildGamesListQuery(userId?: number | null): string {
            COALESCE(pp.image_url, p.image_url) as platform_logo,
            p.parent_platform_id,
            r.canonical_release_id,
-           COALESCE(r.verified_source, cr.source) as source,
-           COALESCE(r.serial_code, cr.serial_code) as serial_code,
+           r.verified_source as source,
+           r.serial_code as serial_code,
            CASE
-             WHEN COALESCE(r.verified_source, cr.source) IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
+             WHEN r.verified_source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
              ELSE 0
            END as is_source_verified
     FROM games g 
     LEFT JOIN game_releases r ON g.stable_id = r.game_id
     ${userJoin}
-    LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
     LEFT JOIN platforms p ON g.platform_id = p.id
     LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
     LEFT JOIN (
@@ -276,7 +275,9 @@ export function buildGameDetailQuery(userId?: number | null): string {
   const candidateJoin = userId
     ? `LEFT JOIN user_game_releases ugr_sub ON ugr_sub.release_id = r2.id AND ugr_sub.user_id = ?`
     : '';
-  const isOwnedCol = userId ? 'COALESCE(ugr_sub.ownership_status, 0)' : '0';
+  const ownedOrderClause = userId
+    ? 'COALESCE(ugr_sub.ownership_status, 0) DESC, '
+    : '';
 
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
@@ -294,9 +295,9 @@ export function buildGameDetailQuery(userId?: number | null): string {
      SELECT COALESCE(r.id, g.id) as id,
             g.id as game_id,
             g.stable_id,
-            COALESCE(r.canonical_title, cr.raw_title, g.title) as title,
+            COALESCE(r.canonical_title, g.title) as title,
             g.title as base_title,
-            COALESCE(r.canonical_title, cr.raw_title) as raw_title,
+            r.canonical_title as raw_title,
             g.series,
             g.canonical_series,
             COALESCE(
@@ -343,10 +344,10 @@ export function buildGameDetailQuery(userId?: number | null): string {
             COALESCE(pp.image_url, p.image_url) as platform_logo,
             p.parent_platform_id,
             r.canonical_release_id,
-            COALESCE(r.verified_source, cr.source) as source,
-            COALESCE(r.serial_code, cr.serial_code) as serial_code,
+            r.verified_source as source,
+            r.serial_code as serial_code,
             CASE
-              WHEN COALESCE(r.verified_source, cr.source) IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
+              WHEN r.verified_source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
               ELSE 0
             END as is_source_verified
      FROM games g 
@@ -356,11 +357,10 @@ export function buildGameDetailQuery(userId?: number | null): string {
           FROM game_releases r2
           ${candidateJoin}
           WHERE r2.game_id = g.stable_id
-          ORDER BY ${isOwnedCol} DESC, (CASE WHEN r2.region = g.region THEN 0 ELSE 1 END) ASC, r2.id ASC
+          ORDER BY ${ownedOrderClause}(CASE WHEN r2.region = g.region THEN 0 ELSE 1 END) ASC, r2.id ASC
           LIMIT 1)
      )
      ${userJoin}
-     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      LEFT JOIN platforms p ON g.platform_id = p.id 
      LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
      WHERE g.stable_id = (
@@ -430,7 +430,7 @@ export function buildGameReleasesByGameIdQuery(
      SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
             ${hasMediaCol} as has_media,
             ${ownershipCol} as ownership_status,
-            COALESCE(r.canonical_title, cr.raw_title, r.also_released_as) as title,
+            COALESCE(r.canonical_title, r.also_released_as) as title,
             COALESCE(
               r.release_date,
               (SELECT r2.release_date FROM game_releases r2 WHERE r2.game_id = r.game_id AND r2.release_date IS NOT NULL LIMIT 1)
@@ -438,15 +438,14 @@ export function buildGameReleasesByGameIdQuery(
             r.image_url,
             ${hasCaseCol} as has_case,
             ${hasManualCol} as has_manual,
-            r.canonical_release_id, COALESCE(r.verified_source, cr.source) as source,
+            r.canonical_release_id, r.verified_source as source,
             CASE
-              WHEN COALESCE(r.verified_source, cr.source) IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
+              WHEN r.verified_source IN (${VERIFIED_CANONICAL_SOURCES_SQL}) OR r.rom_name IS NOT NULL THEN 1
               ELSE 0
             END as is_source_verified,
-            COALESCE(r.serial_code, cr.serial_code) as serial_code, COALESCE(r.publisher, cr.publisher) as comments
+            r.serial_code as serial_code, r.publisher as comments
      FROM game_releases r
      ${userJoin}
-     LEFT JOIN canonical_releases cr ON r.canonical_release_id = cr.id
      WHERE r.game_id = ?
      ${orderClause}
   `;
