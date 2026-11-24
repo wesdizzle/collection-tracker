@@ -5310,7 +5310,7 @@ export function isMarketPricingAuthorized(
  */
 export function logCronExecution(
   jobName: string,
-  status: 'SUCCESS' | 'ERROR',
+  status: 'SUCCESS' | 'ERROR' | 'SKIPPED',
   durationMs: number,
   summary?: string,
   details?: unknown,
