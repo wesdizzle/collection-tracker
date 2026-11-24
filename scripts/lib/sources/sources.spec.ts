@@ -346,6 +346,118 @@ describe('Offline Canonical Source Adapters', () => {
       const direct = parseSerialStationRecords([], []);
       expect(direct).toEqual([]);
     });
+
+    it('retries with cooldown on transient errors, skips persistently failing pages, and resumes from partial checkpoints', async () => {
+      const makeItem = (idx: number) => ({
+        name: `PS5 Title ${idx}`,
+        regions: ['America'],
+        title_id: `PPSA${String(10000 + idx).padStart(5, '0')}`,
+        edition: 'Original',
+        release_type: 'PHYSICAL',
+      });
+
+      // (a) Retry-with-cooldown succeeds after transient 504 on page 0;
+      // (b) Page 1 fails all retries (skipped cleanly); page 2 succeeds with short tail.
+      let page0Calls = 0;
+      let page1Calls = 0;
+      const seenOffsets: number[] = [];
+      const mockFetch = async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        const offset = Number(url.searchParams.get('offset'));
+        seenOffsets.push(offset);
+
+        if (offset === 0) {
+          page0Calls++;
+          if (page0Calls === 1) {
+            return new Response('Gateway Timeout', { status: 504 });
+          }
+          return new Response(
+            JSON.stringify({
+              count: 250,
+              items: Array.from({ length: 100 }, (_, i) => makeItem(i)),
+            }),
+            { status: 200 },
+          );
+        }
+        if (offset === 100) {
+          page1Calls++;
+          return new Response('Gateway Timeout', { status: 504 });
+        }
+        if (offset === 200) {
+          return new Response(
+            JSON.stringify({
+              count: 250,
+              items: Array.from({ length: 50 }, (_, i) => makeItem(200 + i)),
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ count: 250, items: [] }), {
+          status: 200,
+        });
+      };
+
+      const res = await fetchSerialStationSources(tmpDir, {
+        maxPages: 5,
+        delayMs: 0,
+        cooldownBaseMs: 0,
+        maxRetries: 2,
+        fetchFn: mockFetch as typeof fetch,
+      });
+
+      expect(page0Calls).toBe(2);
+      expect(page1Calls).toBe(3); // 1 initial attempt + 2 retries before skipping
+      expect(res.skippedPages).toBe(1);
+      expect(res.releasesCount).toBe(150);
+      expect(res.parsedCount).toBe(150);
+      expect(seenOffsets).toContain(200);
+
+      // (c) Resuming from an existing partial checkpoint skips pages < nextPage and removes checkpoint on completion
+      const partialPath = path.join(
+        tmpDir,
+        'serialstation_releases.partial.json',
+      );
+      fs.writeFileSync(
+        partialPath,
+        JSON.stringify({
+          nextPage: 2,
+          totalCount: 250,
+          items: [makeItem(0), makeItem(1)],
+        }),
+        'utf8',
+      );
+
+      const resumeOffsets: number[] = [];
+      const resumeFetch = async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        const offset = Number(url.searchParams.get('offset'));
+        resumeOffsets.push(offset);
+        if (offset === 200) {
+          return new Response(
+            JSON.stringify({
+              count: 250,
+              items: [makeItem(200)],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ count: 250, items: [] }), {
+          status: 200,
+        });
+      };
+
+      const resumed = await fetchSerialStationSources(tmpDir, {
+        maxPages: 5,
+        delayMs: 0,
+        cooldownBaseMs: 0,
+        fetchFn: resumeFetch as typeof fetch,
+      });
+
+      expect(resumeOffsets).toEqual([200]);
+      expect(resumed.releasesCount).toBe(3);
+      expect(resumed.parsedCount).toBe(3);
+      expect(fs.existsSync(partialPath)).toBe(false);
+    });
   });
 
   describe('retail_backcatalog & lgn', () => {

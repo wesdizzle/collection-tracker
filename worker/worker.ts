@@ -13743,6 +13743,7 @@ export async function syncWorkerSerialStation(
   const maxPages = Math.max(1, options?.maxPages ?? 2);
   const rawItems: SerialStationReleaseItem[] = [];
   let pagesFetched = 0;
+  let lastSucceededOffset: number | null = null;
   let reachedEnd = false;
   let fetchError: string | undefined;
 
@@ -13755,10 +13756,11 @@ export async function syncWorkerSerialStation(
           'User-Agent': 'CollectionTracker/2.0 (SerialStationCron)',
           Accept: 'application/json',
         },
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) {
         fetchError = `HTTP ${res.status} ${res.statusText}`;
+        if (page < maxPages - 1) continue;
         break;
       }
       const payload = (await res.json()) as {
@@ -13771,9 +13773,11 @@ export async function syncWorkerSerialStation(
         !Array.isArray(payload.items)
       ) {
         fetchError = 'Unexpected SerialStation JSON payload';
+        if (page < maxPages - 1) continue;
         break;
       }
       pagesFetched++;
+      lastSucceededOffset = pageOffset;
       rawItems.push(...payload.items);
       const totalCount =
         typeof payload.count === 'number' ? payload.count : undefined;
@@ -13787,6 +13791,7 @@ export async function syncWorkerSerialStation(
       }
     } catch (err) {
       fetchError = err instanceof Error ? err.message : String(err);
+      if (page < maxPages - 1) continue;
       break;
     }
   }
@@ -13889,11 +13894,9 @@ export async function syncWorkerSerialStation(
     await markCatalogChunksDirty(env);
   }
 
-  const nextOffset = fetchError
-    ? startOffset
-    : reachedEnd
-      ? 0
-      : startOffset + pagesFetched * SERIALSTATION_PAGE_LIMIT;
+  const nextOffset = reachedEnd
+    ? 0
+    : (lastSucceededOffset ?? startOffset) + SERIALSTATION_PAGE_LIMIT;
 
   await env.DB.batch([
     env.DB.prepare(

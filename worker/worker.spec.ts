@@ -10538,7 +10538,7 @@ describe('Worker API Logic', () => {
       // 1. Fail-soft on HTTP 503 preserves cursor at 0 and does NOT touch catalog_chunks_dirty
       const failSpy = vi
         .spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce(new Response('Bad Gateway', { status: 503 }));
+        .mockResolvedValue(new Response('Bad Gateway', { status: 503 }));
       try {
         const failRes = await syncWorkerSerialStation(mockEnv, { force: true });
         expect(failRes.error).toContain('503');
@@ -10661,6 +10661,65 @@ describe('Worker API Logic', () => {
         expect(dirtyRow.value).toBe('1');
       } finally {
         fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerSerialStation skips poisoned page 0 when page 1 succeeds and fails soft when both fail', async () => {
+      db.exec(`
+        INSERT INTO sync_state (key, value)
+        VALUES ('serialstation_cursor_offset', '100');
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES (8401, '8401', 'Returnal', 35);
+        INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+        VALUES ('8401-1', 8401, 'USA', NULL);
+      `);
+
+      // (a) offset=100 times out/fails, offset=200 succeeds -> processes offset=200 and advances to 300
+      const partialSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('offset=100')) {
+            return new Response('Gateway Timeout', { status: 504 });
+          }
+          if (url.includes('offset=200')) {
+            const pageItems = Array.from({ length: 100 }, (_, i) => ({
+              name: i === 0 ? 'Returnal' : `PS3 Filler ${i}`,
+              regions: ['America'],
+              title_id: i === 0 ? 'PPSA01284' : `BLUS${40000 + i}`,
+              edition: 'Original',
+              release_type: 'PHYSICAL',
+            }));
+            return Response.json({ count: 500, items: pageItems });
+          }
+          return new Response('Unexpected offset', { status: 500 });
+        });
+
+      try {
+        const res = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(res.pagesFetched).toBe(1);
+        expect(res.nextOffset).toBe(300);
+        expect(res.addedCanonical).toBe(1);
+        expect(res.linkedReleases).toBe(1);
+      } finally {
+        partialSpy.mockRestore();
+      }
+
+      // Reset cursor to 100 to verify (b): both offset=100 and offset=200 fail -> fails soft at 100
+      db.prepare(
+        "UPDATE sync_state SET value = '100' WHERE key = 'serialstation_cursor_offset'",
+      ).run();
+      const bothFailSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockRejectedValue(new DOMException('Timeout', 'TimeoutError'));
+
+      try {
+        const failRes = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(failRes.pagesFetched).toBe(0);
+        expect(failRes.error).toBeTruthy();
+        expect(failRes.nextOffset).toBe(100);
+      } finally {
+        bothFailSpy.mockRestore();
       }
     });
   });
