@@ -4057,6 +4057,93 @@ function nextSequentialReleaseId(
   return nextId;
 }
 
+async function ensureCanonicalReleaseForRetailOrBoutique(
+  env: Env,
+  params: {
+    platformId: number;
+    rawTitle: string;
+    region?: string | null;
+    variants?: string | null;
+    barcode?: string | null;
+    publisher: string;
+    source: 'retail_catalog' | 'lgn';
+  },
+): Promise<{
+  id: number;
+  source: 'retail_catalog' | 'lgn';
+  rawTitle: string;
+  publisher: string;
+} | null> {
+  const cleanTitle = (params.rawTitle || '').trim();
+  const normalizedTitle = normalizeTitleForMatching(cleanTitle);
+  if (!cleanTitle || !normalizedTitle || !params.platformId) {
+    return null;
+  }
+  const region = (params.region || 'USA').trim() || 'USA';
+  const variants = params.variants ?? null;
+
+  try {
+    const existing = await env.DB.prepare(
+      `SELECT id, source, raw_title, publisher
+       FROM canonical_releases
+       WHERE platform_id = ?
+         AND source = ?
+         AND normalized_title = ?
+         AND region IS ?
+         AND variants IS ?
+       LIMIT 1`,
+    )
+      .bind(params.platformId, params.source, normalizedTitle, region, variants)
+      .first<{
+        id: number;
+        source: string;
+        raw_title: string;
+        publisher: string | null;
+      }>();
+
+    if (existing && Number.isFinite(existing.id) && existing.id > 0) {
+      return {
+        id: existing.id,
+        source: existing.source === 'lgn' ? 'lgn' : 'retail_catalog',
+        rawTitle: existing.raw_title || cleanTitle,
+        publisher: existing.publisher ?? params.publisher,
+      };
+    }
+
+    const inserted = await env.DB.prepare(
+      `INSERT INTO canonical_releases (
+         platform_id, raw_title, normalized_title, region, variants,
+         barcode, publisher, source, is_verified_physical
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+       RETURNING id`,
+    )
+      .bind(
+        params.platformId,
+        cleanTitle,
+        normalizedTitle,
+        region,
+        variants,
+        params.barcode ?? null,
+        params.publisher,
+        params.source,
+      )
+      .first<{ id: number }>();
+
+    const insertedId = inserted?.id ?? null;
+    if (insertedId && Number.isFinite(insertedId) && insertedId > 0) {
+      return {
+        id: insertedId,
+        source: params.source,
+        rawTitle: cleanTitle,
+        publisher: params.publisher,
+      };
+    }
+  } catch {
+    // Graceful fallback for minimal test schemas without canonical_releases
+  }
+  return null;
+}
+
 async function insertCatalogGameWithReleases(
   env: Env,
   params: {
@@ -4162,8 +4249,13 @@ async function insertCatalogGameWithReleases(
     romName?: string | null;
   }> = [];
   const relStatements: D1PreparedStatement[] = [];
+  const seenCanonicalIds = new Set<number>();
   for (let i = 0; i < params.releases.length; i++) {
     const rel = params.releases[i];
+    if (rel.canonicalReleaseId != null) {
+      if (seenCanonicalIds.has(rel.canonicalReleaseId)) continue;
+      seenCanonicalIds.add(rel.canonicalReleaseId);
+    }
     const relId = `${stableId}-${i + 1}`;
     const relRegion = rel.region ?? params.region ?? 'USA';
     insertedReleases.push({
@@ -4178,7 +4270,7 @@ async function insertCatalogGameWithReleases(
            id, game_id, region, variants, rom_name, rom_crc, release_date, canonical_release_id, barcode,
            verified_source, serial_code, canonical_title, publisher
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO NOTHING`,
+         ON CONFLICT DO NOTHING`,
       ).bind(
         relId,
         stableId,
@@ -10716,13 +10808,18 @@ export default {
 
     if (shouldRunRetailPreOrders) {
       const retailPreStart = Date.now();
+      // Stamp pre-run so persistent upstream/network failures never cause 30m retry storms
       try {
-        const rpRes = await syncWorkerRetailPreOrders(env);
         await env.DB.prepare(
           `INSERT INTO sync_state (key, value, updated_at)
            VALUES ('retail_preorder_sync_last_run', datetime('now'), datetime('now'))
            ON CONFLICT(key) DO UPDATE SET value = datetime('now'), updated_at = datetime('now')`,
         ).run();
+      } catch {
+        // Ignore in minimal test mocks
+      }
+      try {
+        const rpRes = await syncWorkerRetailPreOrders(env);
         logCronExecution(
           'retail_preorders',
           'SUCCESS',
@@ -11843,6 +11940,18 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
           ? Math.round(Number(entry.deal.percentSavings) || 0)
           : 0;
         const onSaleInt = entry.deal.onSale && discountPct > 0 ? 1 : 0;
+        const canonicalRef = await ensureCanonicalReleaseForRetailOrBoutique(
+          env,
+          {
+            platformId: entry.platformId,
+            rawTitle: canonicalTitle,
+            region: 'USA',
+            variants: 'Standard Edition',
+            barcode: validBarcode,
+            publisher: entry.deal.store,
+            source: 'retail_catalog',
+          },
+        );
 
         const inserted = await insertCatalogGameWithReleases(env, {
           title: canonicalTitle,
@@ -11866,6 +11975,10 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
               region: 'USA',
               variants: 'Standard Edition',
               barcode: validBarcode,
+              canonicalReleaseId: canonicalRef?.id ?? null,
+              verifiedSource: canonicalRef?.source ?? null,
+              canonicalTitle: canonicalRef?.rawTitle ?? null,
+              publisher: canonicalRef?.publisher ?? null,
             },
           ],
         });
@@ -12190,6 +12303,18 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
       const regularCents = Number.isFinite(entry.item.regularPrice)
         ? Math.round(entry.item.regularPrice * 100)
         : saleCents;
+      const canonicalRef = await ensureCanonicalReleaseForRetailOrBoutique(
+        env,
+        {
+          platformId: entry.platformId,
+          rawTitle: canonicalTitle,
+          region: 'USA',
+          variants: 'Standard Edition',
+          barcode: validBarcode,
+          publisher: entry.item.store,
+          source: 'retail_catalog',
+        },
+      );
 
       const inserted = await insertCatalogGameWithReleases(env, {
         title: canonicalTitle,
@@ -12212,6 +12337,10 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
             variants: 'Standard Edition',
             releaseDate: entry.item.releaseDate ?? null,
             barcode: validBarcode,
+            canonicalReleaseId: canonicalRef?.id ?? null,
+            verifiedSource: canonicalRef?.source ?? null,
+            canonicalTitle: canonicalRef?.rawTitle ?? null,
+            publisher: canonicalRef?.publisher ?? null,
           },
         ],
       });
@@ -12758,6 +12887,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
     }
 
     const existingRelIdsByGame = new Map<number, Set<string>>();
+    const existingCanonicalIdsByGame = new Map<number, Set<number>>();
     const verifiedByGame = new Map<
       number,
       Array<{ region: string | null; variants: string | null }>
@@ -12773,6 +12903,14 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         existingRelIdsByGame.set(gr.game_id, idSet);
       }
       idSet.add(gr.id);
+      if (gr.canonical_release_id != null) {
+        let canSet = existingCanonicalIdsByGame.get(gr.game_id);
+        if (!canSet) {
+          canSet = new Set<number>();
+          existingCanonicalIdsByGame.set(gr.game_id, canSet);
+        }
+        canSet.add(gr.canonical_release_id);
+      }
       if (gr.canonical_release_id || gr.variants) {
         const vList = verifiedByGame.get(gr.game_id) || [];
         vList.push({ region: gr.region || 'World', variants: gr.variants });
@@ -12801,6 +12939,12 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         .slice()
         .sort((a, b) => (a.variants || '').localeCompare(b.variants || ''));
       for (const cr of crs) {
+        let usedCanSet = existingCanonicalIdsByGame.get(g.stable_id);
+        if (!usedCanSet) {
+          usedCanSet = new Set<number>();
+          existingCanonicalIdsByGame.set(g.stable_id, usedCanSet);
+        }
+        if (usedCanSet.has(cr.id)) continue;
         const reg = cr.region || 'World';
         if (reg === 'World') continue;
         const targetVar = (cr.variants || 'Standard').trim();
@@ -12824,6 +12968,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
           (/^Rev\s+0{2,3}\b/i.test(cr.variants || '') || !hasVerifiedInRegion)
         ) {
           const [claimed] = unlinkedList.splice(unlinkedIdx, 1);
+          usedCanSet.add(cr.id);
           verifiedList.push({
             region: claimed.region || reg,
             variants: cr.variants,
@@ -12833,7 +12978,14 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
             env.DB.prepare(
               `UPDATE game_releases
                SET variants = ?, canonical_release_id = ?, verified_source = ?, serial_code = ?, canonical_title = ?, publisher = ?
-               WHERE id = ?`,
+               WHERE id = ?
+                 AND canonical_release_id IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM game_releases gr2
+                   WHERE gr2.game_id = game_releases.game_id
+                     AND gr2.canonical_release_id = ?
+                     AND gr2.id != game_releases.id
+                 )`,
             ).bind(
               cr.variants,
               cr.id,
@@ -12842,11 +12994,13 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
               cr.raw_title,
               cr.publisher,
               claimed.id,
+              cr.id,
             ),
           );
           continue;
         }
 
+        usedCanSet.add(cr.id);
         verifiedList.push({ region: reg, variants: cr.variants });
         verifiedByGame.set(g.stable_id, verifiedList);
         let idSet = existingRelIdsByGame.get(g.stable_id);
@@ -12862,7 +13016,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
                verified_source, serial_code, canonical_title, publisher
              )
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
           ).bind(
             relId,
             g.stable_id,
@@ -13665,25 +13819,48 @@ async function applyWorkerCanonicalHierarchyMerge(
     writesUsed + 7 <= options.maxWriteBudget
   ) {
     const platPh = options.touchedPlatforms.map(() => '?').join(',');
-    const unlinkedRes = await env.DB.prepare(
-      `SELECT gr.id, gr.region, gr.variants, g.title, g.platform_id
-       FROM game_releases gr
-       JOIN games g ON g.stable_id = gr.game_id
-       WHERE gr.canonical_release_id IS NULL
-         AND g.platform_id IN (${platPh})`,
-    )
-      .bind(...options.touchedPlatforms)
-      .all<{
-        id: string;
-        region: string | null;
-        variants: string | null;
-        title: string;
-        platform_id: number;
-      }>();
+    const [unlinkedRes, existingLinkedRes] = await Promise.all([
+      env.DB.prepare(
+        `SELECT gr.id, gr.game_id, gr.region, gr.variants, g.title, g.platform_id
+         FROM game_releases gr
+         JOIN games g ON g.stable_id = gr.game_id
+         WHERE gr.canonical_release_id IS NULL
+           AND g.platform_id IN (${platPh})`,
+      )
+        .bind(...options.touchedPlatforms)
+        .all<{
+          id: string;
+          game_id: number;
+          region: string | null;
+          variants: string | null;
+          title: string;
+          platform_id: number;
+        }>(),
+      env.DB.prepare(
+        `SELECT gr.game_id, gr.canonical_release_id
+         FROM game_releases gr
+         JOIN games g ON g.stable_id = gr.game_id
+         WHERE gr.canonical_release_id IS NOT NULL
+           AND g.platform_id IN (${platPh})`,
+      )
+        .bind(...options.touchedPlatforms)
+        .all<{ game_id: number; canonical_release_id: number }>(),
+    ]);
+
+    const usedCanonicalByGame = new Map<number, Set<number>>();
+    for (const row of existingLinkedRes.results || []) {
+      let set = usedCanonicalByGame.get(row.game_id);
+      if (!set) {
+        set = new Set<number>();
+        usedCanonicalByGame.set(row.game_id, set);
+      }
+      set.add(row.canonical_release_id);
+    }
 
     const linkStmts: D1PreparedStatement[] = [];
     for (const gr of unlinkedRes.results || []) {
       if (writesUsed + 7 > options.maxWriteBudget) break;
+      const usedForGame = usedCanonicalByGame.get(gr.game_id);
       const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
       const seenCand = new Set<WorkerCanonicalMergeRow>();
       const candidates: WorkerCanonicalMergeRow[] = [];
@@ -13692,6 +13869,7 @@ async function applyWorkerCanonicalHierarchyMerge(
           if (seenCand.has(cand)) continue;
           seenCand.add(cand);
           if (cand.id <= 0 || cand.is_verified_physical !== 1) continue;
+          if (usedForGame?.has(cand.id)) continue;
           if (!areCanonicalTitlesSequelCompatible(gr.title, cand.raw_title)) {
             continue;
           }
@@ -13731,6 +13909,12 @@ async function applyWorkerCanonicalHierarchyMerge(
       });
 
       const best = candidates[0];
+      let gameSet = usedCanonicalByGame.get(gr.game_id);
+      if (!gameSet) {
+        gameSet = new Set<number>();
+        usedCanonicalByGame.set(gr.game_id, gameSet);
+      }
+      gameSet.add(best.id);
       linkStmts.push(
         env.DB.prepare(
           `UPDATE game_releases
@@ -13741,7 +13925,14 @@ async function applyWorkerCanonicalHierarchyMerge(
                serial_code = ?,
                canonical_title = ?,
                publisher = ?
-           WHERE id = ? AND canonical_release_id IS NULL`,
+           WHERE id = ?
+             AND canonical_release_id IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM game_releases gr2
+               WHERE gr2.game_id = game_releases.game_id
+                 AND gr2.canonical_release_id = ?
+                 AND gr2.id != game_releases.id
+             )`,
         ).bind(
           best.id,
           best.variants,
@@ -13751,6 +13942,7 @@ async function applyWorkerCanonicalHierarchyMerge(
           best.raw_title,
           best.publisher,
           gr.id,
+          best.id,
         ),
       );
       writesUsed += 7;
@@ -14001,7 +14193,7 @@ export async function syncWorkerSerialStation(
           'User-Agent': 'CollectionTracker/2.0 (SerialStationCron)',
           Accept: 'application/json',
         },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(20000),
       });
       if (!res.ok) {
         fetchError = `HTTP ${res.status} ${res.statusText}`;
@@ -14197,13 +14389,16 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     };
   }
 
-  const targetPlatforms = Array.from(
-    new Set(
-      preOrders
-        .map((po) => po.platformId)
-        .filter((id): id is number => typeof id === 'number' && id > 0),
-    ),
+  const targetPlatformSet = new Set<number>(
+    preOrders
+      .map((po) => po.platformId)
+      .filter((id): id is number => typeof id === 'number' && id > 0),
   );
+  if (preOrders.some((po) => po.ambiguousXbox)) {
+    targetPlatformSet.add(49);
+    targetPlatformSet.add(50);
+  }
+  const targetPlatforms = Array.from(targetPlatformSet);
 
   if (targetPlatforms.length === 0) {
     return {
@@ -14342,11 +14537,20 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
     const isActionableAnnouncement = po.isPreOrder || isRecent;
 
-    const match = catalogIndex.findMatch(
-      po.platformId,
+    let effectivePlatformId = po.platformId;
+    let match = catalogIndex.findMatch(
+      effectivePlatformId,
       po.cleanTitle,
       po.productUrl,
     );
+    // Ambiguous bare "Xbox" resolves via catalog preferring Xbox One (49), falling back to XSX (50) only if XSX-only
+    if (!match && po.ambiguousXbox && effectivePlatformId === 49) {
+      const xsxMatch = catalogIndex.findMatch(50, po.cleanTitle, po.productUrl);
+      if (xsxMatch) {
+        effectivePlatformId = 50;
+        match = xsxMatch;
+      }
+    }
 
     const priceCents =
       po.priceCents ?? (po.priceUsd ? Math.round(po.priceUsd * 100) : null);
@@ -14429,10 +14633,10 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         !announcedUrls.has(po.productUrl) &&
         !isColdStartSeed;
 
-      const ingestKey = `${po.platformId}::${poNorm}`;
+      const ingestKey = `${effectivePlatformId}::${poNorm}`;
       const canAutoIngest =
         po.isPreOrder &&
-        po.platformId > 0 &&
+        effectivePlatformId > 0 &&
         po.cleanTitle.trim().length > 1 &&
         !isLikelyNonGameMerchTitle(po.cleanTitle) &&
         !pendingBoutiqueIngest.has(ingestKey) &&
@@ -14440,8 +14644,8 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
 
       if (canAutoIngest) {
         pendingBoutiqueIngest.set(ingestKey, {
-          po,
-          platformId: po.platformId,
+          po: { ...po, platformId: effectivePlatformId },
+          platformId: effectivePlatformId,
           poNorm,
           priceCents,
           regularPriceCents,
@@ -14455,9 +14659,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
             id: `boutique-${po.store.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${encodeURIComponent(po.cleanTitle)}`,
             title: po.cleanTitle,
             ownership_status: 0,
-            platform_id: po.platformId,
+            platform_id: effectivePlatformId,
           },
-          preOrder: po,
+          preOrder: { ...po, platformId: effectivePlatformId },
           isUncataloged: true,
         });
       }
@@ -14477,6 +14681,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   }
 
   let boutiqueIngestedCount = 0;
+  let boutiqueIngestFailed = false;
   if (pendingBoutiqueIngest.size > 0) {
     try {
       const { byId: platformById } = await loadPlatformLookupMaps(env);
@@ -14531,12 +14736,27 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           franchises: igdbMeta?.franchises ?? undefined,
         });
         const storeSlug = slugifySegment(po.store) || 'boutique';
+        const releaseRegion = po.region || 'USA';
+        const releaseVariant = po.edition || 'Standard Physical';
+        const canonicalSource =
+          po.store === 'Limited Game News' ? 'lgn' : 'retail_catalog';
+        const canonicalRef = await ensureCanonicalReleaseForRetailOrBoutique(
+          env,
+          {
+            platformId,
+            rawTitle: canonicalTitle,
+            region: releaseRegion,
+            variants: releaseVariant,
+            publisher: po.store,
+            source: canonicalSource,
+          },
+        );
 
         const inserted = await insertCatalogGameWithReleases(env, {
           title: canonicalTitle,
           platformId,
           platformSlugHint: platInfo?.displayName || platInfo?.name,
-          region: 'USA',
+          region: releaseRegion,
           canonicalSeries,
           igdbMeta,
           imageUrlFallback: po.imageUrl ?? null,
@@ -14551,8 +14771,12 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
           releases: [
             {
               slugSuffix: `boutique-${storeSlug}`,
-              region: 'USA',
-              variants: po.edition || 'Standard Physical',
+              region: releaseRegion,
+              variants: releaseVariant,
+              canonicalReleaseId: canonicalRef?.id ?? null,
+              verifiedSource: canonicalRef?.source ?? null,
+              canonicalTitle: canonicalRef?.rawTitle ?? null,
+              publisher: canonicalRef?.publisher ?? null,
             },
           ],
         });
@@ -14626,6 +14850,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         await markDbDirty(env);
       }
     } catch (boutiqueIngestErr) {
+      boutiqueIngestFailed = true;
       console.warn(
         '[WorkerCron] Boutique pre-order auto-ingestion failed:',
         boutiqueIngestErr,
@@ -14653,7 +14878,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     await markDbDirty(env);
   }
 
-  if (currentFeedHash) {
+  if (currentFeedHash && !boutiqueIngestFailed) {
     try {
       await env.DB.prepare(
         `INSERT INTO sync_state (key, value, updated_at)
@@ -17199,15 +17424,13 @@ export async function syncWorkerWatchedSeriesDiscovery(
   const multiqueryBody = batchSeries
     .map((seriesName, idx) => {
       const term = sanitizeIgdbSearchTerm(seriesName);
-      return `query games "s${idx}" { fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, game_format, packaging, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters.id, remasters.name, remasters.platforms, expanded_games.id, expanded_games.name, expanded_games.platforms, ports.id, ports.name, ports.platforms, involved_companies.company.name, involved_companies.publisher; where (collections.name ~ *"${term}"* | franchises.name ~ *"${term}"*) & platforms = (${igdbPlatformList}); sort first_release_date desc; limit 50; };`;
+      return `query games "s${idx}" { fields name, cover.url, cover.image_id, first_release_date, platforms.id, platforms.name, summary, genres.name, url, collections.name, franchises.name, category, game_type, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters.id, remasters.name, remasters.platforms, expanded_games.id, expanded_games.name, expanded_games.platforms, ports.id, ports.name, ports.platforms, involved_companies.company.name, involved_companies.publisher; where (collections.name ~ *"${term}"* | franchises.name ~ *"${term}"*) & platforms = (${igdbPlatformList}); sort first_release_date desc; limit 50; };`;
     })
     .join('\n');
 
   interface WatchedSeriesIgdbGame extends IgdbSearchCandidate {
     category?: number;
     game_type?: number;
-    game_format?: number | string | { id?: number; name?: string };
-    packaging?: number | { id?: number };
     involved_companies?: Array<{
       company?: { name: string };
       publisher?: boolean;
@@ -17427,28 +17650,6 @@ export async function syncWorkerWatchedSeriesDiscovery(
           continue;
         }
 
-        const numericGameFormat =
-          typeof game.game_format === 'number'
-            ? game.game_format
-            : typeof game.game_format === 'object'
-              ? game.game_format?.id
-              : undefined;
-        if (numericGameFormat === 2) {
-          continue;
-        }
-        const igdbGameFormatStr =
-          typeof game.game_format === 'string'
-            ? game.game_format
-            : typeof game.game_format === 'object' && game.game_format?.name
-              ? game.game_format.name
-              : numericGameFormat === 1
-                ? 'physical'
-                : null;
-        const igdbPackagingVal =
-          typeof game.packaging === 'number'
-            ? game.packaging
-            : (game.packaging?.id ?? null);
-
         const detection = detectPhysicalReleaseStatus({
           gameTitle: game.name!,
           platformId: localPlat.id,
@@ -17458,15 +17659,11 @@ export async function syncWorkerWatchedSeriesDiscovery(
           platformLaunchDate: localPlat.launchDate,
           publisher,
           igdbCategory: game.game_type ?? game.category,
-          igdbPackaging: igdbPackagingVal,
-          igdbGameFormat: igdbGameFormatStr,
           canonicalReleases: candidateCanonicals,
         });
 
-        if (
-          detection.physical_status !== 'verified_physical' &&
-          detection.physical_status !== 'likely_physical'
-        ) {
+        // Require verified_physical to avoid auto-ingesting unverified likely_physical entries
+        if (detection.physical_status !== 'verified_physical') {
           continue;
         }
 
@@ -18090,6 +18287,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         );
         if (unlinkedIdx >= 0) {
           const [claimed] = unlinkedRels.splice(unlinkedIdx, 1);
+          existingCanonicalIds.add(cr.id);
           verifiedOrNamedRels.push({
             ...claimed,
             region: claimed.region || crReg,
@@ -18108,6 +18306,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         );
         if (alreadyCovered) continue;
 
+        existingCanonicalIds.add(cr.id);
         verifiedOrNamedRels.push({
           id: `pending-${cr.id}`,
           region: crReg,
@@ -18164,7 +18363,14 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                      serial_code = ?,
                      canonical_title = ?,
                      publisher = ?
-                 WHERE id = ? AND canonical_release_id IS NULL`,
+                 WHERE id = ?
+                   AND canonical_release_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM game_releases gr2
+                     WHERE gr2.game_id = game_releases.game_id
+                       AND gr2.canonical_release_id = ?
+                       AND gr2.id != game_releases.id
+                   )`,
               ).bind(
                 cr.id,
                 cr.variants || null,
@@ -18177,6 +18383,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                 cr.raw_title || null,
                 cr.publisher || null,
                 op.unlinkedId,
+                cr.id,
               ),
             );
             continue;
@@ -18194,7 +18401,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
                  id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id,
                  verified_source, serial_code, canonical_title, publisher
                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO NOTHING`,
+               ON CONFLICT DO NOTHING`,
             ).bind(
               relSlug,
               existingGame.stable_id,
@@ -18450,8 +18657,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       romName?: string | null;
     }> = [];
 
+    const seenNewCanIds = new Set<number>();
     for (let i = 0; i < canonicalRels.length; i++) {
       const cr = canonicalRels[i];
+      if (seenNewCanIds.has(cr.id)) continue;
+      seenNewCanIds.add(cr.id);
       const crcUpper = (cr.rom_crc || '').trim().toUpperCase();
       if (crcUpper && !isCompilationOrBundleTitle(displayTitle)) {
         existingGameByPlatformCrc.set(
@@ -18483,7 +18693,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
              id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, canonical_release_id,
              verified_source, serial_code, canonical_title, publisher
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO NOTHING`,
+           ON CONFLICT DO NOTHING`,
         ).bind(
           relSlug,
           stableId,

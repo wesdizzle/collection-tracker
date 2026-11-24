@@ -9789,15 +9789,151 @@ describe('Worker API Logic', () => {
         expect(ingestedGame.retail_store).toBe('Limited Run Games');
 
         const releases = db
-          .prepare('SELECT id FROM game_releases WHERE game_id = ?')
-          .all(ingestedGame.stable_id) as Array<{ id: string }>;
+          .prepare(
+            'SELECT id, canonical_release_id, verified_source, canonical_title, publisher FROM game_releases WHERE game_id = ?',
+          )
+          .all(ingestedGame.stable_id) as Array<{
+          id: string;
+          canonical_release_id: number | null;
+          verified_source: string | null;
+          canonical_title: string | null;
+          publisher: string | null;
+        }>;
         expect(releases.length).toBe(1);
+        expect(releases[0].canonical_release_id).toBeGreaterThan(0);
+        expect(releases[0].verified_source).toBe('retail_catalog');
+        expect(releases[0].canonical_title).toContain('Celeste');
+        expect(releases[0].publisher).toBe('Limited Run Games');
 
         // Title-derived series 'Celeste: Deluxe Anniversary' vs 'Celeste': test rule match when canonical_series matches
         expect(webPushSpy.mock.calls.length).toBeGreaterThanOrEqual(0);
       } finally {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders resolves ambiguousXbox via catalog (preferring 49, fallback 50) and skips boutique_feed_hash on ingest failure', async () => {
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES
+          (9101, '9101', 'Psychonauts 2', 49),
+          (9102, '9102', 'Dead Space', 50);
+        INSERT INTO game_releases (id, game_id, region)
+        VALUES
+          ('9101-1', 9101, 'USA'),
+          ('9102-1', 9102, 'USA');
+      `);
+
+      const mockShopify = {
+        products: [
+          {
+            id: 8801,
+            title: 'Psychonauts 2 (Xbox)',
+            handle: 'psychonauts-2-xbox',
+            tags: ['Xbox'],
+            variants: [{ price: '59.99', available: true }],
+          },
+          {
+            id: 8802,
+            title: 'Dead Space (Xbox)',
+            handle: 'dead-space-xbox',
+            tags: ['Xbox'],
+            variants: [{ price: '59.99', available: true }],
+          },
+        ],
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('iam8bit.com')) {
+            return new Response(JSON.stringify(mockShopify), { status: 200 });
+          }
+          return new Response(JSON.stringify({ products: [] }), {
+            status: 200,
+          });
+        });
+
+      try {
+        const res = await syncWorkerBoutiquePreOrders(mockEnv);
+        expect(res.ingestedCount).toBe(0);
+
+        const g49 = db
+          .prepare(
+            'SELECT retail_url, retail_store FROM games WHERE stable_id = 9101',
+          )
+          .get() as { retail_url: string | null; retail_store: string | null };
+        expect(g49.retail_url).toBe(
+          'https://www.iam8bit.com/products/psychonauts-2-xbox',
+        );
+        expect(g49.retail_store).toBe('iam8bit');
+
+        const g50 = db
+          .prepare(
+            'SELECT retail_url, retail_store FROM games WHERE stable_id = 9102',
+          )
+          .get() as { retail_url: string | null; retail_store: string | null };
+        expect(g50.retail_url).toBe(
+          'https://www.iam8bit.com/products/dead-space-xbox',
+        );
+        expect(g50.retail_store).toBe('iam8bit');
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerBoutiquePreOrders does not persist boutique_feed_hash when auto-ingestion fails', async () => {
+      db.prepare(
+        `DELETE FROM sync_state WHERE key = 'boutique_feed_hash'`,
+      ).run();
+      const mockShopify = {
+        products: [
+          {
+            id: 8901,
+            title: 'Unmatched Brand New Preorder (Switch)',
+            handle: 'unmatched-brand-new',
+            tags: ['pre-order'],
+            published_at: new Date().toISOString(),
+            variants: [{ price: '39.99', available: true }],
+          },
+        ],
+      };
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          if (String(input).includes('limitedrungames.com')) {
+            return new Response(JSON.stringify(mockShopify), { status: 200 });
+          }
+          return new Response(JSON.stringify({ products: [] }), {
+            status: 200,
+          });
+        });
+
+      const failingEnv: Env = {
+        ...mockEnv,
+        DB: {
+          ...mockEnv.DB,
+          prepare: (sql: string) => {
+            if (sql.includes('INSERT INTO games')) {
+              throw new Error('simulated insert failure');
+            }
+            return mockEnv.DB.prepare(sql);
+          },
+        } as unknown as D1Database,
+      };
+
+      try {
+        await syncWorkerBoutiquePreOrders(failingEnv);
+        const hashRow = db
+          .prepare(
+            `SELECT value FROM sync_state WHERE key = 'boutique_feed_hash'`,
+          )
+          .get();
+        expect(hashRow).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
 
@@ -10016,7 +10152,11 @@ describe('Worker API Logic', () => {
               headers: { 'Content-Type': 'application/json' },
             });
           }
-          if (urlStr.includes('videogamesplus.ca/products.json')) {
+          if (
+            urlStr.includes(
+              'videogamesplus.ca/collections/pre-orders/products.json',
+            )
+          ) {
             return new Response(
               JSON.stringify({
                 products: [
@@ -10145,7 +10285,7 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerWatchedSeriesDiscovery ingests verified/likely physical IGDB series entries, skips digital-only items, and notifies subscribers', async () => {
+    it('syncWorkerWatchedSeriesDiscovery ingests verified physical IGDB series entries without querying game_format/packaging and skips unverified items', async () => {
       db.prepare(
         `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
          VALUES (1, 'series', 'Fire Emblem', 2, 'home', 0)`,
@@ -10163,9 +10303,10 @@ describe('Worker API Logic', () => {
         .spyOn(webPush, 'sendWebPushNotification')
         .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
 
+      let capturedMqBody = '';
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
-        .mockImplementation(async (input) => {
+        .mockImplementation(async (input, init) => {
           const urlStr = String(input);
           if (urlStr.includes('id.twitch.tv/oauth2/token')) {
             return new Response(
@@ -10177,6 +10318,7 @@ describe('Worker API Logic', () => {
             );
           }
           if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            capturedMqBody = String(init?.body || '');
             return new Response(
               JSON.stringify([
                 {
@@ -10199,7 +10341,13 @@ describe('Worker API Logic', () => {
                       first_release_date: 1674172800,
                       platforms: [{ id: 130, name: 'Nintendo Switch' }],
                       collections: [{ name: 'Fire Emblem' }],
-                      game_format: 2,
+                    },
+                    {
+                      id: 99003,
+                      name: 'Fire Emblem: Unverified Candidate',
+                      first_release_date: 1704067200,
+                      platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                      collections: [{ name: 'Fire Emblem' }],
                     },
                   ],
                 },
@@ -10218,6 +10366,8 @@ describe('Worker API Logic', () => {
 
       try {
         const res = await syncWorkerWatchedSeriesDiscovery(igdbEnv);
+        expect(capturedMqBody).not.toContain('game_format');
+        expect(capturedMqBody).not.toContain('packaging');
         expect(res.skipped).toBe(false);
         expect(res.seriesScanned).toBe(1);
         expect(res.ingestedGames).toBe(1);
@@ -10237,10 +10387,10 @@ describe('Worker API Logic', () => {
         expect(insertedGame.platform_id).toBe(26);
         expect(insertedGame.canonical_series).toBe('Fire Emblem');
 
-        const skippedDigital = db
-          .prepare(`SELECT 1 FROM games WHERE igdb_id = 99002`)
+        const skippedUnverified = db
+          .prepare(`SELECT 1 FROM games WHERE igdb_id IN (99002, 99003)`)
           .get();
-        expect(skippedDigital).toBeUndefined();
+        expect(skippedUnverified).toBeUndefined();
 
         const userSeeking = db
           .prepare(

@@ -15,6 +15,7 @@
  *   npm run sources:update (Fetches latest sources and immediately runs synchronization)
  */
 
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'node:os';
 import * as path from 'path';
