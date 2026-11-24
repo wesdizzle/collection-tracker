@@ -266,6 +266,9 @@ CREATE INDEX IF NOT EXISTS idx_canonical_releases_packin_host
 CREATE INDEX IF NOT EXISTS idx_canonical_rom_name ON canonical_releases (rom_name);
 
 CREATE INDEX IF NOT EXISTS idx_game_releases_canonical_release_id ON game_releases (canonical_release_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_releases_unique_canonical
+    ON game_releases (game_id, canonical_release_id)
+    WHERE canonical_release_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_game_releases_game_id ON game_releases (game_id);
 CREATE INDEX IF NOT EXISTS idx_game_releases_release_date ON game_releases (release_date);
 CREATE INDEX IF NOT EXISTS idx_game_releases_rom_crc

@@ -116,7 +116,7 @@ export const PROTECTED_TABLES = [
 export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   users: 2,
   games: 7,
-  game_releases: 6,
+  game_releases: 7,
   toys: 5,
   user_games: 1,
   user_game_releases: 1,
