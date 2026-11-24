@@ -1309,6 +1309,22 @@ export class CollectionService implements OnDestroy {
 
     return {
       ...overlaid,
+      title: phase1Match.title || overlaid.title,
+      raw_title: phase1Match.raw_title ?? overlaid.raw_title,
+      canonical_release_id:
+        phase1Match.canonical_release_id ?? overlaid.canonical_release_id,
+      source: phase1Match.source ?? overlaid.source,
+      serial_code: phase1Match.serial_code ?? overlaid.serial_code,
+      rom_name: phase1Match.rom_name ?? overlaid.rom_name,
+      manually_verified:
+        phase1Match.manually_verified ?? overlaid.manually_verified,
+      is_source_verified:
+        phase1Match.is_source_verified !== undefined
+          ? Math.max(
+              Number(overlaid.is_source_verified ?? 0),
+              Number(phase1Match.is_source_verified ?? 0),
+            )
+          : overlaid.is_source_verified,
       canonical_series:
         phase1Match.canonical_series || overlaid.canonical_series,
       collections: phase1Match.collections ?? overlaid.collections,
@@ -1340,7 +1356,10 @@ export class CollectionService implements OnDestroy {
     };
   }
 
-  private async loadFullCatalogInChunks(syncId: number): Promise<void> {
+  private async loadFullCatalogInChunks(
+    syncId: number,
+    retryAttempt = 0,
+  ): Promise<void> {
     const userId = !this._isPublicView()
       ? (this._currentUser()?.id ?? null)
       : null;
@@ -1443,7 +1462,13 @@ export class CollectionService implements OnDestroy {
             overlaid.franchises !== cachedGame.franchises ||
             overlaid.image_url !== cachedGame.image_url ||
             overlaid.release_date !== cachedGame.release_date ||
-            overlaid.igdb_id !== cachedGame.igdb_id)
+            overlaid.igdb_id !== cachedGame.igdb_id ||
+            overlaid.is_source_verified !== cachedGame.is_source_verified ||
+            overlaid.canonical_release_id !== cachedGame.canonical_release_id ||
+            overlaid.source !== cachedGame.source ||
+            overlaid.manually_verified !== cachedGame.manually_verified ||
+            overlaid.rom_name !== cachedGame.rom_name ||
+            overlaid.title !== cachedGame.title)
         ) {
           stateChanged = true;
         }
@@ -1546,10 +1571,11 @@ export class CollectionService implements OnDestroy {
 
     let loadedChunks = 0;
     let nextChunkIndex = 0;
+    let versionExpired = false;
 
     const runChunkWorker = async (): Promise<void> => {
       while (true) {
-        if (syncId !== this._activeCatalogSyncId) {
+        if (syncId !== this._activeCatalogSyncId || versionExpired) {
           return;
         }
         const chunkIndex = nextChunkIndex++;
@@ -1557,8 +1583,25 @@ export class CollectionService implements OnDestroy {
           return;
         }
         const chunkUrl = `/api/catalog/games?chunk=${chunkIndex}&v=${encodeURIComponent(manifest.version)}`;
-        const chunkRows = await firstValueFrom(this.http.get<Game[]>(chunkUrl));
-        if (syncId !== this._activeCatalogSyncId) {
+        let chunkRows: Game[];
+        try {
+          chunkRows = await firstValueFrom(this.http.get<Game[]>(chunkUrl));
+        } catch (err: unknown) {
+          const httpErr = err as {
+            status?: number;
+            headers?: { get?: (k: string) => string | null };
+          };
+          const isExpired =
+            httpErr?.status === 410 ||
+            httpErr?.headers?.get?.('X-Catalog-Version-Expired') === '1';
+          if (isExpired && retryAttempt < 1) {
+            versionExpired = true;
+            nextChunkIndex = totalChunks;
+            return;
+          }
+          throw err;
+        }
+        if (syncId !== this._activeCatalogSyncId || versionExpired) {
           return;
         }
         if ((!chunkRows || chunkRows.length === 0) && chunkIndex > 0) {
@@ -1602,6 +1645,11 @@ export class CollectionService implements OnDestroy {
 
     if (syncId !== this._activeCatalogSyncId) {
       return;
+    }
+
+    if (versionExpired && retryAttempt < 1) {
+      this._phase1GamesForSync = phase1Games;
+      return this.loadFullCatalogInChunks(syncId, retryAttempt + 1);
     }
 
     const finalGames = Array.from(mergedMap.values());
@@ -1760,6 +1808,10 @@ export class CollectionService implements OnDestroy {
           variants: r.variants || null,
           rom_name: r.rom_name || null,
           rom_crc: r.rom_crc || null,
+          canonical_release_id: r.canonical_release_id ?? null,
+          source: r.source ?? null,
+          serial_code: r.serial_code ?? null,
+          is_source_verified: r.is_source_verified,
           has_media: Number(r.has_media) || 0,
           ownership_status: Number(r.ownership_status) || 0,
           release_date: r.release_date || null,
@@ -1779,6 +1831,10 @@ export class CollectionService implements OnDestroy {
                 variants: cached.variants || null,
                 rom_name: cached.rom_name || null,
                 rom_crc: cached.rom_crc || null,
+                canonical_release_id: cached.canonical_release_id ?? null,
+                source: cached.source ?? null,
+                serial_code: cached.serial_code ?? null,
+                is_source_verified: cached.is_source_verified,
                 has_media: Number(cached.has_media) || 0,
                 ownership_status: Number(cached.ownership_status) || 0,
                 release_date: cached.release_date || null,

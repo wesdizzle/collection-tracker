@@ -37,6 +37,8 @@ import {
 const VERIFIED_CANONICAL_SOURCES_SQL =
   "'nintendo_revised', 'dat', 'nscollectors', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog', 'community_csv'";
 
+export const CATALOG_CHUNK_SCHEMA_VERSION = 'v2';
+
 export function buildGamesListQuery(userId?: number | null): string {
   const userJoin = userId
     ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?

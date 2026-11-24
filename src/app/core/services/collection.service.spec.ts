@@ -2001,6 +2001,242 @@ describe('CollectionService', () => {
       expect(persisted?.igdb_id).toBe(76848);
     });
 
+    it('preserves live Phase 1 is_source_verified, canonical_release_id, source, serial_code, and title over stale IndexedDB chunks', async () => {
+      const storeMap = new Map<
+        number,
+        {
+          state: { games: Game[]; catalogVersion?: string | null };
+          updatedAt: number;
+        }
+      >();
+      storeMap.set(1, {
+        state: {
+          catalogVersion: 'v2026-11-23:v2',
+          games: [
+            {
+              id: '50100-1',
+              game_id: 'ps5-verified-game',
+              stable_id: 50100,
+              title: 'Limited Run #99: Old Stale Title',
+              platform: 'PlayStation 5',
+              platform_id: 35,
+              is_source_verified: 0,
+              canonical_release_id: null,
+              source: null,
+              serial_code: null,
+              ownership_status: 2,
+              play_status: 0,
+              has_media: 0,
+            } as Game,
+          ],
+        },
+        updatedAt: 1000,
+      });
+
+      const internal = service as unknown as {
+        offlineStore: {
+          getStoredState: (uid: number) => Promise<unknown>;
+          saveStateLocally: (
+            state: {
+              games: Game[];
+              toys: unknown[];
+              platforms: unknown[];
+              journalEntries: unknown[];
+              catalogVersion?: string | null;
+            },
+            updatedAtMs: number,
+            pendingSync: boolean,
+            uid: number,
+          ) => Promise<void>;
+        };
+      };
+      vi.spyOn(internal.offlineStore, 'getStoredState').mockImplementation(
+        async (uid: number) => storeMap.get(uid) ?? null,
+      );
+      vi.spyOn(internal.offlineStore, 'saveStateLocally').mockImplementation(
+        async (state, updatedAt, _pending, uid) => {
+          storeMap.set(uid, {
+            state: {
+              games: state.games,
+              catalogVersion: state.catalogVersion ?? null,
+            },
+            updatedAt,
+          });
+        },
+      );
+
+      service.setCurrentUserForTesting({
+        id: 1,
+        email: 'alice@example.com',
+        username: 'alice',
+        role: 'admin',
+        isPublic: false,
+        homeRegion: 'USA',
+        displayName: 'Alice',
+        bio: null,
+      });
+
+      const pRefresh = service.refreshAll();
+      httpMock.expectOne('/api/games').flush(
+        [
+          {
+            id: '50100-1',
+            game_id: 'ps5-verified-game',
+            stable_id: 50100,
+            title: 'Clean Verified Game',
+            platform: 'PlayStation 5',
+            platform_id: 35,
+            is_source_verified: 1,
+            canonical_release_id: 9001,
+            source: 'ps5db',
+            serial_code: 'PPSA01234',
+            ownership_status: 2,
+            play_status: 0,
+            has_media: 0,
+          },
+        ],
+        { headers: { 'X-Catalog-Partial': '1' } },
+      );
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+      httpMock
+        .match('/api/prices/cached?sync=1')
+        .forEach((r) =>
+          r.flush({ configured: false, prices: {}, overrides: {} }),
+        );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'v2026-11-23:v2',
+        timestamp: '2026-11-23T12:00:00Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 50100,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=50100')
+        .flush({
+          version: 'v2026-11-23:v2',
+          timestamp: '2026-11-23T12:00:00Z',
+          maxStableId: 50100,
+          ugr: [
+            {
+              release_id: '50100-1',
+              ownership_status: 2,
+              has_media: 0,
+              has_case: 0,
+              has_manual: 0,
+            },
+          ],
+          ug: [],
+          deltaGames: [],
+        });
+
+      await service.ensureFullCatalogLoaded();
+      const merged = service.games().find((g) => g.id === '50100-1');
+      expect(merged?.is_source_verified).toBe(1);
+      expect(merged?.canonical_release_id).toBe(9001);
+      expect(merged?.source).toBe('ps5db');
+      expect(merged?.serial_code).toBe('PPSA01234');
+      expect(merged?.title).toBe('Clean Verified Game');
+
+      const cached = service.getCachedGameById('50100', '50100-1');
+      expect(cached?.releases?.[0]?.is_source_verified).toBe(1);
+      expect(cached?.releases?.[0]?.canonical_release_id).toBe(9001);
+      expect(cached?.releases?.[0]?.source).toBe('ps5db');
+
+      const persisted = storeMap
+        .get(1)
+        ?.state.games.find((g) => g.id === '50100-1');
+      expect(persisted?.is_source_verified).toBe(1);
+      expect(persisted?.canonical_release_id).toBe(9001);
+    });
+
+    it('retries catalog manifest and chunk fetch once when worker responds 410 Catalog version expired', async () => {
+      const pRefresh = service.refreshAll();
+      httpMock
+        .expectOne('/api/games')
+        .flush([], { headers: { 'X-Catalog-Partial': '1' } });
+      httpMock.expectOne('/api/toys').flush([]);
+      httpMock.expectOne('/api/platforms').flush([]);
+      await pRefresh;
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'old-version:v2',
+        timestamp: '2026-11-22T00:00:00Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 10,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=10')
+        .flush({
+          version: 'old-version:v2',
+          timestamp: '2026-11-22T00:00:00Z',
+          ugr: [],
+          ug: [],
+          deltaGames: [],
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?chunk=0&v=old-version%3Av2').flush(
+        { error: 'Catalog version expired', currentVersion: 'new-version:v2' },
+        {
+          status: 410,
+          statusText: 'Gone',
+          headers: { 'X-Catalog-Version-Expired': '1' },
+        },
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock.expectOne('/api/catalog/games?manifest=1').flush({
+        version: 'new-version:v2',
+        timestamp: '2026-11-23T00:00:00Z',
+        totalRows: 1,
+        chunkSize: 3500,
+        chunkCount: 1,
+        maxStableId: 10,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/user/collection-overlay?since_stable_id=10')
+        .flush({
+          version: 'new-version:v2',
+          timestamp: '2026-11-23T00:00:00Z',
+          ugr: [],
+          ug: [],
+          deltaGames: [],
+        });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      httpMock
+        .expectOne('/api/catalog/games?chunk=0&v=new-version%3Av2')
+        .flush([
+          {
+            id: '10-1',
+            game_id: 'recovered-game',
+            stable_id: 10,
+            title: 'Recovered After 410',
+            platform: 'PlayStation 5',
+            platform_id: 35,
+            is_source_verified: 1,
+            ownership_status: 0,
+            play_status: 0,
+            has_media: 0,
+          },
+        ]);
+
+      await service.ensureFullCatalogLoaded();
+      expect(service.games().map((g) => g.title)).toContain(
+        'Recovered After 410',
+      );
+    });
+
     it('stops fetching trailing chunks early when a non-zero chunk returns empty rows due to primary-key gaps', async () => {
       service.setCurrentUserForTesting({
         id: 1,

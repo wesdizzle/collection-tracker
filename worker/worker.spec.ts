@@ -14,12 +14,15 @@ import {
 } from './auth';
 import worker, {
   Env,
+  CATALOG_CHUNKS_DIRTY_KEY,
+  CATALOG_CHUNKS_LAST_BUILT_AT_KEY,
   MAX_GAMES_LITE_SNAPSHOT_BYTES,
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
   R2_GAMES_ACTIVE_LITE_KEY,
   R2_BACKUP_CATALOG_MANIFEST_KEY,
   R2_BACKUP_CANONICAL_MANIFEST_KEY,
+  R2_CATALOG_BUILDS_PREFIX,
   R2_CATALOG_MANIFEST_KEY,
   R2_CATALOG_TOYS_CHUNK_KEY,
   X_CATALOG_PARTIAL_HEADER,
@@ -32,10 +35,12 @@ import worker, {
   isAuthorizedAdmin,
   logCronExecution,
   markCanonicalReleasesDirty,
+  markCatalogChunksDirty,
   markDbDirty,
   performCanonicalReleasesBackup,
   performChunkedCatalogBackup,
   performScheduledBackup,
+  recoverCatalogManifestFromR2Chunks,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
   selectStrictIgdbMatch,
@@ -55,6 +60,7 @@ import worker, {
   evaluateTrackingRulesForNewToys,
   writeCatalogChunksToR2,
 } from './worker';
+import { CATALOG_CHUNK_SCHEMA_VERSION } from '../shared/queries';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import {
   getPriceShardR2Key,
@@ -708,8 +714,15 @@ describe('Worker API Logic', () => {
         totalRows: number;
       };
       expect(updatedManifest.version.startsWith('2026-11-18:')).toBe(true);
+      expect(
+        updatedManifest.version.endsWith(`:${CATALOG_CHUNK_SCHEMA_VERSION}`),
+      ).toBe(true);
       expect(updatedManifest.totalRows).toBeGreaterThanOrEqual(1);
-      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+      expect(
+        mockBucket.storage.has(
+          getCatalogChunkR2Key(0, updatedManifest.version),
+        ),
+      ).toBe(true);
     } finally {
       globalThis.Date = originalDate;
       fetchSpy.mockRestore();
@@ -731,10 +744,12 @@ describe('Worker API Logic', () => {
       customMetadata: { date: '2026-11-19' },
     });
     // Put manifest WITHOUT customMetadata (simulating `wrangler r2 object put`) for today -> no stale rebuild
+    const todayVersion = `2026-11-19:1:1:${CATALOG_CHUNK_SCHEMA_VERSION}`;
     await mockBucket.put(
       R2_CATALOG_MANIFEST_KEY,
       JSON.stringify({
-        version: '2026-11-19:1:1',
+        version: todayVersion,
+        schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
         timestamp: '2026-11-19T12:00:00.000Z',
         totalRows: 1,
         chunkSize: 3500,
@@ -778,15 +793,19 @@ describe('Worker API Logic', () => {
 
     try {
       await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-      // Manifest had today's date in JSON body even without customMetadata, so chunks were NOT rebuilt
-      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(false);
+      // Manifest had today's date & current schema version in JSON body, so chunks were NOT rebuilt
+      const hasAnyBuildChunk = Array.from(mockBucket.storage.keys()).some((k) =>
+        k.startsWith(R2_CATALOG_BUILDS_PREFIX),
+      );
+      expect(hasAnyBuildChunk).toBe(false);
 
       // Advance past cachedCatalogManifest TTL and overwrite manifest with yesterday's version in JSON body (still no customMetadata)
       mockTimeMs += 120_000;
       await mockBucket.put(
         R2_CATALOG_MANIFEST_KEY,
         JSON.stringify({
-          version: '2026-11-18:1:1',
+          version: `2026-11-18:1:1:${CATALOG_CHUNK_SCHEMA_VERSION}`,
+          schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
           timestamp: '2026-11-18T12:00:00.000Z',
           totalRows: 1,
           chunkSize: 3500,
@@ -797,7 +816,14 @@ describe('Worker API Logic', () => {
         }),
       );
       await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
-      expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+      const rebuiltManifest = JSON.parse(
+        mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
+      ) as { version: string };
+      expect(
+        mockBucket.storage.has(
+          getCatalogChunkR2Key(0, rebuiltManifest.version),
+        ),
+      ).toBe(true);
     } finally {
       globalThis.Date = originalDate;
       fetchSpy.mockRestore();
@@ -7689,7 +7715,6 @@ describe('Worker API Logic', () => {
         );
         expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
         expect(mockBucket.storage.has(R2_CATALOG_MANIFEST_KEY)).toBe(true);
-        expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
         expect(mockBucket.storage.has(R2_CATALOG_TOYS_CHUNK_KEY)).toBe(true);
 
         const manifestRes = await worker.fetch(
@@ -7705,6 +7730,9 @@ describe('Worker API Logic', () => {
           chunkCount: number;
           maxStableId: number;
         };
+        expect(
+          mockBucket.storage.has(getCatalogChunkR2Key(0, manifest.version)),
+        ).toBe(true);
         expect(manifest.totalRows).toBeGreaterThanOrEqual(506);
         expect(manifest.chunkCount).toBe(1);
         expect(manifest.maxStableId).toBeGreaterThan(500);
@@ -7843,17 +7871,22 @@ describe('Worker API Logic', () => {
         );
         expect(toys.some((t) => t.id === 'zelda-amiibo')).toBe(true);
 
-        // 7. Single-chunk D1 write-through when R2 catalog chunk is missing
-        mockBucket.storage.delete(getCatalogChunkR2Key(0));
+        // 7. Single-chunk D1 write-through when active build chunk is missing (non-immutable)
+        mockBucket.storage.delete(getCatalogChunkR2Key(0, manifest.version));
         cacheStore.clear();
         const writeThroughRes = await worker.fetch(
           new Request(
-            'https://collection-tracker.example.com/api/catalog/games?chunk=0&v=cold-test',
+            `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(manifest.version)}`,
           ),
           mockEnv,
         );
         expect(writeThroughRes.status).toBe(200);
-        expect(mockBucket.storage.has(getCatalogChunkR2Key(0))).toBe(true);
+        expect(writeThroughRes.headers.get('Cache-Control')).not.toContain(
+          'immutable',
+        );
+        expect(
+          mockBucket.storage.has(getCatalogChunkR2Key(0, manifest.version)),
+        ).toBe(true);
 
         // Direct writeCatalogChunksToR2 supports resumable maxChunksPerRun cursor
         mockBucket.storage.clear();
@@ -8396,6 +8429,310 @@ describe('Worker API Logic', () => {
       );
       expect(missingManifestRes.status).toBe(503);
       expect(missingChunkRes.status).toBe(503);
+    });
+
+    it('isolates multi-tick build-scoped chunks, retains 1 previous build, prunes older builds, and returns 410 Gone for expired versions', async () => {
+      resetWorkerRateLimits();
+      db.prepare('DELETE FROM user_game_releases').run();
+      db.prepare('DELETE FROM game_releases').run();
+      db.prepare('DELETE FROM games').run();
+
+      const seedTx = db.transaction(() => {
+        const insG = db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, 35)`,
+        );
+        const insR = db.prepare(
+          `INSERT INTO game_releases (id, game_id, region) VALUES (?, ?, 'USA')`,
+        );
+        for (let i = 1; i <= 1502; i++) {
+          insG.run(i, `iso-g-${i}`, `Isolation Game ${i}`);
+          insR.run(`iso-r-${i}`, i);
+        }
+      });
+      seedTx();
+
+      const build1 = await writeCatalogChunksToR2(mockEnv, {
+        timestampOverride: '2026-11-23T01:00:00.000Z',
+        forceRestart: true,
+      });
+      expect(build1).not.toBeNull();
+      expect(build1!.chunkCount).toBe(2);
+      expect(build1!.chunkPrefix).toContain(R2_CATALOG_BUILDS_PREFIX);
+      expect(
+        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
+      ).toBe(true);
+
+      // Start build 2 with only 1 chunk written (partial) -> manifest still points to build 1
+      const partialBuild2 = await writeCatalogChunksToR2(mockEnv, {
+        timestampOverride: '2026-11-23T02:00:00.000Z',
+        maxChunksPerRun: 1,
+      });
+      expect(partialBuild2).toBeNull();
+      const liveManifestMid = JSON.parse(
+        mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
+      ) as { version: string };
+      expect(liveManifestMid.version).toBe(build1!.version);
+
+      // Serving chunk 0 for build1 still returns build1's data intact
+      const b1Chunk0Res = await worker.fetch(
+        new Request(
+          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build1!.version)}`,
+        ),
+        mockEnv,
+      );
+      expect(b1Chunk0Res.status).toBe(200);
+
+      // Finish build 2 -> manifest swaps atomically and build 1 is retained (1 previous build grace)
+      const build2 = await writeCatalogChunksToR2(mockEnv, {
+        maxChunksPerRun: 2,
+      });
+      expect(build2).not.toBeNull();
+      expect(
+        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
+      ).toBe(true);
+      expect(
+        mockBucket.storage.has(getCatalogChunkR2Key(0, build2!.version)),
+      ).toBe(true);
+
+      // Build 3 completes -> build 2 is retained as previous grace build; build 1 is pruned -> 410 Gone
+      const build3 = await writeCatalogChunksToR2(mockEnv, {
+        timestampOverride: '2026-11-23T03:00:00.000Z',
+        forceRestart: true,
+      });
+      expect(build3).not.toBeNull();
+      expect(
+        mockBucket.storage.has(getCatalogChunkR2Key(0, build1!.version)),
+      ).toBe(false);
+      expect(
+        mockBucket.storage.has(getCatalogChunkR2Key(0, build2!.version)),
+      ).toBe(true);
+
+      const graceRes = await worker.fetch(
+        new Request(
+          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build2!.version)}`,
+        ),
+        mockEnv,
+      );
+      expect(graceRes.status).toBe(200);
+
+      resetWorkerRateLimits();
+      const expiredRes = await worker.fetch(
+        new Request(
+          `https://collection-tracker.example.com/api/catalog/games?chunk=0&v=${encodeURIComponent(build1!.version)}`,
+        ),
+        mockEnv,
+      );
+      expect(expiredRes.status).toBe(410);
+      expect(expiredRes.headers.get('X-Catalog-Version-Expired')).toBe('1');
+    });
+
+    it('recovers manifest from build-scoped R2 folders with schemaVersion and chunkPrefix', async () => {
+      const built = await writeCatalogChunksToR2(mockEnv, {
+        timestampOverride: '2026-11-23T04:00:00.000Z',
+        forceRestart: true,
+      });
+      expect(built).not.toBeNull();
+      mockBucket.storage.delete(R2_CATALOG_MANIFEST_KEY);
+
+      const recovered = await recoverCatalogManifestFromR2Chunks(
+        mockBucket as unknown as R2Bucket,
+      );
+      expect(recovered).not.toBeNull();
+      expect(recovered!.manifest.version).toBe(built!.version);
+      expect(recovered!.manifest.schemaVersion).toBe(
+        CATALOG_CHUNK_SCHEMA_VERSION,
+      );
+      expect(recovered!.manifest.chunkPrefix).toBe(built!.chunkPrefix);
+    });
+
+    it('triggers daytime rebuild on schemaVersion mismatch or catalog_chunks_dirty respecting cooldown', async () => {
+      db.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('db_dirty', '0', datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = '0'`,
+      ).run();
+      mockBucket.storage.clear();
+      mockBucket.metadata.clear();
+
+      await mockBucket.put(
+        'snapshots/latest.json',
+        JSON.stringify({ ok: true }),
+      );
+      await mockBucket.put(
+        R2_GAMES_ACTIVE_LITE_KEY,
+        JSON.stringify({ ok: 1 }),
+        {
+          customMetadata: { date: '2026-11-23' },
+        },
+      );
+      await mockBucket.put(
+        R2_CATALOG_MANIFEST_KEY,
+        JSON.stringify({
+          version: '2026-11-23:1:1',
+          schemaVersion: 'v1',
+          timestamp: '2026-11-23T01:00:00.000Z',
+          totalRows: 1,
+          chunkSize: 3500,
+          chunkCount: 1,
+          maxStableId: 1,
+          toysTotalRows: 1,
+          toysChunkCount: 1,
+        }),
+        {
+          customMetadata: {
+            version: '2026-11-23:1:1',
+            schemaVersion: 'v1',
+          },
+        },
+      );
+
+      const originalDate = globalThis.Date;
+      let mockTimeMs = Date.parse('2026-11-23T12:00:00Z');
+      globalThis.Date = class extends originalDate {
+        constructor(...args: unknown[]) {
+          if (args.length === 0) super(mockTimeMs);
+          else super(...(args as [string | number | Date]));
+        }
+        static override now() {
+          return mockTimeMs;
+        }
+      } as unknown as typeof Date;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ products: [] }),
+        text: async () => '',
+      } as unknown as Response);
+
+      try {
+        const scheduledEvent = {
+          cron: '*/30 * * * *',
+          type: 'scheduled',
+          scheduledTime: mockTimeMs,
+        } as unknown as ScheduledEvent;
+
+        // 1. Schema version v1 mismatch triggers immediate rebuild on today's date
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+        const rebuilt1 = JSON.parse(
+          mockBucket.storage.get(R2_CATALOG_MANIFEST_KEY)!,
+        ) as { version: string; schemaVersion: string };
+        expect(rebuilt1.schemaVersion).toBe(CATALOG_CHUNK_SCHEMA_VERSION);
+        expect(
+          rebuilt1.version.endsWith(`:${CATALOG_CHUNK_SCHEMA_VERSION}`),
+        ).toBe(true);
+
+        // 2. Setting catalog_chunks_dirty within 2h cooldown waits cleanly
+        await markCatalogChunksDirty(mockEnv);
+        mockTimeMs += 30 * 60_000;
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+        const stillDirty = db
+          .prepare(`SELECT value FROM sync_state WHERE key = ?`)
+          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+        expect(stillDirty.value).toBe('1');
+
+        // 3. Past 2h cooldown, dirty flag triggers rebuild and clears dirty bit
+        mockTimeMs += 2 * 60 * 60_000;
+        db.prepare(
+          `INSERT INTO sync_state (key, value) VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        ).run(
+          CATALOG_CHUNKS_LAST_BUILT_AT_KEY,
+          new Date(mockTimeMs - 3 * 60 * 60_000).toISOString(),
+        );
+        await worker.scheduled(scheduledEvent, mockEnv, {} as ExecutionContext);
+        const clearedDirty = db
+          .prepare(`SELECT value FROM sync_state WHERE key = ?`)
+          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+        expect(clearedDirty.value).toBe('0');
+      } finally {
+        globalThis.Date = originalDate;
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('marks non-DAT canonical_release_id rows as is_source_verified = 1 in R2 degraded list and detail fallbacks', async () => {
+      db.prepare(
+        `INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+         VALUES (701, 35, 'Non-DAT PS5 Game', 'nondatps5game', 'USA', 'ps5db', 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id)
+         VALUES (701, 'nondat-ps5', 'Non-DAT PS5 Game', 35)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, rom_name, canonical_release_id)
+         VALUES ('nondat-ps5-rel', 701, 'USA', NULL, 701)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media)
+         VALUES (1, 'nondat-ps5-rel', 1, 1)`,
+      ).run();
+
+      await performScheduledBackup(mockEnv, false);
+
+      const failingDb = {
+        prepare: () => ({
+          bind: () => ({
+            all: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            first: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+            run: async () => {
+              throw new Error('D1_ERROR: exceeded rows read quota');
+            },
+          }),
+          all: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          first: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+          run: async () => {
+            throw new Error('D1_ERROR: exceeded rows read quota');
+          },
+        }),
+        batch: async () => {
+          throw new Error('D1_ERROR: exceeded rows read quota');
+        },
+      } as unknown as Env['DB'];
+      const degradedEnv: Env = { ...mockEnv, DB: failingDb };
+      const aliceToken = await signSession(
+        { id: 1, username: 'alice', role: 'admin', homeRegion: 'USA' },
+        mockEnv.SESSION_SECRET!,
+      );
+
+      const listRes = await worker.fetch(
+        new Request('https://collection-tracker.example.com/api/games', {
+          headers: { Cookie: `${HOST_SESSION_COOKIE}=${aliceToken}` },
+        }),
+        degradedEnv,
+      );
+      expect(listRes.status).toBe(200);
+      const listRows = (await listRes.json()) as Array<{
+        id: string;
+        is_source_verified?: number;
+        canonical_release_id?: number | null;
+      }>;
+      const nonDatRow = listRows.find((r) => r.id === 'nondat-ps5-rel');
+      expect(nonDatRow?.canonical_release_id).toBe(701);
+      expect(nonDatRow?.is_source_verified).toBe(1);
+
+      const detailRes = await worker.fetch(
+        new Request(
+          'https://collection-tracker.example.com/api/games/701?release=nondat-ps5-rel',
+          { headers: { Cookie: `${HOST_SESSION_COOKIE}=${aliceToken}` } },
+        ),
+        degradedEnv,
+      );
+      expect(detailRes.status).toBe(200);
+      const detail = (await detailRes.json()) as {
+        releases?: Array<{ id: string; is_source_verified?: number }>;
+      };
+      expect(
+        detail.releases?.find((r) => r.id === 'nondat-ps5-rel')
+          ?.is_source_verified,
+      ).toBe(1);
     });
 
     it('serves per-user R2 overlays (including user_toys) for /api/user/collection-overlay and /api/u/:username/collection-overlay from snapshots/latest.json', async () => {

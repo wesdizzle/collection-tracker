@@ -116,6 +116,7 @@ export interface Game {
   game_id?: string | null;
   title: string;
   base_title?: string | null;
+  raw_title?: string | null;
   series: string;
   canonical_series: string;
   release_date?: string | null;
@@ -155,6 +156,7 @@ export interface Game {
   canonical_release_id?: number | null;
   serial_code?: string | null;
   is_source_verified?: number;
+  manually_verified?: number | boolean;
   source?: string | null;
   metadata_json?: string | null;
   bundle_parent_id?: number | null;
@@ -907,6 +909,8 @@ export interface CatalogManifest {
   maxStableId: number;
   toysTotalRows?: number;
   toysChunkCount?: number;
+  schemaVersion?: string;
+  chunkPrefix?: string;
 }
 
 export interface UserCollectionOverlayResponse {
