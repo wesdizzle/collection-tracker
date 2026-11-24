@@ -16,6 +16,7 @@ import {
   extractDiscLabel,
   extractRegions,
   extractVariants,
+  isCuratedPsvrDemoDiscTitle,
   isIgnoredFormatRelease,
 } from './source_format.js';
 import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
@@ -935,5 +936,128 @@ export function regionsOverlap(
   for (const tok of setA) {
     if (setB.has(tok)) return true;
   }
+  return false;
+}
+
+/**
+ * Authoritative source precedence hierarchy (lower numeric rank = higher authority).
+ * Tier 1 (checksum/official): dat, mame, nintendo_revised
+ * Tier 2 (serial/catalog DB): serialstation
+ * Tier 3 (curated community): ps5db, nscollectors, neogeo_x, community_csv
+ * Tier 4 (verified retail/boutique fallback): retail_catalog, lgn
+ */
+export const CANONICAL_SOURCE_PRIORITY: Record<string, number> = {
+  dat: 10,
+  mame: 20,
+  nintendo_revised: 30,
+  serialstation: 40,
+  ps5db: 50,
+  nscollectors: 60,
+  neogeo_x: 70,
+  community_csv: 80,
+  retail_catalog: 90,
+  lgn: 100,
+  nscollectors_upcoming: 200,
+  nscollectors_ciab: 210,
+  igdb_physical: 220,
+  publisher_whitelist: 230,
+  barcode: 240,
+  custom: 250,
+};
+
+/** Returns numeric source priority (lower = higher authority). */
+export function getCanonicalSourcePriority(
+  source: string | null | undefined,
+): number {
+  const key = (source || '').trim().toLowerCase();
+  return CANONICAL_SOURCE_PRIORITY[key] ?? 999;
+}
+
+/**
+ * Maps a canonical source string onto its 1–4 verification tier (or 0 for unverified/fallback).
+ * Tier 4 (`retail_catalog`, `lgn`) remains verified at the lowest priority in the hierarchy.
+ */
+export function getCanonicalSourceTier(
+  source: string | null | undefined,
+): 0 | 1 | 2 | 3 | 4 {
+  switch ((source || '').trim().toLowerCase()) {
+    case 'dat':
+    case 'mame':
+    case 'nintendo_revised':
+      return 1;
+    case 'serialstation':
+      return 2;
+    case 'ps5db':
+    case 'nscollectors':
+    case 'neogeo_x':
+    case 'community_csv':
+      return 3;
+    case 'retail_catalog':
+    case 'lgn':
+      return 4;
+    default:
+      return 0;
+  }
+}
+
+const NOISE_EDITION_RE =
+  /\b(?:playstation\s+hits|greatest\s+hits|playstation\s+essentials|essentials|platinum(?:\s+hits)?|best\s+hits|the\s+best|bighit(?:\s+series)?|nintendo\s+selects|player'?s?\s+choice|value\s+selection|welcome\s+price|budget|demo|trial|kiosk|promo(?:tional)?|press\s*(?:kit|disc)|review\s*(?:copy|disc)|not\s+for\s+resale|nfr|beta|alpha|prototype|code[\s-]+in[\s-]+(?:a[\s-]+)?box|ciab)\b/i;
+
+const BRACKET_NOISE_TAG_RE =
+  /[([][^)\]]*\b(?:beta|proto|prototype|demo|kiosk|sample|taikenban|trial(?:\s+(?:version|edition|disc))?|promo(?:tional)?|nfr|not\s+for\s+resale|press\s*(?:kit|disc)|review\s*(?:copy|disc)|playstation\s+hits|greatest\s+hits|playstation\s+essentials|essentials|platinum(?:\s+hits)?|the\s+best|best\s+hits|bighit(?:\s+series)?|nintendo\s+selects|player'?s?\s+choice|value\s+selection|welcome\s+price)\b[^)\]]*[)\]]/i;
+
+const TRAILING_BUDGET_REPRINT_RE =
+  /(?:\s*[:\-–—]\s*|\s+)(?:playstation\s+hits|greatest\s+hits|playstation\s+essentials|platinum\s+hits|best\s+hits|the\s+best|bighit\s+series|nintendo\s+selects|player'?s?\s+choice|value\s+selection|welcome\s+price)$/i;
+
+const PLAYSTATION_PLATFORMS = new Set([29, 30, 31, 32, 33, 34, 35]);
+
+const TRAILING_PS_REPRINT_RE =
+  /\s*[:\-–—]\s*(?:platinum|essentials|classics|demo(?:\s+disc)?|trial(?:\s+disc)?|not\s+for\s+resale|nfr|promo(?:tional)?|press\s*kit|review\s*copy)$/i;
+
+const EXPLICIT_NON_GAME_TITLE_RE =
+  /\b(?:playable\s+demo|demo\s+disc|trial\s+(?:edition|version|disc)|kiosk\s+(?:demo|disc)|not\s+for\s+resale|digital\s+(?:download\s+)?code|voucher\s+only|download\s+only|code[\s-]+in[\s-]+(?:a[\s-]+)?box|season\s+pass\s+only|soundtrack\s+(?:cd|vinyl|lp|only)|art\s*book\s+only|strategy\s+guide)\b/i;
+
+/**
+ * Shared conservative noise/demo/budget-reprint filter across non-DAT sources
+ * (`serialstation`, `ps5db`, `retail_catalog`, `lgn`) consistent with Redump/No-Intro DAT filtering.
+ * Preserves real titles containing words like "Platinum" (e.g. "Pokémon Platinum") and the three
+ * curated boxed PSVR Demo Discs on PS4 (`platformId = 34`).
+ */
+export function isCanonicalNoiseTitle(
+  rawTitle: string,
+  platformId?: number | null,
+  edition?: string | null,
+): boolean {
+  const title = (rawTitle || '').trim();
+  if (!title) return true;
+
+  if (platformId === 34 && isCuratedPsvrDemoDiscTitle(title)) {
+    return false;
+  }
+
+  if (edition && NOISE_EDITION_RE.test(edition)) {
+    return true;
+  }
+
+  if (isIgnoredFormatRelease(title, '', platformId ?? undefined)) {
+    return true;
+  }
+
+  if (
+    BRACKET_NOISE_TAG_RE.test(title) ||
+    TRAILING_BUDGET_REPRINT_RE.test(title) ||
+    EXPLICIT_NON_GAME_TITLE_RE.test(title)
+  ) {
+    return true;
+  }
+
+  if (
+    platformId != null &&
+    PLAYSTATION_PLATFORMS.has(platformId) &&
+    TRAILING_PS_REPRINT_RE.test(title)
+  ) {
+    return true;
+  }
+
   return false;
 }

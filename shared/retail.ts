@@ -198,14 +198,14 @@ export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
   let cleaned = decodeHtmlEntities(rawTitle);
 
-  // Strip common VGP/PNP promotional suffixes and parentheticals
+  // Strip common VGP/PNP promotional suffixes, parentheticals, and boutique/import bracket tags
   cleaned = cleaned
     .replace(
-      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPN\s*Import[^)]*|Multi-Language[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard\s*Edition)\)\s*/gi,
+      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPN\s*Import[^)]*|Multi-Language[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?\s*English\s*Import|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
       ' ',
     )
     .replace(
-      /\s*\[(Standard\s*Edition|Import|PEGI[^\]]*|US\/ESRB|Multi-Language[^\]]*|PRE-ORDER|ESRB)\]\s*/gi,
+      /\s*\[(Standard\s*Edition|Import|PEGI[^\]]*|US\/ESRB|Multi-Language[^\]]*|PRE-ORDER|ESRB|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?\s*English\s*Import|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
       ' ',
     );
 

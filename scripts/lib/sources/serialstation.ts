@@ -9,7 +9,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CanonicalRelease } from '../../../shared/canonical_releases.js';
+import {
+  CanonicalRelease,
+  isCanonicalNoiseTitle,
+} from '../../../shared/canonical_releases.js';
 import { normalizeSpreadsheetRegion } from '../../../shared/switch_revisions.js';
 import { normalizeTitleForMatching } from '../../../shared/title_matching.js';
 
@@ -17,6 +20,12 @@ export const SERIALSTATION_RELEASES_URL =
   'https://api.serialstation.com/v1/releases/';
 export const SERIALSTATION_TMDB_URL = 'https://api.serialstation.com/v1/tmdb/';
 export const SERIALSTATION_PAGE_LIMIT = 100;
+
+/**
+ * Default platforms synced from SerialStation (Option A): Vita (33), PS4 (34), PS5 (35).
+ * Older Sony DAT-covered consoles (PS1 29, PS2 30, PSP 31, PS3 32) are excluded by default.
+ */
+export const DEFAULT_SERIALSTATION_PLATFORM_IDS = new Set<number>([33, 34, 35]);
 
 export interface SerialStationReleaseItem {
   id?: string;
@@ -258,8 +267,11 @@ function cleanTmdbTitle(item: SerialStationTmdbItem): string {
  */
 export function parseSerialStationRecords(
   releases: SerialStationReleaseItem[],
-  tmdbItems: SerialStationTmdbItem[],
+  tmdbItems: SerialStationTmdbItem[] = [],
+  options?: { allowedPlatformIds?: Set<number> },
 ): CanonicalRelease[] {
+  const allowedPlatformIds =
+    options?.allowedPlatformIds ?? DEFAULT_SERIALSTATION_PLATFORM_IDS;
   const results: CanonicalRelease[] = [];
   const seenKeys = new Set<string>();
 
@@ -287,7 +299,8 @@ export function parseSerialStationRecords(
       tmdb?.console,
       tmdb?.ps_vr,
     );
-    if (!platformId) continue;
+    if (!platformId || !allowedPlatformIds.has(platformId)) continue;
+    if (isCanonicalNoiseTitle(rawTitle, platformId, rel.edition)) continue;
 
     const region = normalizeSerialStationRegions(rel.regions, cleanId);
     const edition = (rel.edition || '').trim();
@@ -322,11 +335,12 @@ export function parseSerialStationRecords(
       tmdb.console,
       tmdb.ps_vr,
     );
-    if (!platformId) continue;
+    if (!platformId || !allowedPlatformIds.has(platformId)) continue;
 
     const rawTitle = cleanTmdbTitle(tmdb);
     const normTitle = normalizeTitleForMatching(rawTitle);
     if (!rawTitle || !normTitle) continue;
+    if (isCanonicalNoiseTitle(rawTitle, platformId)) continue;
 
     const region = inferRegionFromTitleId(cleanId);
     const dedupKey = `${platformId}::${normTitle}::${region}::${cleanId || ''}::`;
@@ -403,6 +417,8 @@ export async function fetchSerialStationSources(
     maxPages?: number;
     delayMs?: number;
     fetchFn?: typeof fetch;
+    includeTmdb?: boolean;
+    allowedPlatformIds?: Set<number>;
   },
 ): Promise<{
   releasesPath: string;
@@ -415,6 +431,7 @@ export async function fetchSerialStationSources(
   const maxPages = options?.maxPages ?? 600;
   const delayMs = options?.delayMs ?? 100;
   const fetchFn = options?.fetchFn ?? fetch;
+  const includeTmdb = options?.includeTmdb ?? false;
 
   const releases = await fetchPaginatedEndpoint<SerialStationReleaseItem>(
     SERIALSTATION_RELEASES_URL,
@@ -423,20 +440,26 @@ export async function fetchSerialStationSources(
     delayMs,
     fetchFn,
   );
-  const tmdbItems = await fetchPaginatedEndpoint<SerialStationTmdbItem>(
-    SERIALSTATION_TMDB_URL,
-    'media_type=disc',
-    maxPages,
-    delayMs,
-    fetchFn,
-  );
+  const tmdbItems = includeTmdb
+    ? await fetchPaginatedEndpoint<SerialStationTmdbItem>(
+        SERIALSTATION_TMDB_URL,
+        'media_type=disc',
+        maxPages,
+        delayMs,
+        fetchFn,
+      )
+    : [];
 
   const releasesPath = path.join(sourcesDir, 'serialstation_releases.json');
   const tmdbPath = path.join(sourcesDir, 'serialstation_tmdb.json');
   fs.writeFileSync(releasesPath, JSON.stringify({ items: releases }), 'utf8');
-  fs.writeFileSync(tmdbPath, JSON.stringify({ items: tmdbItems }), 'utf8');
+  if (includeTmdb) {
+    fs.writeFileSync(tmdbPath, JSON.stringify({ items: tmdbItems }), 'utf8');
+  }
 
-  const parsed = parseSerialStationRecords(releases, tmdbItems);
+  const parsed = parseSerialStationRecords(releases, tmdbItems, {
+    allowedPlatformIds: options?.allowedPlatformIds,
+  });
   return {
     releasesPath,
     tmdbPath,
@@ -448,10 +471,15 @@ export async function fetchSerialStationSources(
 
 export function loadSerialStationReleases(
   sourcesDir: string,
+  options?: { allowedPlatformIds?: Set<number>; includeTmdb?: boolean },
 ): CanonicalRelease[] {
   const releasesPath = path.join(sourcesDir, 'serialstation_releases.json');
   const tmdbPath = path.join(sourcesDir, 'serialstation_tmdb.json');
-  if (!fs.existsSync(releasesPath) && !fs.existsSync(tmdbPath)) {
+  const includeTmdb = options?.includeTmdb ?? false;
+  if (
+    !fs.existsSync(releasesPath) &&
+    (!includeTmdb || !fs.existsSync(tmdbPath))
+  ) {
     return [];
   }
 
@@ -464,12 +492,14 @@ export function loadSerialStationReleases(
   }
 
   let tmdbItems: SerialStationTmdbItem[] = [];
-  if (fs.existsSync(tmdbPath)) {
+  if (includeTmdb && fs.existsSync(tmdbPath)) {
     const parsed = JSON.parse(fs.readFileSync(tmdbPath, 'utf8')) as {
       items?: SerialStationTmdbItem[];
     };
     tmdbItems = Array.isArray(parsed.items) ? parsed.items : [];
   }
 
-  return parseSerialStationRecords(releases, tmdbItems);
+  return parseSerialStationRecords(releases, tmdbItems, {
+    allowedPlatformIds: options?.allowedPlatformIds,
+  });
 }

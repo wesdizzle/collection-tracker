@@ -17,6 +17,8 @@ import {
   isCompilationOrBundleTitle,
   extractEditionSuffix,
   resolveCanonicalDisplayTitle,
+  areCanonicalTitlesSequelCompatible,
+  buildCanonicalLinkerMatchKeys,
 } from './title_matching.js';
 
 describe('Title Normalization', () => {
@@ -1208,6 +1210,32 @@ describe('Title Matching Strategies', () => {
       expect(detailed.some((v) => v.title === 'Capture' && v.isTildeHalf)).toBe(
         true,
       );
+    });
+
+    it('builds Roman/Arabic and edition match keys while blocking cross-sequel matches', () => {
+      expect(
+        areCanonicalTitlesSequelCompatible(
+          'Final Fantasy VII',
+          'Final Fantasy 7',
+        ),
+      ).toBe(true);
+      expect(areCanonicalTitlesSequelCompatible('Persona 4', 'Persona 5')).toBe(
+        false,
+      );
+      expect(areCanonicalTitlesSequelCompatible('Hades', 'Hades II')).toBe(
+        false,
+      );
+
+      const ffKeys = buildCanonicalLinkerMatchKeys('Final Fantasy VII');
+      expect(ffKeys).toContain('finalfantasy7');
+
+      const volKeys = buildCanonicalLinkerMatchKeys('Shantae Volume I');
+      expect(volKeys).toContain('shantaevol1');
+
+      const sw2Keys = buildCanonicalLinkerMatchKeys(
+        'Metroid Prime 4: Beyond - Nintendo Switch 2 Edition',
+      );
+      expect(sw2Keys).toContain('metroidprime4beyond');
     });
   });
 });

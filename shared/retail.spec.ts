@@ -76,6 +76,16 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
           'Mario &#038; Luigi: Brothership [US/ESRB] (Nintendo Switch)',
         ),
       ).toBe('Mario & Luigi: Brothership');
+
+      expect(
+        cleanRetailTitle('Celeste [Limited Run Games #198] - Nintendo Switch'),
+      ).toBe('Celeste');
+
+      expect(
+        cleanRetailTitle(
+          'Baten Kaitos [Asian English Import] [Play-Asia Exclusive]',
+        ),
+      ).toBe('Baten Kaitos');
     });
 
     it('should handle empty or undefined titles gracefully', () => {

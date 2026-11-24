@@ -993,7 +993,7 @@ const ROMAN_SEQUEL_MAP: Record<string, string> = {
   xx: '20',
 };
 
-function normalizeSafeSequelNumerals(text: string): string {
+export function normalizeSafeSequelNumerals(text: string): string {
   // Never rewrite leading "I" ("I Am Setsuna", "I, Robot") — only normalize "I" -> "1"
   // when preceded by an explicit sequential noun or at the end after a title word.
   let out = text
@@ -1005,6 +1005,57 @@ function normalizeSafeSequelNumerals(text: string): string {
     (m) => ROMAN_SEQUEL_MAP[m.toLowerCase()] || m,
   );
   return out;
+}
+
+/**
+ * Returns true if two titles have compatible ordered sequel numbers (e.g. "Final Fantasy VII"
+ * and "Final Fantasy 7", or base "Persona 5" and "Persona 5 Royal"), and false when either
+ * contains conflicting or extra sequel numbers ("Persona 4" vs "Persona 5", "Hades" vs "Hades II").
+ */
+export function areCanonicalTitlesSequelCompatible(
+  titleA: string,
+  titleB: string,
+): boolean {
+  const sigA = extractTitleSequelSignature(titleA);
+  const sigB = extractTitleSequelSignature(titleB);
+  if (sigA.length !== sigB.length) return false;
+  return sigA.every((tok, idx) => tok === sigB[idx]);
+}
+
+/**
+ * Builds ordered, deduplicated normalized keys for non-DAT canonical matching & linking:
+ * exact normalized title, Roman/Arabic + Volume/Vol. normalized variant, and
+ * edition-stripped base variants (Switch 2 Edition, Complete, Ultra Deluxe, etc.).
+ */
+export function buildCanonicalLinkerMatchKeys(title: string): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  const addKey = (candidate: string | null | undefined) => {
+    const trimmed = (candidate || '').trim();
+    if (!trimmed) return;
+    const direct = normalizeTitleForMatching(trimmed);
+    if (direct && !seen.has(direct)) {
+      seen.add(direct);
+      keys.push(direct);
+    }
+    const numeralVol = normalizeTitleForMatching(
+      normalizeSafeSequelNumerals(trimmed.replace(/\bvolume\b/gi, 'vol')),
+    );
+    if (numeralVol && !seen.has(numeralVol)) {
+      seen.add(numeralVol);
+      keys.push(numeralVol);
+    }
+  };
+
+  addKey(title);
+  const splitEd = splitTitleEditionSuffix(title);
+  if (splitEd && !splitEd.suffix.startsWith('+')) {
+    addKey(splitEd.base);
+  }
+  addKey(stripEditionSuffix(title));
+  addKey(stripIgdbEditionWrapper(title));
+
+  return keys;
 }
 
 /**

@@ -4,10 +4,14 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  CANONICAL_SOURCE_PRIORITY,
   detectPhysicalReleaseStatus,
   deduplicateDatReleases,
   cleanTitleWithoutParentheticals,
   extractSerialCode,
+  getCanonicalSourcePriority,
+  getCanonicalSourceTier,
+  isCanonicalNoiseTitle,
   isDigitalFluffTitle,
   hasEraDiscrepancy,
   findCanonicalBundle,
@@ -1302,6 +1306,62 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(regionsOverlap(null, 'USA')).toBe(true);
       expect(regionsOverlap('Japan', 'Asia')).toBe(false);
       expect(regionsOverlap('USA', 'Europe')).toBe(false);
+    });
+  });
+
+  describe('Source precedence hierarchy & shared canonical noise filter', () => {
+    it('assigns ordered tiers across all verified sources with retail_catalog/lgn in Tier 4', () => {
+      expect(CANONICAL_SOURCE_PRIORITY['dat']).toBeLessThan(
+        CANONICAL_SOURCE_PRIORITY['serialstation'],
+      );
+      expect(getCanonicalSourcePriority('serialstation')).toBeLessThan(
+        getCanonicalSourcePriority('ps5db'),
+      );
+      expect(getCanonicalSourcePriority('ps5db')).toBeLessThan(
+        getCanonicalSourcePriority('retail_catalog'),
+      );
+      expect(getCanonicalSourcePriority('retail_catalog')).toBeLessThan(
+        getCanonicalSourcePriority('lgn'),
+      );
+
+      expect(getCanonicalSourceTier('dat')).toBe(1);
+      expect(getCanonicalSourceTier('nintendo_revised')).toBe(1);
+      expect(getCanonicalSourceTier('serialstation')).toBe(2);
+      expect(getCanonicalSourceTier('ps5db')).toBe(3);
+      expect(getCanonicalSourceTier('nscollectors')).toBe(3);
+      expect(getCanonicalSourceTier('retail_catalog')).toBe(4);
+      expect(getCanonicalSourceTier('lgn')).toBe(4);
+      expect(getCanonicalSourceTier('nscollectors_ciab')).toBe(0);
+    });
+
+    it('filters PlayStation Hits/demo/NFR noise while preserving Pokémon Platinum, Prototype, and PSVR Demo Discs', () => {
+      expect(isCanonicalNoiseTitle('God of War [PlayStation Hits]', 34)).toBe(
+        true,
+      );
+      expect(
+        isCanonicalNoiseTitle(
+          'Uncharted 4: A Thiefs End',
+          34,
+          'PlayStation Hits',
+        ),
+      ).toBe(true);
+      expect(isCanonicalNoiseTitle('LittleBigPlanet (Essentials)', 31)).toBe(
+        true,
+      );
+      expect(isCanonicalNoiseTitle('Kiosk Playable Demo Disc (USA)', 34)).toBe(
+        true,
+      );
+      expect(isCanonicalNoiseTitle('Minecraft - Not For Resale', 35)).toBe(
+        true,
+      );
+
+      // Preserve legitimate commercial games & curated PSVR Demo Discs
+      expect(isCanonicalNoiseTitle('Pokémon Platinum', 21)).toBe(false);
+      expect(isCanonicalNoiseTitle('Prototype', 34)).toBe(false);
+      expect(isCanonicalNoiseTitle('PlayStation VR Demo Disc 2.0', 34)).toBe(
+        false,
+      );
+      expect(isCanonicalNoiseTitle('Bloodborne', 34, 'Original')).toBe(false);
     });
   });
 });

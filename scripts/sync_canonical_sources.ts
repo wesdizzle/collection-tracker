@@ -27,12 +27,12 @@ import { findDatFileForPlatform, PlatformRecord } from './lib/dat_cache.js';
 import {
   CanonicalRelease,
   deduplicateDatReleases,
+  getCanonicalSourcePriority,
+  regionsOverlap,
 } from '../shared/canonical_releases.js';
 import {
   reconcileGameReleasesWithCanonical,
   ReconcileResult,
-  selectBestRegionalCandidate,
-  stripEditionSuffix,
 } from './lib/reconcile_releases.js';
 import { getLocalDatabase } from './lib/db.js';
 import {
@@ -41,7 +41,14 @@ import {
 } from './lib/budget_sources.js';
 import { findRetailPackInDisc } from '../shared/special_labels.js';
 import { extractDiscLabel } from '../shared/source_format.js';
-import { normalizeTitleForMatching } from '../shared/title_matching.js';
+import { cleanRetailTitle } from '../shared/retail.js';
+import {
+  areCanonicalTitlesSequelCompatible,
+  buildCanonicalLinkerMatchKeys,
+  normalizeTitleForMatching,
+  stripBoutiqueCatalogPrefix,
+  stripLgnPlatformPipeTrailer,
+} from '../shared/title_matching.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
 import { loadNeoGeoReleases } from './lib/sources/neogeo.js';
 import { loadNsCollectorsReleases } from './lib/sources/nscollectors_sync.js';
@@ -652,9 +659,154 @@ export async function syncCanonicalSources(
           groupedNonDat.set(groupKey, list);
         }
 
+        // Process higher-authority sources first so lower-priority duplicates enrich rather than multiply
+        const sortedGroups = Array.from(groupedNonDat.values()).sort((a, b) => {
+          const prioDiff =
+            getCanonicalSourcePriority(a[0].source) -
+            getCanonicalSourcePriority(b[0].source);
+          if (prioDiff !== 0) return prioDiff;
+          return a[0].platform_id - b[0].platform_id;
+        });
+
+        type IndexedCanonicalRow = {
+          id: number;
+          platform_id: number;
+          raw_title: string;
+          normalized_title: string;
+          region: string | null;
+          variants: string | null;
+          serial_code: string | null;
+          barcode: string | null;
+          publisher: string | null;
+          source: string;
+          is_verified_physical: number;
+          rom_name: string | null;
+        };
+
+        const buildCanonicalNaturalWhere = (row: {
+          platform_id: number;
+          normalized_title: string;
+          source: string;
+          region: string | null;
+          variants: string | null;
+          serial_code?: string | null;
+          rom_name?: string | null;
+        }): string => {
+          if (row.rom_name) {
+            return `platform_id = ${row.platform_id} AND rom_name = ${escapeSql(row.rom_name)} AND source = ${escapeSql(row.source)}`;
+          }
+          return `platform_id = ${row.platform_id} AND normalized_title = ${escapeSql(row.normalized_title)} AND source = ${escapeSql(row.source)} AND ${sqlNullableEquals('region', row.region)} AND ${sqlNullableEquals('variants', row.variants)} AND ${sqlNullableEquals('serial_code', row.serial_code ?? null)}`;
+        };
+
+        const cleanLegacyRetailTitle = (raw: string): string =>
+          cleanRetailTitle(
+            stripBoutiqueCatalogPrefix(stripLgnPlatformPipeTrailer(raw), {
+              stripPreOrderPrefix: true,
+            }),
+          );
+
+        const selectAllVerifiedPlatStmt = db.prepare(`
+          SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                 serial_code, barcode, publisher, source, is_verified_physical, rom_name
+          FROM canonical_releases
+          WHERE platform_id = ? AND is_verified_physical = 1
+        `);
+
+        const verifiedPoolByPlat = new Map<
+          number,
+          {
+            rows: IndexedCanonicalRow[];
+            byKey: Map<string, IndexedCanonicalRow[]>;
+          }
+        >();
+
+        const indexRowIntoPlatPool = (
+          byKey: Map<string, IndexedCanonicalRow[]>,
+          row: IndexedCanonicalRow,
+        ) => {
+          const keys = new Set<string>([
+            row.normalized_title,
+            ...buildCanonicalLinkerMatchKeys(row.raw_title),
+          ]);
+          for (const k of keys) {
+            if (!k) continue;
+            const list = byKey.get(k) || [];
+            if (!list.includes(row)) {
+              list.push(row);
+              byKey.set(k, list);
+            }
+          }
+        };
+
+        const getVerifiedPlatPool = (platId: number) => {
+          let pool = verifiedPoolByPlat.get(platId);
+          if (!pool) {
+            const rows = selectAllVerifiedPlatStmt.all(
+              platId,
+            ) as IndexedCanonicalRow[];
+            const byKey = new Map<string, IndexedCanonicalRow[]>();
+            for (const r of rows) {
+              indexRowIntoPlatPool(byKey, r);
+            }
+            pool = { rows, byKey };
+            verifiedPoolByPlat.set(platId, pool);
+          }
+          return pool;
+        };
+
+        const findBestCrossSourceMatch = (
+          platId: number,
+          rel: CanonicalRelease,
+          excludeSource: string,
+        ): IndexedCanonicalRow | null => {
+          const pool = getVerifiedPlatPool(platId);
+          const candidateKeys = new Set<string>([
+            rel.normalized_title,
+            ...buildCanonicalLinkerMatchKeys(rel.raw_title),
+          ]);
+          const seen = new Set<IndexedCanonicalRow>();
+          const matches: IndexedCanonicalRow[] = [];
+          const relVar = rel.variants || null;
+
+          for (const k of candidateKeys) {
+            for (const cand of pool.byKey.get(k) || []) {
+              if (seen.has(cand)) continue;
+              seen.add(cand);
+              if (cand.is_verified_physical !== 1) continue;
+              if (cand.source === excludeSource) continue;
+              if ((cand.variants || null) !== relVar) continue;
+              if (
+                !areCanonicalTitlesSequelCompatible(
+                  cand.raw_title,
+                  rel.raw_title,
+                )
+              ) {
+                continue;
+              }
+              if (!regionsOverlap(cand.region, rel.region || null)) {
+                continue;
+              }
+              matches.push(cand);
+            }
+          }
+
+          if (matches.length === 0) return null;
+          matches.sort((a, b) => {
+            const prioDiff =
+              getCanonicalSourcePriority(a.source) -
+              getCanonicalSourcePriority(b.source);
+            if (prioDiff !== 0) return prioDiff;
+            const exactA = a.normalized_title === rel.normalized_title ? 0 : 1;
+            const exactB = b.normalized_title === rel.normalized_title ? 0 : 1;
+            if (exactA !== exactB) return exactA - exactB;
+            return (a.id || 0) - (b.id || 0);
+          });
+          return matches[0];
+        };
+
         const selectNonDatExistingStmt = db.prepare(`
           SELECT id, platform_id, raw_title, normalized_title, region, variants,
-                 serial_code, barcode, publisher, source, is_verified_physical
+                 serial_code, barcode, publisher, source, is_verified_physical, rom_name
           FROM canonical_releases
           WHERE platform_id = ? AND source = ?
         `);
@@ -674,12 +826,38 @@ export async function syncCanonicalSources(
                   serial_code = ?, barcode = ?, publisher = ?, is_verified_physical = ?
               WHERE id = ?
             `);
+        const enrichOtherStmt = isDryRun
+          ? null
+          : db.prepare(`
+              UPDATE canonical_releases
+              SET serial_code = COALESCE(serial_code, ?),
+                  barcode = COALESCE(barcode, ?),
+                  publisher = COALESCE(publisher, ?)
+              WHERE id = ?
+            `);
+        const upgradeOtherStmt = isDryRun
+          ? null
+          : db.prepare(`
+              UPDATE canonical_releases
+              SET source = ?, raw_title = ?, normalized_title = ?, region = ?, variants = ?,
+                  serial_code = ?, barcode = ?, publisher = ?, is_verified_physical = ?
+              WHERE id = ?
+            `);
+        const repointReleaseStmt = isDryRun
+          ? null
+          : db.prepare(
+              `UPDATE game_releases SET canonical_release_id = ? WHERE canonical_release_id = ?`,
+            );
         const syncedNonDatPlatforms = new Set<number>();
+        const upgradedIds = new Set<number>();
+        const enrichedKeyGuard = new Set<string>();
+        let nextSyntheticDryId = -1;
 
-        for (const [, groupReleases] of groupedNonDat) {
+        for (const groupReleases of sortedGroups) {
           if (groupReleases.length === 0) continue;
           const platId = groupReleases[0].platform_id;
           const sourceName = groupReleases[0].source;
+          const sourcePriority = getCanonicalSourcePriority(sourceName);
           processedPlatformIds.add(platId);
           platformsProcessed = processedPlatformIds.size;
           if (groupReleases.some((r) => r.is_verified_physical === 1)) {
@@ -689,31 +867,21 @@ export async function syncCanonicalSources(
           totalRawCount += groupReleases.length;
           totalDeduplicatedCount += groupReleases.length;
 
-          const existingRows = selectNonDatExistingStmt.all(
-            platId,
-            sourceName,
-          ) as Array<{
-            id: number;
-            platform_id: number;
-            raw_title: string;
-            normalized_title: string;
-            region: string | null;
-            variants: string | null;
-            serial_code: string | null;
-            barcode: string | null;
-            publisher: string | null;
-            source: string;
-            is_verified_physical: number;
-          }>;
+          const platPool = getVerifiedPlatPool(platId);
+          const existingRows = (
+            selectNonDatExistingStmt.all(
+              platId,
+              sourceName,
+            ) as IndexedCanonicalRow[]
+          ).filter((r) => !upgradedIds.has(r.id));
 
-          const existingByExactKey = new Map<
-            string,
-            (typeof existingRows)[number]
-          >();
-          const existingByLooseKey = new Map<
-            string,
-            (typeof existingRows)[number]
-          >();
+          const existingByExactKey = new Map<string, IndexedCanonicalRow>();
+          const existingByLooseKey = new Map<string, IndexedCanonicalRow>();
+          const existingByRecleanedKey = new Map<string, IndexedCanonicalRow>();
+          const recleanedLooseKeyById = new Map<number, string>();
+          const supportsTitleReclean =
+            sourceName === 'retail_catalog' || sourceName === 'lgn';
+
           for (const ex of existingRows) {
             const exactKey = `${ex.normalized_title}::${ex.region || ''}::${ex.variants || ''}::${ex.serial_code || ''}`;
             if (!existingByExactKey.has(exactKey)) {
@@ -723,12 +891,63 @@ export async function syncCanonicalSources(
             if (!existingByLooseKey.has(looseKey)) {
               existingByLooseKey.set(looseKey, ex);
             }
+            if (supportsTitleReclean) {
+              const cleanedNorm = normalizeTitleForMatching(
+                cleanLegacyRetailTitle(ex.raw_title),
+              );
+              if (cleanedNorm) {
+                const recleanKey = `${cleanedNorm}::${ex.region || ''}::${ex.variants || ''}`;
+                recleanedLooseKeyById.set(ex.id, recleanKey);
+                if (!existingByRecleanedKey.has(recleanKey)) {
+                  existingByRecleanedKey.set(recleanKey, ex);
+                }
+              }
+            }
           }
 
           const claimedIds = new Set<number>();
+          const survivorByRecleanedKey = new Map<string, IndexedCanonicalRow>();
+          const absorbedByHigherTier = new Map<number, IndexedCanonicalRow>();
           let srcInserted = 0;
           let srcUpdated = 0;
           let srcDeleted = 0;
+
+          const enrichHigherAuthorityRow = (
+            target: IndexedCanonicalRow,
+            serialVal: string | null,
+            barcodeVal: string | null,
+            publisherVal: string | null,
+          ) => {
+            const addSerial =
+              !target.serial_code && serialVal ? serialVal : null;
+            const addBarcode =
+              !target.barcode && barcodeVal ? barcodeVal : null;
+            const addPublisher =
+              !target.publisher && publisherVal ? publisherVal : null;
+            if (!addSerial && !addBarcode && !addPublisher) return;
+
+            const guardKey = `${target.id}::${addSerial || ''}::${addBarcode || ''}::${addPublisher || ''}`;
+            if (enrichedKeyGuard.has(guardKey)) return;
+            enrichedKeyGuard.add(guardKey);
+
+            const targetWhere = buildCanonicalNaturalWhere(target);
+            if (enrichOtherStmt && target.id > 0) {
+              enrichOtherStmt.run(
+                addSerial,
+                addBarcode,
+                addPublisher,
+                target.id,
+              );
+            }
+            sqlStatements.push(
+              `UPDATE canonical_releases SET serial_code = COALESCE(serial_code, ${escapeSql(addSerial)}), barcode = COALESCE(barcode, ${escapeSql(addBarcode)}), publisher = COALESCE(publisher, ${escapeSql(addPublisher)}) WHERE id = (SELECT id FROM canonical_releases WHERE ${targetWhere} ORDER BY id ASC LIMIT 1);`,
+            );
+            if (addSerial) target.serial_code = addSerial;
+            if (addBarcode) target.barcode = addBarcode;
+            if (addPublisher) target.publisher = addPublisher;
+            updatedCount++;
+            srcUpdated++;
+          };
 
           for (const rel of groupReleases) {
             const regionVal = rel.region || null;
@@ -748,29 +967,47 @@ export async function syncCanonicalSources(
                 existing = candidate;
               }
             }
+            if (!existing && supportsTitleReclean) {
+              const recleanCandidate = existingByRecleanedKey.get(looseKey);
+              if (recleanCandidate && !claimedIds.has(recleanCandidate.id)) {
+                existing = recleanCandidate;
+              }
+            }
 
-            if (!existing) {
-              if (insertNonDatStmt) {
-                insertNonDatStmt.run(
-                  platId,
-                  rel.raw_title,
-                  rel.normalized_title,
-                  regionVal,
-                  variantsVal,
+            const crossMatch =
+              verifiedVal === 1
+                ? findBestCrossSourceMatch(platId, rel, sourceName)
+                : null;
+            const crossPriority = crossMatch
+              ? getCanonicalSourcePriority(crossMatch.source)
+              : 999;
+
+            if (existing) {
+              // If an existing lower-authority row is already covered by a higher-authority source,
+              // absorb complementary metadata into the higher-authority row and mark the duplicate for cleanup.
+              if (crossMatch && crossPriority < sourcePriority) {
+                enrichHigherAuthorityRow(
+                  crossMatch,
                   serialVal,
                   barcodeVal,
                   publisherVal,
-                  sourceName,
-                  verifiedVal,
                 );
+                absorbedByHigherTier.set(existing.id, crossMatch);
+                continue;
               }
-              sqlStatements.push(
-                `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${platId}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, ${escapeSql(sourceName)}, ${verifiedVal});`,
-              );
-              insertedCount++;
-              srcInserted++;
-            } else {
+
               claimedIds.add(existing.id);
+              const recleanKey = recleanedLooseKeyById.get(existing.id);
+              if (recleanKey && !survivorByRecleanedKey.has(recleanKey)) {
+                survivorByRecleanedKey.set(recleanKey, existing);
+              }
+              if (
+                supportsTitleReclean &&
+                !survivorByRecleanedKey.has(looseKey)
+              ) {
+                survivorByRecleanedKey.set(looseKey, existing);
+              }
+
               const hasDiff =
                 existing.raw_title !== rel.raw_title ||
                 existing.normalized_title !== rel.normalized_title ||
@@ -782,6 +1019,7 @@ export async function syncCanonicalSources(
                 existing.is_verified_physical !== verifiedVal;
 
               if (hasDiff) {
+                const preUpdateWhere = buildCanonicalNaturalWhere(existing);
                 if (updateNonDatStmt) {
                   updateNonDatStmt.run(
                     rel.raw_title,
@@ -795,40 +1033,173 @@ export async function syncCanonicalSources(
                     existing.id,
                   );
                 }
-                const whereClause = existing.serial_code
-                  ? `WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(existing.serial_code)}`
-                  : `WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(existing.normalized_title)} AND ${sqlNullableEquals('region', existing.region)} AND ${sqlNullableEquals('variants', existing.variants)}`;
                 sqlStatements.push(
-                  `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} ${whereClause};`,
+                  `UPDATE canonical_releases SET raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(regionVal)}, variants = ${escapeSql(variantsVal)}, serial_code = ${escapeSql(serialVal)}, barcode = ${escapeSql(barcodeVal)}, publisher = ${escapeSql(publisherVal)}, is_verified_physical = ${verifiedVal} WHERE id = (SELECT id FROM canonical_releases WHERE ${preUpdateWhere} ORDER BY id ASC LIMIT 1);`,
                 );
+                existing.raw_title = rel.raw_title;
+                existing.normalized_title = rel.normalized_title;
+                existing.region = regionVal;
+                existing.variants = variantsVal;
+                existing.serial_code = serialVal;
+                existing.barcode = barcodeVal;
+                existing.publisher = publisherVal;
+                existing.is_verified_physical = verifiedVal;
+                const poolMatch = platPool.rows.find(
+                  (r) => r.id === existing!.id,
+                );
+                if (poolMatch) {
+                  poolMatch.raw_title = rel.raw_title;
+                  poolMatch.normalized_title = rel.normalized_title;
+                  poolMatch.region = regionVal;
+                  poolMatch.variants = variantsVal;
+                  poolMatch.serial_code = serialVal;
+                  poolMatch.barcode = barcodeVal;
+                  poolMatch.publisher = publisherVal;
+                  poolMatch.is_verified_physical = verifiedVal;
+                  indexRowIntoPlatPool(platPool.byKey, poolMatch);
+                }
                 updatedCount++;
                 srcUpdated++;
               }
+            } else if (crossMatch) {
+              if (crossPriority <= sourcePriority) {
+                // Higher or equal authority source already covers this release: enrich NULL metadata only.
+                enrichHigherAuthorityRow(
+                  crossMatch,
+                  serialVal,
+                  barcodeVal,
+                  publisherVal,
+                );
+              } else {
+                // Incoming source has higher authority: upgrade existing row in place preserving ID & links.
+                const preUpgradeWhere = buildCanonicalNaturalWhere(crossMatch);
+                const mergedSerial = serialVal || crossMatch.serial_code;
+                const mergedBarcode = barcodeVal || crossMatch.barcode;
+                const mergedPublisher = publisherVal || crossMatch.publisher;
+                const mergedRegion = regionVal || crossMatch.region;
+                const mergedVariants = variantsVal || crossMatch.variants;
+
+                if (upgradeOtherStmt && crossMatch.id > 0) {
+                  upgradeOtherStmt.run(
+                    sourceName,
+                    rel.raw_title,
+                    rel.normalized_title,
+                    mergedRegion,
+                    mergedVariants,
+                    mergedSerial,
+                    mergedBarcode,
+                    mergedPublisher,
+                    verifiedVal,
+                    crossMatch.id,
+                  );
+                }
+                sqlStatements.push(
+                  `UPDATE canonical_releases SET source = ${escapeSql(sourceName)}, raw_title = ${escapeSql(rel.raw_title)}, normalized_title = ${escapeSql(rel.normalized_title)}, region = ${escapeSql(mergedRegion)}, variants = ${escapeSql(mergedVariants)}, serial_code = ${escapeSql(mergedSerial)}, barcode = ${escapeSql(mergedBarcode)}, publisher = ${escapeSql(mergedPublisher)}, is_verified_physical = ${verifiedVal} WHERE id = (SELECT id FROM canonical_releases WHERE ${preUpgradeWhere} ORDER BY id ASC LIMIT 1);`,
+                );
+                if (crossMatch.id > 0) {
+                  upgradedIds.add(crossMatch.id);
+                }
+                crossMatch.source = sourceName;
+                crossMatch.raw_title = rel.raw_title;
+                crossMatch.normalized_title = rel.normalized_title;
+                crossMatch.region = mergedRegion;
+                crossMatch.variants = mergedVariants;
+                crossMatch.serial_code = mergedSerial;
+                crossMatch.barcode = mergedBarcode;
+                crossMatch.publisher = mergedPublisher;
+                crossMatch.is_verified_physical = verifiedVal;
+                indexRowIntoPlatPool(platPool.byKey, crossMatch);
+                updatedCount++;
+                srcUpdated++;
+              }
+            } else {
+              let insertedId = nextSyntheticDryId--;
+              if (insertNonDatStmt) {
+                const info = insertNonDatStmt.run(
+                  platId,
+                  rel.raw_title,
+                  rel.normalized_title,
+                  regionVal,
+                  variantsVal,
+                  serialVal,
+                  barcodeVal,
+                  publisherVal,
+                  sourceName,
+                  verifiedVal,
+                );
+                insertedId = Number(info.lastInsertRowid);
+              }
+              sqlStatements.push(
+                `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, variants, serial_code, barcode, publisher, source, is_verified_physical) VALUES (${platId}, ${escapeSql(rel.raw_title)}, ${escapeSql(rel.normalized_title)}, ${escapeSql(regionVal)}, ${escapeSql(variantsVal)}, ${escapeSql(serialVal)}, ${escapeSql(barcodeVal)}, ${escapeSql(publisherVal)}, ${escapeSql(sourceName)}, ${verifiedVal});`,
+              );
+              const newRow: IndexedCanonicalRow = {
+                id: insertedId,
+                platform_id: platId,
+                raw_title: rel.raw_title,
+                normalized_title: rel.normalized_title,
+                region: regionVal,
+                variants: variantsVal,
+                serial_code: serialVal,
+                barcode: barcodeVal,
+                publisher: publisherVal,
+                source: sourceName,
+                is_verified_physical: verifiedVal,
+                rom_name: null,
+              };
+              if (verifiedVal === 1) {
+                platPool.rows.push(newRow);
+                indexRowIntoPlatPool(platPool.byKey, newRow);
+              }
+              if (
+                supportsTitleReclean &&
+                !survivorByRecleanedKey.has(looseKey)
+              ) {
+                survivorByRecleanedKey.set(looseKey, newRow);
+              }
+              insertedCount++;
+              srcInserted++;
             }
           }
 
-          const toDelete = existingRows.filter((r) => !claimedIds.has(r.id));
+          const toDelete = existingRows.filter(
+            (r) => !claimedIds.has(r.id) && !upgradedIds.has(r.id),
+          );
           for (const obsolete of toDelete) {
-            if (hasLinkedReleaseStmt.get(obsolete.id) && unlinkReleaseStmt) {
-              unlinkReleaseStmt.run(obsolete.id);
+            const obsoleteWhere = buildCanonicalNaturalWhere(obsolete);
+            const recleanKey = recleanedLooseKeyById.get(obsolete.id);
+            const repointTarget =
+              absorbedByHigherTier.get(obsolete.id) ||
+              (recleanKey ? survivorByRecleanedKey.get(recleanKey) : undefined);
+
+            const hasLinks = Boolean(hasLinkedReleaseStmt.get(obsolete.id));
+            if (repointTarget) {
+              if (hasLinks && repointReleaseStmt && repointTarget.id > 0) {
+                repointReleaseStmt.run(repointTarget.id, obsolete.id);
+              }
+              const targetWhere = buildCanonicalNaturalWhere(repointTarget);
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE ${targetWhere} ORDER BY id ASC LIMIT 1) WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
+              );
+            } else {
+              if (hasLinks && unlinkReleaseStmt) {
+                unlinkReleaseStmt.run(obsolete.id);
+              }
+              sqlStatements.push(
+                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE ${obsoleteWhere});`,
+              );
             }
+
             if (deleteStmt) {
               deleteStmt.run(obsolete.id);
             }
-            if (obsolete.serial_code) {
-              sqlStatements.push(
-                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(obsolete.serial_code)});`,
-              );
-              sqlStatements.push(
-                `DELETE FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND serial_code = ${escapeSql(obsolete.serial_code)};`,
-              );
-            } else {
-              sqlStatements.push(
-                `UPDATE game_releases SET canonical_release_id = NULL WHERE canonical_release_id IN (SELECT id FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(obsolete.normalized_title)} AND ${sqlNullableEquals('region', obsolete.region)} AND ${sqlNullableEquals('variants', obsolete.variants)});`,
-              );
-              sqlStatements.push(
-                `DELETE FROM canonical_releases WHERE platform_id = ${platId} AND source = ${escapeSql(sourceName)} AND normalized_title = ${escapeSql(obsolete.normalized_title)} AND ${sqlNullableEquals('region', obsolete.region)} AND ${sqlNullableEquals('variants', obsolete.variants)};`,
-              );
+            sqlStatements.push(
+              `DELETE FROM canonical_releases WHERE ${obsoleteWhere};`,
+            );
+            const poolIdx = platPool.rows.findIndex(
+              (r) => r.id === obsolete.id,
+            );
+            if (poolIdx >= 0) {
+              platPool.rows.splice(poolIdx, 1);
             }
             deletedCount++;
             srcDeleted++;
@@ -841,66 +1212,77 @@ export async function syncCanonicalSources(
 
         // Link existing unlinked game_releases on newly synced verified non-DAT platforms
         if (syncedNonDatPlatforms.size > 0) {
-          const verifiedByPlatNorm = new Map<
-            string,
-            Array<{
-              id: number;
-              platform_id: number;
-              normalized_title: string;
-              region: string | null;
-              variants: string | null;
-              barcode: string | null;
-              source: string;
-            }>
-          >();
+          type LinkCandidateRow = {
+            id: number;
+            platform_id: number;
+            raw_title: string;
+            normalized_title: string;
+            region: string | null;
+            variants: string | null;
+            serial_code: string | null;
+            barcode: string | null;
+            publisher: string | null;
+            source: string;
+          };
+          const verifiedByPlatKey = new Map<string, LinkCandidateRow[]>();
           const ph = Array.from(syncedNonDatPlatforms)
             .map(() => '?')
             .join(',');
           const verifiedRows = db
             .prepare(
-              `SELECT id, platform_id, normalized_title, region, variants, barcode, source
+              `SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, barcode, publisher, source
                FROM canonical_releases
                WHERE platform_id IN (${ph})
                  AND is_verified_physical = 1
                  AND COALESCE(source, '') != 'dat'`,
             )
-            .all(...Array.from(syncedNonDatPlatforms)) as Array<{
-            id: number;
-            platform_id: number;
-            normalized_title: string;
-            region: string | null;
-            variants: string | null;
-            barcode: string | null;
-            source: string;
-          }>;
+            .all(...Array.from(syncedNonDatPlatforms)) as LinkCandidateRow[];
+
+          const indexCandidateForLink = (vr: LinkCandidateRow) => {
+            const keys = new Set<string>([
+              vr.normalized_title,
+              ...buildCanonicalLinkerMatchKeys(vr.raw_title),
+            ]);
+            for (const key of keys) {
+              if (!key) continue;
+              const k = `${vr.platform_id}::${key}`;
+              const arr = verifiedByPlatKey.get(k) || [];
+              if (!arr.includes(vr)) {
+                arr.push(vr);
+                verifiedByPlatKey.set(k, arr);
+              }
+            }
+          };
+
           const seenCandidateKeys = new Set<string>();
           for (const vr of verifiedRows) {
-            const k = `${vr.platform_id}::${vr.normalized_title}`;
-            const arr = verifiedByPlatNorm.get(k) || [];
-            arr.push(vr);
-            verifiedByPlatNorm.set(k, arr);
+            indexCandidateForLink(vr);
             seenCandidateKeys.add(
               `${vr.platform_id}::${vr.source}::${vr.normalized_title}::${vr.region || ''}::${vr.variants || ''}`,
             );
           }
           if (isDryRun) {
-            for (const rel of filteredNonDatReleases) {
-              if (rel.is_verified_physical !== 1) continue;
-              const candKey = `${rel.platform_id}::${rel.source}::${rel.normalized_title}::${rel.region || ''}::${rel.variants || ''}`;
-              if (seenCandidateKeys.has(candKey)) continue;
-              seenCandidateKeys.add(candKey);
-              const k = `${rel.platform_id}::${rel.normalized_title}`;
-              const arr = verifiedByPlatNorm.get(k) || [];
-              arr.push({
-                id: 0,
-                platform_id: rel.platform_id,
-                normalized_title: rel.normalized_title,
-                region: rel.region || null,
-                variants: rel.variants || null,
-                barcode: rel.barcode || null,
-                source: rel.source,
-              });
-              verifiedByPlatNorm.set(k, arr);
+            for (const platId of syncedNonDatPlatforms) {
+              for (const row of getVerifiedPlatPool(platId).rows) {
+                if (row.is_verified_physical !== 1 || row.source === 'dat') {
+                  continue;
+                }
+                const candKey = `${row.platform_id}::${row.source}::${row.normalized_title}::${row.region || ''}::${row.variants || ''}`;
+                if (seenCandidateKeys.has(candKey)) continue;
+                seenCandidateKeys.add(candKey);
+                indexCandidateForLink({
+                  id: row.id,
+                  platform_id: row.platform_id,
+                  raw_title: row.raw_title,
+                  normalized_title: row.normalized_title,
+                  region: row.region,
+                  variants: row.variants,
+                  serial_code: row.serial_code,
+                  barcode: row.barcode,
+                  publisher: row.publisher,
+                  source: row.source,
+                });
+              }
             }
           }
 
@@ -932,25 +1314,68 @@ export async function syncCanonicalSources(
               );
 
           for (const gr of unlinkedReleases) {
-            const norm = normalizeTitleForMatching(gr.title);
-            const strippedNorm = normalizeTitleForMatching(
-              stripEditionSuffix(gr.title),
-            );
-            const candidates =
-              verifiedByPlatNorm.get(`${gr.platform_id}::${norm}`) ||
-              (strippedNorm
-                ? verifiedByPlatNorm.get(`${gr.platform_id}::${strippedNorm}`)
-                : undefined);
-            if (!candidates || candidates.length === 0) continue;
+            const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
+            const seenCand = new Set<LinkCandidateRow>();
+            const candidates: LinkCandidateRow[] = [];
+            for (const lk of lookupKeys) {
+              for (const cand of verifiedByPlatKey.get(
+                `${gr.platform_id}::${lk}`,
+              ) || []) {
+                if (seenCand.has(cand)) continue;
+                seenCand.add(cand);
+                if (
+                  !areCanonicalTitlesSequelCompatible(gr.title, cand.raw_title)
+                ) {
+                  continue;
+                }
+                if (
+                  gr.variants &&
+                  cand.variants &&
+                  gr.variants.toLowerCase() !== cand.variants.toLowerCase()
+                ) {
+                  continue;
+                }
+                if (gr.region && !regionsOverlap(gr.region, cand.region)) {
+                  continue;
+                }
+                candidates.push(cand);
+              }
+            }
+            if (candidates.length === 0) continue;
 
-            const best = selectBestRegionalCandidate(candidates, gr.region);
-            if (!best) continue;
+            const exactTitleNorm = normalizeTitleForMatching(gr.title);
+            const targetRegionLower = (gr.region || '').trim().toLowerCase();
+            candidates.sort((a, b) => {
+              const prioDiff =
+                getCanonicalSourcePriority(a.source) -
+                getCanonicalSourcePriority(b.source);
+              if (prioDiff !== 0) return prioDiff;
+              const normA = a.normalized_title === exactTitleNorm ? 0 : 1;
+              const normB = b.normalized_title === exactTitleNorm ? 0 : 1;
+              if (normA !== normB) return normA - normB;
+              if (targetRegionLower) {
+                const regExactA =
+                  (a.region || '').trim().toLowerCase() === targetRegionLower
+                    ? 0
+                    : 1;
+                const regExactB =
+                  (b.region || '').trim().toLowerCase() === targetRegionLower
+                    ? 0
+                    : 1;
+                if (regExactA !== regExactB) return regExactA - regExactB;
+              }
+              const serialDiff =
+                (b.serial_code ? 1 : 0) - (a.serial_code ? 1 : 0);
+              if (serialDiff !== 0) return serialDiff;
+              return (b.barcode ? 1 : 0) - (a.barcode ? 1 : 0);
+            });
 
+            const best = candidates[0];
             if (linkStmt) {
               linkStmt.run(best.id, best.variants, best.barcode, gr.id);
             }
             sqlStatements.push(
-              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}) WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
+              `UPDATE game_releases SET canonical_release_id = (SELECT id FROM canonical_releases WHERE platform_id = ${gr.platform_id} AND source = ${escapeSql(best.source)} AND normalized_title = ${escapeSql(best.normalized_title)} AND ${sqlNullableEquals('region', best.region)} AND ${sqlNullableEquals('variants', best.variants)} ORDER BY id ASC LIMIT 1), variants = COALESCE(variants, ${escapeSql(best.variants)}), barcode = COALESCE(barcode, ${escapeSql(best.barcode)}) WHERE id = ${escapeSql(gr.id)} AND canonical_release_id IS NULL;`,
             );
             linkedNonDatReleases++;
           }
@@ -975,12 +1400,26 @@ export async function syncCanonicalSources(
       runSyncLoop();
     }
 
-    if (insertedCount + updatedCount + deletedCount > 0) {
-      const dirtySql = `INSERT INTO sync_state (key, value, updated_at) VALUES ('canonical_releases_dirty', '1', CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP;`;
-      sqlStatements.push(dirtySql);
+    if (
+      insertedCount + updatedCount + deletedCount + linkedNonDatReleases >
+      0
+    ) {
+      const canonicalDirtySql = `INSERT INTO sync_state (key, value, updated_at) VALUES ('canonical_releases_dirty', '1', CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP;`;
+      const catalogDirtySql = `INSERT INTO sync_state (key, value, updated_at) VALUES ('catalog_chunks_dirty', '1', CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP;`;
+      if (insertedCount + updatedCount + deletedCount > 0) {
+        sqlStatements.push(canonicalDirtySql);
+        if (!isDryRun) {
+          try {
+            db.prepare(canonicalDirtySql).run();
+          } catch {
+            // Ignore if sync_state table does not exist in minimal test DB
+          }
+        }
+      }
+      sqlStatements.push(catalogDirtySql);
       if (!isDryRun) {
         try {
-          db.prepare(dirtySql).run();
+          db.prepare(catalogDirtySql).run();
         } catch {
           // Ignore if sync_state table does not exist in minimal test DB
         }

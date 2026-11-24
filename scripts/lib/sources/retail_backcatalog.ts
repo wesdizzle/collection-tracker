@@ -9,7 +9,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { CanonicalRelease } from '../../../shared/canonical_releases.js';
+import {
+  CanonicalRelease,
+  isCanonicalNoiseTitle,
+} from '../../../shared/canonical_releases.js';
 import { normalizeLegacyPlatformId } from '../../../shared/igdb_platforms.js';
 import {
   BoutiquePreOrder,
@@ -26,7 +29,11 @@ import {
   resolveRetailPlatformId,
   RetailDealItem,
 } from '../../../shared/retail.js';
-import { normalizeTitleForMatching } from '../../../shared/title_matching.js';
+import {
+  normalizeTitleForMatching,
+  stripBoutiqueCatalogPrefix,
+  stripLgnPlatformPipeTrailer,
+} from '../../../shared/title_matching.js';
 
 export interface RetailBackCatalogSnapshot {
   fetchedAt: string;
@@ -127,14 +134,23 @@ export function parseRetailBackCatalog(
   };
 
   for (const item of snapshot.lgn || []) {
-    const normTitle = normalizeTitleForMatching(item.cleanTitle);
+    const cleanedTitle = cleanRetailTitle(
+      stripBoutiqueCatalogPrefix(
+        stripLgnPlatformPipeTrailer(item.cleanTitle || item.rawTitle || ''),
+        { stripPreOrderPrefix: true },
+      ),
+    );
+    const normTitle = normalizeTitleForMatching(cleanedTitle);
     const platformId = item.platformId
       ? normalizeLegacyPlatformId(item.platformId)
       : null;
-    if (!item.cleanTitle || !normTitle || !platformId) continue;
+    if (!cleanedTitle || !normTitle || !platformId) continue;
+    if (isCanonicalNoiseTitle(cleanedTitle, platformId, item.edition)) {
+      continue;
+    }
     addRelease({
       platform_id: platformId,
-      raw_title: item.cleanTitle,
+      raw_title: cleanedTitle,
       normalized_title: normTitle,
       region: item.region || 'Asia',
       variants: item.edition || null,
@@ -149,14 +165,22 @@ export function parseRetailBackCatalog(
   }
 
   for (const item of snapshot.boutique || []) {
-    const normTitle = normalizeTitleForMatching(item.cleanTitle);
+    const cleanedTitle = cleanRetailTitle(
+      stripBoutiqueCatalogPrefix(item.cleanTitle || item.rawTitle || '', {
+        stripPreOrderPrefix: true,
+      }),
+    );
+    const normTitle = normalizeTitleForMatching(cleanedTitle);
     const platformId = item.platformId
       ? normalizeLegacyPlatformId(item.platformId)
       : null;
-    if (!item.cleanTitle || !normTitle || !platformId) continue;
+    if (!cleanedTitle || !normTitle || !platformId) continue;
+    if (isCanonicalNoiseTitle(cleanedTitle, platformId, item.edition)) {
+      continue;
+    }
     addRelease({
       platform_id: platformId,
-      raw_title: item.cleanTitle,
+      raw_title: cleanedTitle,
       normalized_title: normTitle,
       region: item.region || 'USA',
       variants: item.edition || null,
@@ -177,9 +201,12 @@ export function parseRetailBackCatalog(
       ? normalizeLegacyPlatformId(rawPlatformId)
       : undefined;
     if (!platformId) continue;
-    const cleanTitle = cleanRetailTitle(item.name);
+    const cleanTitle = cleanRetailTitle(
+      stripBoutiqueCatalogPrefix(item.name, { stripPreOrderPrefix: true }),
+    );
     const normTitle = normalizeTitleForMatching(cleanTitle);
     if (!cleanTitle || !normTitle) continue;
+    if (isCanonicalNoiseTitle(cleanTitle, platformId)) continue;
     const region = /\b(PEGI|EUR|UK)\b/i.test(item.name)
       ? 'Europe'
       : /\b(JPN|Japan)\s*Import\b/i.test(item.name)

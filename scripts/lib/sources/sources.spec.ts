@@ -203,6 +203,68 @@ describe('Offline Canonical Source Adapters', () => {
         35,
       );
 
+      // Default fetch skips /v1/tmdb/ (PS3-only) and limits to Vita/PS4/PS5 while filtering noise
+      const defaultFetchUrls: string[] = [];
+      const defaultMockFetch = async (input: string | URL | Request) => {
+        const url = String(input);
+        defaultFetchUrls.push(url);
+        return new Response(
+          JSON.stringify({
+            count: 4,
+            items: [
+              {
+                name: 'Bloodborne',
+                regions: ['America'],
+                title_id: 'CUSA00900',
+                edition: 'Original',
+                release_type: 'PHYSICAL',
+                barcode: '711719501237',
+              },
+              {
+                name: 'Bloodborne',
+                regions: ['Europe'],
+                title_id: 'CUSA00207',
+                edition: 'PlayStation Hits',
+                release_type: 'PHYSICAL',
+              },
+              {
+                name: 'Demons Souls PS3',
+                regions: ['America'],
+                title_id: 'BLUS30443',
+                edition: 'Original',
+                release_type: 'PHYSICAL',
+              },
+              {
+                name: 'Astro Bot',
+                regions: ['Europe'],
+                title_id: 'PPSA21564',
+                edition: 'Launch Edition',
+                release_type: 'PHYSICAL',
+                barcode: null,
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      };
+
+      const defaultFetched = await fetchSerialStationSources(tmpDir, {
+        maxPages: 2,
+        delayMs: 0,
+        fetchFn: defaultMockFetch as typeof fetch,
+      });
+      expect(defaultFetchUrls).toHaveLength(1);
+      expect(defaultFetchUrls[0]).toContain('/v1/releases/');
+      expect(defaultFetched.tmdbCount).toBe(0);
+
+      const defaultLoaded = loadSerialStationReleases(tmpDir);
+      expect(defaultLoaded).toHaveLength(2);
+      expect(defaultLoaded.some((r) => r.platform_id === 32)).toBe(false);
+      expect(defaultLoaded.some((r) => r.variants === 'PlayStation Hits')).toBe(
+        false,
+      );
+
+      // Explicit includeTmdb: true still supports legacy TMDB opt-in when requested
       const requestedUrls: string[] = [];
       const mockFetch = async (input: string | URL | Request) => {
         const url = String(input);
@@ -255,13 +317,14 @@ describe('Offline Canonical Source Adapters', () => {
       const fetched = await fetchSerialStationSources(tmpDir, {
         maxPages: 2,
         delayMs: 0,
+        includeTmdb: true,
         fetchFn: mockFetch as typeof fetch,
       });
       expect(fetched.releasesCount).toBe(2);
       expect(fetched.tmdbCount).toBe(1);
       expect(requestedUrls).toHaveLength(2);
 
-      const loaded = loadSerialStationReleases(tmpDir);
+      const loaded = loadSerialStationReleases(tmpDir, { includeTmdb: true });
       expect(loaded).toHaveLength(3);
       expect(loaded.find((r) => r.serial_code === 'CUSA00900')).toMatchObject({
         platform_id: 34,
