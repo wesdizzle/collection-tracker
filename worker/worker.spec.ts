@@ -51,8 +51,10 @@ import worker, {
   syncWorkerIgdbSeriesAndCanonical,
   syncWorkerLaunchDayNotifications,
   syncWorkerNsCollectors,
+  syncWorkerPs5Db,
   syncWorkerRetailDeals,
   syncWorkerRetailPreOrders,
+  syncWorkerSerialStation,
   syncWorkerSwitchRevisions,
   syncWorkerUnmatchedIgdbRetry,
   syncWorkerWatchedSeriesDiscovery,
@@ -10417,6 +10419,248 @@ describe('Worker API Logic', () => {
       } finally {
         fetchSpy.mockRestore();
         r2GetSpy.mockRestore();
+      }
+    });
+  });
+
+  describe('Scheduled PlayStation verification crons (PS5DB & SerialStation)', () => {
+    it('syncWorkerPs5Db is SHA-256 hash-gated, upgrades lower-tier retail rows, links PS5 releases, and marks dirty flags', async () => {
+      db.exec(`
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, publisher, source, is_verified_physical)
+        VALUES
+          (8001, 35, 'Returnal', 'returnal', 'USA', NULL, 'retail_catalog', 1),
+          (8002, 35, 'Astro Bot', 'astrobot', 'USA', NULL, 'dat', 1);
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES
+          (8101, '8101', 'Returnal', 35),
+          (8102, '8102', 'Demon''s Souls', 35);
+        INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+        VALUES
+          ('8101-1', 8101, 'USA', 8001),
+          ('8102-1', 8102, 'USA', NULL);
+      `);
+
+      const sampleCsv = [
+        'Title,Physical Publisher,Limited,ESRB SKU,PEGI Rating',
+        'Returnal,Sony Interactive Entertainment,-,PPSA-01284,-',
+        'Astro Bot,Sony Interactive Entertainment,-,PPSA-21564,-',
+        "Demon's Souls,Sony Interactive Entertainment,-,PPSA-01342 711719541004,-",
+      ].join('\n');
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(
+          async () => new Response(sampleCsv, { status: 200 }),
+        );
+
+      try {
+        // 1. Initial sync upgrades Returnal (8001) -> ps5db, enriches Astro Bot (8002) DAT with publisher/serial without duplicating,
+        //    inserts Demon's Souls and links 8102-1, and sets both dirty flags.
+        const first = await syncWorkerPs5Db(mockEnv);
+        expect(first.checked).toBe(true);
+        expect(first.hashMatch).toBe(false);
+        expect(first.addedCanonical).toBe(1);
+        expect(first.upgradedCanonical).toBe(1);
+        expect(first.enrichedCanonical).toBe(1);
+        expect(first.linkedReleases).toBe(1);
+
+        const returnal = db
+          .prepare(
+            'SELECT id, source, serial_code, publisher FROM canonical_releases WHERE id = 8001',
+          )
+          .get() as {
+          id: number;
+          source: string;
+          serial_code: string | null;
+          publisher: string | null;
+        };
+        expect(returnal).toMatchObject({
+          id: 8001,
+          source: 'ps5db',
+          serial_code: 'PPSA-01284',
+          publisher: 'Sony Interactive Entertainment',
+        });
+
+        const astroRows = db
+          .prepare(
+            "SELECT id, source, serial_code, publisher FROM canonical_releases WHERE platform_id = 35 AND normalized_title = 'astrobot'",
+          )
+          .all() as Array<{
+          id: number;
+          source: string;
+          serial_code: string | null;
+          publisher: string | null;
+        }>;
+        expect(astroRows).toHaveLength(1);
+        expect(astroRows[0]).toMatchObject({
+          id: 8002,
+          source: 'dat',
+          serial_code: 'PPSA-21564',
+          publisher: 'Sony Interactive Entertainment',
+        });
+
+        const demonsLink = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '8102-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        expect(demonsLink.canonical_release_id).toBeGreaterThan(0);
+
+        const dirtyRow = db
+          .prepare('SELECT value FROM sync_state WHERE key = ?')
+          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+        expect(dirtyRow.value).toBe('1');
+
+        // 2. Hash match on re-run performs 0 writes
+        const second = await syncWorkerPs5Db(mockEnv);
+        expect(second.checked).toBe(true);
+        expect(second.hashMatch).toBe(true);
+        expect(second.writesUsed).toBe(0);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerSerialStation advances cursor across 2 pages, fails soft without advancing cursor, respects 2h cooldown, enforces hierarchy, and marks catalog_chunks_dirty only when linked rows change', async () => {
+      db.exec(`
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+        VALUES
+          (8201, 34, 'Bloodborne', 'blodborne', 'USA', 'dat', 1),
+          (8202, 35, 'Stellar Blade', 'stellarblade', 'USA', 'ps5db', 1);
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES
+          (8301, '8301', 'Gravity Rush Remastered', 34);
+        INSERT INTO game_releases (id, game_id, region, canonical_release_id)
+        VALUES
+          ('8301-1', 8301, 'USA', NULL);
+      `);
+
+      // 1. Fail-soft on HTTP 503 preserves cursor at 0 and does NOT touch catalog_chunks_dirty
+      const failSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response('Bad Gateway', { status: 503 }));
+      try {
+        const failRes = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(failRes.error).toContain('503');
+        expect(failRes.nextOffset).toBe(0);
+      } finally {
+        failSpy.mockRestore();
+      }
+
+      // Immediately re-running without force obeys 2h cooldown
+      const throttled = await syncWorkerSerialStation(mockEnv);
+      expect(throttled.skipped).toBe(true);
+
+      // 2. Successful 2-page sweep -> filters PS3/noise, enriches DAT Bloodborne (no dup), upgrades Stellar Blade ps5db -> serialstation,
+      //    does NOT set catalog_chunks_dirty yet because unlinked game wasn't matched on batch 1, then wraps cursor to 0 on final short page!
+      const fillerPage1 = Array.from({ length: 97 }, (_, idx) => ({
+        name: `PS3 Skip ${idx}`,
+        regions: ['America'],
+        title_id: `BLUS${String(10000 + idx)}`,
+        edition: 'Original',
+        release_type: 'PHYSICAL',
+      }));
+      const page1Items = [
+        ...fillerPage1,
+        {
+          name: 'Bloodborne',
+          regions: ['America'],
+          title_id: 'CUSA00900',
+          edition: 'Original',
+          release_type: 'PHYSICAL',
+          barcode: '711719501237',
+        },
+        {
+          name: 'Bloodborne [PlayStation Hits]',
+          regions: ['America'],
+          title_id: 'CUSA00900H',
+          edition: 'PlayStation Hits',
+          release_type: 'PHYSICAL',
+        },
+        {
+          name: 'Stellar Blade',
+          regions: ['America'],
+          title_id: 'PPSA13196',
+          edition: 'Original',
+          release_type: 'PHYSICAL',
+          barcode: '711719576006',
+        },
+      ];
+      const page2Items = [
+        {
+          name: 'Gravity Rush Remastered',
+          regions: ['America'],
+          title_id: 'CUSA01130',
+          edition: 'Original',
+          release_type: 'PHYSICAL',
+        },
+      ];
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          if (url.includes('offset=0')) {
+            return Response.json({ count: 101, items: page1Items });
+          }
+          return Response.json({ count: 101, items: page2Items });
+        });
+
+      try {
+        const res = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(res.error).toBeUndefined();
+        expect(res.pagesFetched).toBe(2);
+        expect(res.nextOffset).toBe(0); // Wrapped after short page 2
+        expect(res.enrichedCanonical).toBe(1); // Bloodborne DAT enriched
+        expect(res.upgradedCanonical).toBe(1); // Stellar Blade ps5db -> serialstation
+        expect(res.addedCanonical).toBe(1); // Gravity Rush Remastered
+        expect(res.linkedReleases).toBe(1); // Linked 8301-1
+        expect(res.writesUsed).toBeLessThanOrEqual(1500);
+
+        const datBloodborne = db
+          .prepare(
+            "SELECT source, serial_code, barcode FROM canonical_releases WHERE platform_id = 34 AND normalized_title = 'blodborne'",
+          )
+          .all() as Array<{
+          source: string;
+          serial_code: string | null;
+          barcode: string | null;
+        }>;
+        expect(datBloodborne).toHaveLength(1);
+        expect(datBloodborne[0]).toMatchObject({
+          source: 'dat',
+          serial_code: 'CUSA00900',
+          barcode: '711719501237',
+        });
+
+        const stellar = db
+          .prepare(
+            'SELECT source, serial_code, barcode FROM canonical_releases WHERE id = 8202',
+          )
+          .get() as {
+          source: string;
+          serial_code: string | null;
+          barcode: string | null;
+        };
+        expect(stellar).toMatchObject({
+          source: 'serialstation',
+          serial_code: 'PPSA13196',
+          barcode: '711719576006',
+        });
+
+        const ps3Inserted = db
+          .prepare(
+            'SELECT COUNT(*) as c FROM canonical_releases WHERE platform_id = 32',
+          )
+          .get() as { c: number };
+        expect(ps3Inserted.c).toBe(0);
+
+        const dirtyRow = db
+          .prepare('SELECT value FROM sync_state WHERE key = ?')
+          .get(CATALOG_CHUNKS_DIRTY_KEY) as { value: string };
+        expect(dirtyRow.value).toBe('1');
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });

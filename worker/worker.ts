@@ -83,6 +83,7 @@ import {
   CANONICAL_BUNDLES,
   detectPhysicalReleaseStatus,
   findCanonicalBundle,
+  getCanonicalSourcePriority,
   regionsOverlap,
   CanonicalRelease,
 } from '../shared/canonical_releases';
@@ -92,6 +93,8 @@ import {
   PAST_REVISION_TITLE_ALIASES,
 } from '../shared/switch_revisions';
 import {
+  areCanonicalTitlesSequelCompatible,
+  buildCanonicalLinkerMatchKeys,
   buildDetailedIgdbMatchVariants,
   cleanTitleForIgdbLookup,
   extractTitleSequelSignature,
@@ -102,6 +105,14 @@ import {
   stripEditionSuffix,
   stripIgdbEditionWrapper,
 } from '../shared/title_matching';
+import { PS5DB_CSV_URL, parsePs5DbCsv } from '../shared/ps5db';
+import {
+  DEFAULT_SERIALSTATION_PLATFORM_IDS,
+  SERIALSTATION_PAGE_LIMIT,
+  SERIALSTATION_RELEASES_URL,
+  SerialStationReleaseItem,
+  parseSerialStationRecords,
+} from '../shared/serialstation';
 import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
 import {
   computeGameCanonicalSeries,
@@ -6935,6 +6946,8 @@ Disallow: /
           runSeriesDiscoveryNow?: boolean;
           runNsCollectorsNow?: boolean;
           runRetailPreOrdersNow?: boolean;
+          runPs5DbNow?: boolean;
+          runSerialStationNow?: boolean;
         } | null;
 
         let batchResult: unknown = undefined;
@@ -6943,6 +6956,8 @@ Disallow: /
         let seriesDiscoveryResult: unknown = undefined;
         let nsCollectorsResult: unknown = undefined;
         let retailPreOrdersResult: unknown = undefined;
+        let ps5DbResult: unknown = undefined;
+        let serialStationResult: unknown = undefined;
         if (body?.runBatchNow) {
           batchResult = await syncWorkerBroadCatalogPopulation(env);
           await invalidateEdgeApiCache(request.url);
@@ -6967,6 +6982,16 @@ Disallow: /
           retailPreOrdersResult = await syncWorkerRetailPreOrders(env);
           await invalidateEdgeApiCache(request.url);
         }
+        if (body?.runPs5DbNow) {
+          ps5DbResult = await syncWorkerPs5Db(env);
+          await invalidateEdgeApiCache(request.url);
+        }
+        if (body?.runSerialStationNow) {
+          serialStationResult = await syncWorkerSerialStation(env, {
+            force: true,
+          });
+          await invalidateEdgeApiCache(request.url);
+        }
 
         const status = await getBroadCatalogSeedStatus(env);
         return Response.json({
@@ -6978,6 +7003,8 @@ Disallow: /
           seriesDiscoveryResult,
           nsCollectorsResult,
           retailPreOrdersResult,
+          ps5DbResult,
+          serialStationResult,
         });
       }
 
@@ -10948,6 +10975,33 @@ export default {
           liteBackfillErr,
         );
       }
+
+      // Rolling 2-page SerialStation verification sweep every ~2 hours (fail-soft)
+      const ssStart = Date.now();
+      try {
+        const ssRes = await syncWorkerSerialStation(env);
+        if (!ssRes.skipped) {
+          logCronExecution(
+            'serialstation_sync',
+            ssRes.error ? 'ERROR' : 'SUCCESS',
+            Date.now() - ssStart,
+            ssRes.error
+              ? `Fail-soft at offset ${ssRes.nextOffset}: ${ssRes.error}`
+              : `SerialStation sweep (+${ssRes.addedCanonical} / ~${ssRes.upgradedCanonical} upg / ~${ssRes.enrichedCanonical} enr, ${ssRes.linkedReleases} linked, next offset ${ssRes.nextOffset})`,
+            ssRes,
+          );
+        }
+      } catch (ssErr) {
+        const msg = ssErr instanceof Error ? ssErr.message : String(ssErr);
+        console.warn('[WorkerCron] SerialStation cron failed-soft:', ssErr);
+        logCronExecution(
+          'serialstation_sync',
+          'ERROR',
+          Date.now() - ssStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
     }
 
     if (isDailyWindow) {
@@ -11054,6 +11108,33 @@ export default {
           'nscollectors_sync',
           'ERROR',
           Date.now() - nsColStart,
+          `Failed: ${msg}`,
+          { error: msg },
+        );
+      }
+
+      // 4c. Scheduled PS5DB physical sheet sync (daily window, SHA-256 hash-gated)
+      const ps5DbStart = Date.now();
+      try {
+        const ps5Res = await syncWorkerPs5Db(env);
+        if (ps5Res.checked) {
+          logCronExecution(
+            'ps5db_sync',
+            'SUCCESS',
+            Date.now() - ps5DbStart,
+            ps5Res.hashMatch
+              ? 'PS5DB sheet unchanged (0 writes)'
+              : `Synced PS5DB (+${ps5Res.addedCanonical} / ~${ps5Res.upgradedCanonical} upg / ~${ps5Res.enrichedCanonical} enr, ${ps5Res.linkedReleases} linked)`,
+            ps5Res,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[WorkerCron] PS5DB sync failed:', err);
+        logCronExecution(
+          'ps5db_sync',
+          'ERROR',
+          Date.now() - ps5DbStart,
           `Failed: ${msg}`,
           { error: msg },
         );
@@ -12897,6 +12978,13 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
   if (insertCanonicalStmts.length > 0) {
     await markCanonicalReleasesDirty(env);
   }
+  if (
+    insertCanonicalStmts.length > 0 ||
+    ingestedGames > 0 ||
+    releaseDateStmts.length > 0
+  ) {
+    await markCatalogChunksDirty(env);
+  }
   await env.DB.prepare(
     `INSERT INTO sync_state (key, value, updated_at) VALUES ('nscollectors_sync_hash', ?, datetime('now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
@@ -12910,6 +12998,806 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     addedCanonical: insertCanonicalStmts.length,
     matchedGames,
     ingestedGames,
+  };
+}
+
+interface WorkerCanonicalMergeRow {
+  id: number;
+  platform_id: number;
+  raw_title: string;
+  normalized_title: string;
+  region: string | null;
+  variants: string | null;
+  serial_code: string | null;
+  barcode: string | null;
+  publisher: string | null;
+  source: string;
+  is_verified_physical: number;
+}
+
+/**
+ * Shared hierarchy-aware canonical merge and sequel-guarded unlinked `game_releases`
+ * linker for online Worker verification crons (`syncWorkerPs5Db`, `syncWorkerSerialStation`).
+ */
+async function applyWorkerCanonicalHierarchyMerge(
+  env: Env,
+  incoming: CanonicalRelease[],
+  initialExisting: WorkerCanonicalMergeRow[],
+  options: {
+    touchedPlatforms: number[];
+    maxWriteBudget: number;
+    loadPostInsertRows: (
+      platIds: number[],
+      normKeys: string[],
+    ) => Promise<WorkerCanonicalMergeRow[]>;
+  },
+): Promise<{
+  addedCanonical: number;
+  upgradedCanonical: number;
+  enrichedCanonical: number;
+  linkedReleases: number;
+  linkedCanonicalMutated: boolean;
+  writesUsed: number;
+}> {
+  const byPlatKey = new Map<string, WorkerCanonicalMergeRow[]>();
+  const indexRow = (row: WorkerCanonicalMergeRow) => {
+    const keys = new Set<string>([
+      row.normalized_title,
+      ...buildCanonicalLinkerMatchKeys(row.raw_title),
+    ]);
+    for (const k of keys) {
+      if (!k) continue;
+      const mapKey = `${row.platform_id}::${k}`;
+      const list = byPlatKey.get(mapKey) || [];
+      if (!list.includes(row)) {
+        list.push(row);
+        byPlatKey.set(mapKey, list);
+      }
+    }
+  };
+
+  for (const ex of initialExisting) {
+    indexRow(ex);
+  }
+
+  let writesUsed = 0;
+  let addedCanonical = 0;
+  let upgradedCanonical = 0;
+  let enrichedCanonical = 0;
+  const canonicalStmts: D1PreparedStatement[] = [];
+  const mutatedExistingIds = new Set<number>();
+  const enrichedGuard = new Set<string>();
+  const seenIncomingExact = new Set<string>();
+  const newlyInsertedNormKeys = new Set<string>();
+
+  for (const rel of incoming) {
+    if (writesUsed + 5 > options.maxWriteBudget) break;
+    const regionVal = rel.region || null;
+    const variantsVal = rel.variants || null;
+    const serialVal = rel.serial_code || null;
+    const barcodeVal = rel.barcode || null;
+    const publisherVal = rel.publisher || null;
+    const verifiedVal = rel.is_verified_physical ?? 1;
+    const exactSig = `${rel.platform_id}::${rel.source}::${rel.normalized_title}::${regionVal || ''}::${variantsVal || ''}::${serialVal || ''}`;
+    if (seenIncomingExact.has(exactSig)) continue;
+    seenIncomingExact.add(exactSig);
+
+    const relKeys = new Set<string>([
+      rel.normalized_title,
+      ...buildCanonicalLinkerMatchKeys(rel.raw_title),
+    ]);
+    const seenCand = new Set<WorkerCanonicalMergeRow>();
+    const candidates: WorkerCanonicalMergeRow[] = [];
+    for (const k of relKeys) {
+      for (const c of byPlatKey.get(`${rel.platform_id}::${k}`) || []) {
+        if (seenCand.has(c)) continue;
+        seenCand.add(c);
+        if ((c.variants || null) !== variantsVal) continue;
+        if (!areCanonicalTitlesSequelCompatible(c.raw_title, rel.raw_title)) {
+          continue;
+        }
+        if (!regionsOverlap(c.region, regionVal)) continue;
+        candidates.push(c);
+      }
+    }
+
+    const sameSourceExact = candidates.find(
+      (c) =>
+        c.source === rel.source &&
+        c.normalized_title === rel.normalized_title &&
+        (c.region || null) === regionVal &&
+        (c.serial_code || null) === serialVal,
+    );
+    const sameSourceLoose =
+      sameSourceExact ||
+      candidates.find(
+        (c) =>
+          c.source === rel.source &&
+          c.normalized_title === rel.normalized_title &&
+          (c.region || null) === regionVal,
+      );
+
+    if (sameSourceLoose) {
+      const hasDiff =
+        sameSourceLoose.raw_title !== rel.raw_title ||
+        sameSourceLoose.normalized_title !== rel.normalized_title ||
+        sameSourceLoose.region !== regionVal ||
+        sameSourceLoose.variants !== variantsVal ||
+        sameSourceLoose.serial_code !== serialVal ||
+        sameSourceLoose.barcode !== barcodeVal ||
+        sameSourceLoose.publisher !== publisherVal ||
+        sameSourceLoose.is_verified_physical !== verifiedVal;
+
+      if (!hasDiff) continue;
+      if (sameSourceLoose.id > 0) {
+        canonicalStmts.push(
+          env.DB.prepare(
+            `UPDATE canonical_releases
+             SET raw_title = ?, normalized_title = ?, region = ?, variants = ?,
+                 serial_code = COALESCE(?, serial_code),
+                 barcode = COALESCE(?, barcode),
+                 publisher = COALESCE(?, publisher),
+                 is_verified_physical = ?
+             WHERE id = ?`,
+          ).bind(
+            rel.raw_title,
+            rel.normalized_title,
+            regionVal,
+            variantsVal,
+            serialVal,
+            barcodeVal,
+            publisherVal,
+            verifiedVal,
+            sameSourceLoose.id,
+          ),
+        );
+        mutatedExistingIds.add(sameSourceLoose.id);
+        writesUsed += 5;
+        enrichedCanonical++;
+      }
+      continue;
+    }
+
+    candidates.sort((a, b) => {
+      const prioDiff =
+        getCanonicalSourcePriority(a.source) -
+        getCanonicalSourcePriority(b.source);
+      if (prioDiff !== 0) return prioDiff;
+      return (a.id || 0) - (b.id || 0);
+    });
+
+    const bestExisting = candidates[0];
+    if (bestExisting) {
+      const existingPrio = getCanonicalSourcePriority(bestExisting.source);
+      const incomingPrio = getCanonicalSourcePriority(rel.source);
+      if (existingPrio <= incomingPrio) {
+        const addSerial =
+          !bestExisting.serial_code && serialVal ? serialVal : null;
+        const addBarcode =
+          !bestExisting.barcode && barcodeVal ? barcodeVal : null;
+        const addPublisher =
+          !bestExisting.publisher && publisherVal ? publisherVal : null;
+        if (!addSerial && !addBarcode && !addPublisher) continue;
+
+        const guardKey = `${bestExisting.id}::${addSerial || ''}::${addBarcode || ''}::${addPublisher || ''}`;
+        if (enrichedGuard.has(guardKey)) continue;
+        enrichedGuard.add(guardKey);
+
+        if (bestExisting.id > 0) {
+          canonicalStmts.push(
+            env.DB.prepare(
+              `UPDATE canonical_releases
+               SET serial_code = COALESCE(serial_code, ?),
+                   barcode = COALESCE(barcode, ?),
+                   publisher = COALESCE(publisher, ?)
+               WHERE id = ?`,
+            ).bind(addSerial, addBarcode, addPublisher, bestExisting.id),
+          );
+          mutatedExistingIds.add(bestExisting.id);
+          writesUsed += 5;
+          enrichedCanonical++;
+        }
+        if (addSerial) bestExisting.serial_code = addSerial;
+        if (addBarcode) bestExisting.barcode = addBarcode;
+        if (addPublisher) bestExisting.publisher = addPublisher;
+      } else {
+        const mergedSerial = serialVal || bestExisting.serial_code;
+        const mergedBarcode = barcodeVal || bestExisting.barcode;
+        const mergedPublisher = publisherVal || bestExisting.publisher;
+        const mergedRegion = regionVal || bestExisting.region;
+        const mergedVariants = variantsVal || bestExisting.variants;
+
+        if (bestExisting.id > 0) {
+          canonicalStmts.push(
+            env.DB.prepare(
+              `UPDATE canonical_releases
+               SET source = ?, raw_title = ?, normalized_title = ?, region = ?, variants = ?,
+                   serial_code = ?, barcode = ?, publisher = ?, is_verified_physical = ?
+               WHERE id = ?`,
+            ).bind(
+              rel.source,
+              rel.raw_title,
+              rel.normalized_title,
+              mergedRegion,
+              mergedVariants,
+              mergedSerial,
+              mergedBarcode,
+              mergedPublisher,
+              verifiedVal,
+              bestExisting.id,
+            ),
+          );
+          mutatedExistingIds.add(bestExisting.id);
+          writesUsed += 5;
+          upgradedCanonical++;
+        }
+        bestExisting.source = rel.source;
+        bestExisting.raw_title = rel.raw_title;
+        bestExisting.normalized_title = rel.normalized_title;
+        bestExisting.region = mergedRegion;
+        bestExisting.variants = mergedVariants;
+        bestExisting.serial_code = mergedSerial;
+        bestExisting.barcode = mergedBarcode;
+        bestExisting.publisher = mergedPublisher;
+        bestExisting.is_verified_physical = verifiedVal;
+        indexRow(bestExisting);
+      }
+      continue;
+    }
+
+    canonicalStmts.push(
+      env.DB.prepare(
+        `INSERT INTO canonical_releases (
+           platform_id, raw_title, normalized_title, region, variants,
+           serial_code, barcode, publisher, source, is_verified_physical
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        rel.platform_id,
+        rel.raw_title,
+        rel.normalized_title,
+        regionVal,
+        variantsVal,
+        serialVal,
+        barcodeVal,
+        publisherVal,
+        rel.source,
+        verifiedVal,
+      ),
+    );
+    newlyInsertedNormKeys.add(rel.normalized_title);
+    writesUsed += 5;
+    addedCanonical++;
+  }
+
+  for (let i = 0; i < canonicalStmts.length; i += 100) {
+    await env.DB.batch(canonicalStmts.slice(i, i + 100));
+  }
+
+  // Reload newly inserted rows with real DB IDs so unlinked game_releases can link directly
+  if (newlyInsertedNormKeys.size > 0 && options.touchedPlatforms.length > 0) {
+    const reloaded = await options.loadPostInsertRows(
+      options.touchedPlatforms,
+      Array.from(newlyInsertedNormKeys),
+    );
+    for (const r of reloaded) {
+      indexRow(r);
+    }
+  }
+
+  let linkedCanonicalMutated = false;
+  if (mutatedExistingIds.size > 0) {
+    const mutatedArr = Array.from(mutatedExistingIds);
+    for (let i = 0; i < mutatedArr.length; i += 40) {
+      const chunk = mutatedArr.slice(i, i + 40);
+      const ph = chunk.map(() => '?').join(',');
+      try {
+        const linkedHit = await env.DB.prepare(
+          `SELECT 1 FROM game_releases WHERE canonical_release_id IN (${ph}) LIMIT 1`,
+        )
+          .bind(...chunk)
+          .first();
+        if (linkedHit) {
+          linkedCanonicalMutated = true;
+          break;
+        }
+      } catch {
+        // Ignore in minimal test mocks
+      }
+    }
+  }
+
+  let linkedReleases = 0;
+  if (
+    options.touchedPlatforms.length > 0 &&
+    writesUsed + 7 <= options.maxWriteBudget
+  ) {
+    const platPh = options.touchedPlatforms.map(() => '?').join(',');
+    const unlinkedRes = await env.DB.prepare(
+      `SELECT gr.id, gr.region, gr.variants, g.title, g.platform_id
+       FROM game_releases gr
+       JOIN games g ON g.stable_id = gr.game_id
+       WHERE gr.canonical_release_id IS NULL
+         AND g.platform_id IN (${platPh})`,
+    )
+      .bind(...options.touchedPlatforms)
+      .all<{
+        id: string;
+        region: string | null;
+        variants: string | null;
+        title: string;
+        platform_id: number;
+      }>();
+
+    const linkStmts: D1PreparedStatement[] = [];
+    for (const gr of unlinkedRes.results || []) {
+      if (writesUsed + 7 > options.maxWriteBudget) break;
+      const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
+      const seenCand = new Set<WorkerCanonicalMergeRow>();
+      const candidates: WorkerCanonicalMergeRow[] = [];
+      for (const lk of lookupKeys) {
+        for (const cand of byPlatKey.get(`${gr.platform_id}::${lk}`) || []) {
+          if (seenCand.has(cand)) continue;
+          seenCand.add(cand);
+          if (cand.id <= 0 || cand.is_verified_physical !== 1) continue;
+          if (!areCanonicalTitlesSequelCompatible(gr.title, cand.raw_title)) {
+            continue;
+          }
+          if (
+            gr.variants &&
+            cand.variants &&
+            gr.variants.toLowerCase() !== cand.variants.toLowerCase()
+          ) {
+            continue;
+          }
+          if (gr.region && !regionsOverlap(gr.region, cand.region)) {
+            continue;
+          }
+          candidates.push(cand);
+        }
+      }
+      if (candidates.length === 0) continue;
+
+      const exactNorm = normalizeTitleForMatching(gr.title);
+      const targetRegionLower = (gr.region || '').trim().toLowerCase();
+      candidates.sort((a, b) => {
+        const prioDiff =
+          getCanonicalSourcePriority(a.source) -
+          getCanonicalSourcePriority(b.source);
+        if (prioDiff !== 0) return prioDiff;
+        const normA = a.normalized_title === exactNorm ? 0 : 1;
+        const normB = b.normalized_title === exactNorm ? 0 : 1;
+        if (normA !== normB) return normA - normB;
+        if (targetRegionLower) {
+          const regExactA =
+            (a.region || '').trim().toLowerCase() === targetRegionLower ? 0 : 1;
+          const regExactB =
+            (b.region || '').trim().toLowerCase() === targetRegionLower ? 0 : 1;
+          if (regExactA !== regExactB) return regExactA - regExactB;
+        }
+        return (b.serial_code ? 1 : 0) - (a.serial_code ? 1 : 0);
+      });
+
+      const best = candidates[0];
+      linkStmts.push(
+        env.DB.prepare(
+          `UPDATE game_releases
+           SET canonical_release_id = ?,
+               variants = COALESCE(variants, ?),
+               barcode = COALESCE(barcode, ?)
+           WHERE id = ? AND canonical_release_id IS NULL`,
+        ).bind(best.id, best.variants, best.barcode, gr.id),
+      );
+      writesUsed += 7;
+      linkedReleases++;
+    }
+
+    for (let i = 0; i < linkStmts.length; i += 100) {
+      await env.DB.batch(linkStmts.slice(i, i + 100));
+    }
+  }
+
+  return {
+    addedCanonical,
+    upgradedCanonical,
+    enrichedCanonical,
+    linkedReleases,
+    linkedCanonicalMutated,
+    writesUsed,
+  };
+}
+
+/**
+ * Daily SHA-256 hash-gated sync for the community PlayStation 5 Physical Database (PS5DB).
+ * Applies 4-tier source precedence on `platform_id = 35` and links unlinked PS5 `game_releases`.
+ */
+export async function syncWorkerPs5Db(env: Env): Promise<{
+  checked: boolean;
+  hashMatch: boolean;
+  addedCanonical: number;
+  upgradedCanonical: number;
+  enrichedCanonical: number;
+  linkedReleases: number;
+  writesUsed: number;
+}> {
+  let csv: string | undefined;
+  try {
+    const res = await fetch(PS5DB_CSV_URL, {
+      headers: {
+        'User-Agent': 'CollectionTracker/2.0 (Ps5DbSync)',
+        Accept: 'text/csv,text/plain,*/*',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) {
+      return {
+        checked: false,
+        hashMatch: false,
+        addedCanonical: 0,
+        upgradedCanonical: 0,
+        enrichedCanonical: 0,
+        linkedReleases: 0,
+        writesUsed: 0,
+      };
+    }
+    csv = await res.text();
+  } catch {
+    return {
+      checked: false,
+      hashMatch: false,
+      addedCanonical: 0,
+      upgradedCanonical: 0,
+      enrichedCanonical: 0,
+      linkedReleases: 0,
+      writesUsed: 0,
+    };
+  }
+
+  if (!csv || !csv.trim() || !csv.includes('Title')) {
+    return {
+      checked: false,
+      hashMatch: false,
+      addedCanonical: 0,
+      upgradedCanonical: 0,
+      enrichedCanonical: 0,
+      linkedReleases: 0,
+      writesUsed: 0,
+    };
+  }
+
+  const hashBuffer = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`v1||${csv}`),
+  );
+  const currentHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  try {
+    const lastHash = await env.DB.prepare(
+      "SELECT value FROM sync_state WHERE key = 'ps5db_sync_hash'",
+    ).first<{ value: string }>();
+    if (lastHash?.value === currentHash) {
+      return {
+        checked: true,
+        hashMatch: true,
+        addedCanonical: 0,
+        upgradedCanonical: 0,
+        enrichedCanonical: 0,
+        linkedReleases: 0,
+        writesUsed: 0,
+      };
+    }
+  } catch {
+    // Proceed in minimal schemas
+  }
+
+  const entries = parsePs5DbCsv(csv);
+  const existingRes = await env.DB.prepare(
+    `SELECT id, platform_id, raw_title, normalized_title, region, variants,
+            serial_code, barcode, publisher, source, is_verified_physical
+     FROM canonical_releases
+     WHERE platform_id = 35 AND is_verified_physical = 1`,
+  ).all<WorkerCanonicalMergeRow>();
+
+  const mergeRes = await applyWorkerCanonicalHierarchyMerge(
+    env,
+    entries,
+    existingRes.results || [],
+    {
+      touchedPlatforms: [35],
+      maxWriteBudget: 45000,
+      loadPostInsertRows: async (_plats, normKeys) => {
+        const out: WorkerCanonicalMergeRow[] = [];
+        for (let i = 0; i < normKeys.length; i += 40) {
+          const chunk = normKeys.slice(i, i + 40);
+          const ph = chunk.map(() => '?').join(',');
+          const res = await env.DB.prepare(
+            `SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                    serial_code, barcode, publisher, source, is_verified_physical
+             FROM canonical_releases
+             WHERE platform_id = 35 AND normalized_title IN (${ph}) AND is_verified_physical = 1`,
+          )
+            .bind(...chunk)
+            .all<WorkerCanonicalMergeRow>();
+          out.push(...(res.results || []));
+        }
+        return out;
+      },
+    },
+  );
+
+  if (
+    mergeRes.addedCanonical > 0 ||
+    mergeRes.upgradedCanonical > 0 ||
+    mergeRes.enrichedCanonical > 0
+  ) {
+    await markCanonicalReleasesDirty(env);
+  }
+  if (mergeRes.linkedReleases > 0 || mergeRes.linkedCanonicalMutated) {
+    await markCatalogChunksDirty(env);
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO sync_state (key, value, updated_at)
+     VALUES ('ps5db_sync_hash', ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+  )
+    .bind(currentHash)
+    .run();
+
+  return {
+    checked: true,
+    hashMatch: false,
+    addedCanonical: mergeRes.addedCanonical,
+    upgradedCanonical: mergeRes.upgradedCanonical,
+    enrichedCanonical: mergeRes.enrichedCanonical,
+    linkedReleases: mergeRes.linkedReleases,
+    writesUsed: mergeRes.writesUsed + 1,
+  };
+}
+
+const SERIALSTATION_CRON_INTERVAL_MS = 115 * 60 * 1000;
+const SERIALSTATION_MAX_WRITES_PER_RUN = 1500;
+
+/**
+ * Fail-soft rolling sweep over SerialStation `/v1/releases/?release_type=PHYSICAL`
+ * (`2` pages / ~2h, default Vita 33 / PS4 34 / PS5 35), applying 4-tier hierarchy
+ * enrichment and linking matching unlinked PlayStation `game_releases`.
+ */
+export async function syncWorkerSerialStation(
+  env: Env,
+  options?: { force?: boolean; maxPages?: number },
+): Promise<{
+  checked: boolean;
+  skipped: boolean;
+  error?: string;
+  pagesFetched: number;
+  addedCanonical: number;
+  upgradedCanonical: number;
+  enrichedCanonical: number;
+  linkedReleases: number;
+  nextOffset: number;
+  writesUsed: number;
+}> {
+  const nowMs = Date.now();
+  let startOffset = 0;
+  try {
+    const [lastRunRow, cursorRow] = await Promise.all([
+      env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'serialstation_last_run'",
+      ).first<{ value: string }>(),
+      env.DB.prepare(
+        "SELECT value FROM sync_state WHERE key = 'serialstation_cursor_offset'",
+      ).first<{ value: string }>(),
+    ]);
+    if (cursorRow?.value && /^\d+$/.test(cursorRow.value)) {
+      startOffset = parseInt(cursorRow.value, 10);
+    }
+    if (!options?.force && lastRunRow?.value) {
+      const lastRunMs = /^\d+$/.test(lastRunRow.value)
+        ? parseInt(lastRunRow.value, 10)
+        : Date.parse(lastRunRow.value);
+      if (
+        Number.isFinite(lastRunMs) &&
+        lastRunMs > 0 &&
+        nowMs - lastRunMs < SERIALSTATION_CRON_INTERVAL_MS
+      ) {
+        return {
+          checked: false,
+          skipped: true,
+          pagesFetched: 0,
+          addedCanonical: 0,
+          upgradedCanonical: 0,
+          enrichedCanonical: 0,
+          linkedReleases: 0,
+          nextOffset: startOffset,
+          writesUsed: 0,
+        };
+      }
+    }
+  } catch {
+    // Proceed in minimal schemas
+  }
+
+  const maxPages = Math.max(1, options?.maxPages ?? 2);
+  const rawItems: SerialStationReleaseItem[] = [];
+  let pagesFetched = 0;
+  let reachedEnd = false;
+  let fetchError: string | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const pageOffset = startOffset + page * SERIALSTATION_PAGE_LIMIT;
+    const url = `${SERIALSTATION_RELEASES_URL}?release_type=PHYSICAL&limit=${SERIALSTATION_PAGE_LIMIT}&offset=${pageOffset}`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'CollectionTracker/2.0 (SerialStationCron)',
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        fetchError = `HTTP ${res.status} ${res.statusText}`;
+        break;
+      }
+      const payload = (await res.json()) as {
+        items?: SerialStationReleaseItem[];
+        count?: number;
+      } | null;
+      if (
+        !payload ||
+        typeof payload !== 'object' ||
+        !Array.isArray(payload.items)
+      ) {
+        fetchError = 'Unexpected SerialStation JSON payload';
+        break;
+      }
+      pagesFetched++;
+      rawItems.push(...payload.items);
+      const totalCount =
+        typeof payload.count === 'number' ? payload.count : undefined;
+      if (
+        payload.items.length < SERIALSTATION_PAGE_LIMIT ||
+        (totalCount !== undefined &&
+          pageOffset + payload.items.length >= totalCount)
+      ) {
+        reachedEnd = true;
+        break;
+      }
+    } catch (err) {
+      fetchError = err instanceof Error ? err.message : String(err);
+      break;
+    }
+  }
+
+  // Record last run timestamp on fail-soft error WITHOUT advancing cursor_offset
+  if (fetchError && pagesFetched === 0) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES ('serialstation_last_run', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+        .bind(String(nowMs))
+        .run();
+    } catch {
+      // Ignore in minimal schemas
+    }
+    return {
+      checked: true,
+      skipped: false,
+      error: fetchError,
+      pagesFetched: 0,
+      addedCanonical: 0,
+      upgradedCanonical: 0,
+      enrichedCanonical: 0,
+      linkedReleases: 0,
+      nextOffset: startOffset,
+      writesUsed: 0,
+    };
+  }
+
+  const parsed = parseSerialStationRecords(rawItems, [], {
+    allowedPlatformIds: DEFAULT_SERIALSTATION_PLATFORM_IDS,
+  });
+
+  const keysByPlat = new Map<number, Set<string>>();
+  for (const rel of parsed) {
+    let set = keysByPlat.get(rel.platform_id);
+    if (!set) {
+      set = new Set<string>();
+      keysByPlat.set(rel.platform_id, set);
+    }
+    set.add(rel.normalized_title);
+    for (const k of buildCanonicalLinkerMatchKeys(rel.raw_title)) {
+      set.add(k);
+    }
+  }
+
+  const loadByPlatKeys = async (
+    platIds: number[],
+    filterKeys?: string[],
+  ): Promise<WorkerCanonicalMergeRow[]> => {
+    const rows: WorkerCanonicalMergeRow[] = [];
+    for (const platId of platIds) {
+      const keyArr = filterKeys ?? Array.from(keysByPlat.get(platId) || []);
+      for (let i = 0; i < keyArr.length; i += 40) {
+        const chunk = keyArr.slice(i, i + 40);
+        const ph = chunk.map(() => '?').join(',');
+        const res = await env.DB.prepare(
+          `SELECT id, platform_id, raw_title, normalized_title, region, variants,
+                  serial_code, barcode, publisher, source, is_verified_physical
+           FROM canonical_releases
+           WHERE platform_id = ? AND normalized_title IN (${ph}) AND is_verified_physical = 1`,
+        )
+          .bind(platId, ...chunk)
+          .all<WorkerCanonicalMergeRow>();
+        rows.push(...(res.results || []));
+      }
+    }
+    return rows;
+  };
+
+  const touchedPlatforms = Array.from(keysByPlat.keys());
+  const existingRows = await loadByPlatKeys(touchedPlatforms);
+
+  const mergeRes =
+    parsed.length > 0
+      ? await applyWorkerCanonicalHierarchyMerge(env, parsed, existingRows, {
+          touchedPlatforms,
+          maxWriteBudget: SERIALSTATION_MAX_WRITES_PER_RUN,
+          loadPostInsertRows: loadByPlatKeys,
+        })
+      : {
+          addedCanonical: 0,
+          upgradedCanonical: 0,
+          enrichedCanonical: 0,
+          linkedReleases: 0,
+          linkedCanonicalMutated: false,
+          writesUsed: 0,
+        };
+
+  if (
+    mergeRes.addedCanonical > 0 ||
+    mergeRes.upgradedCanonical > 0 ||
+    mergeRes.enrichedCanonical > 0
+  ) {
+    await markCanonicalReleasesDirty(env);
+  }
+  if (mergeRes.linkedReleases > 0 || mergeRes.linkedCanonicalMutated) {
+    await markCatalogChunksDirty(env);
+  }
+
+  const nextOffset = fetchError
+    ? startOffset
+    : reachedEnd
+      ? 0
+      : startOffset + pagesFetched * SERIALSTATION_PAGE_LIMIT;
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('serialstation_cursor_offset', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    ).bind(String(nextOffset)),
+    env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('serialstation_last_run', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    ).bind(String(nowMs)),
+  ]);
+
+  return {
+    checked: true,
+    skipped: false,
+    ...(fetchError ? { error: fetchError } : {}),
+    pagesFetched,
+    addedCanonical: mergeRes.addedCanonical,
+    upgradedCanonical: mergeRes.upgradedCanonical,
+    enrichedCanonical: mergeRes.enrichedCanonical,
+    linkedReleases: mergeRes.linkedReleases,
+    nextOffset,
+    writesUsed: mergeRes.writesUsed + 2,
   };
 }
 
