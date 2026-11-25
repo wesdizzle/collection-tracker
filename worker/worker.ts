@@ -11805,6 +11805,7 @@ export async function syncWorkerRetailDeals(env: Env): Promise<{
             source: 'retail_catalog',
           },
         );
+        if (!canonicalRef?.id) continue;
 
         const inserted = await insertCatalogGameWithReleases(env, {
           title: canonicalTitle,
@@ -12168,6 +12169,7 @@ export async function syncWorkerRetailPreOrders(env: Env): Promise<{
           source: 'retail_catalog',
         },
       );
+      if (!canonicalRef?.id) continue;
 
       const inserted = await insertCatalogGameWithReleases(env, {
         title: canonicalTitle,
@@ -12919,6 +12921,9 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
  * Synchronizes the r/NSCollectors Switch 1 & 2 community physical lists (5 CSV tabs)
  * into `canonical_releases` and ingests genuinely new Switch 1 & 2 physical releases
  * immediately when listed in Master, SW2 Details, or Upcoming tabs.
+ * Links existing unlinked Switch 1/2 releases, upgrades graduated Upcoming releases
+ * to Master/SW2 Details, and prunes cancelled Upcoming entries after 2 consecutive
+ * non-truncated misses (strictly user-state-independent).
  * Uses SHA-256 hash gating (`nscollectors_sync_hash`) so unchanged sheets cost 0 writes.
  */
 export async function syncWorkerNsCollectors(env: Env): Promise<{
@@ -12927,6 +12932,9 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
   addedCanonical: number;
   matchedGames: number;
   ingestedGames: number;
+  linkedReleases: number;
+  upgradedReleases: number;
+  cancelledCanonical: number;
 }> {
   const fetchedTabs = await Promise.all(
     NSCOLLECTORS_TABS.map(async (tab) => {
@@ -12957,6 +12965,9 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
       addedCanonical: 0,
       matchedGames: 0,
       ingestedGames: 0,
+      linkedReleases: 0,
+      upgradedReleases: 0,
+      cancelledCanonical: 0,
     };
   }
 
@@ -12981,6 +12992,9 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
         addedCanonical: 0,
         matchedGames: 0,
         ingestedGames: 0,
+        linkedReleases: 0,
+        upgradedReleases: 0,
+        cancelledCanonical: 0,
       };
     }
   } catch {
@@ -12989,10 +13003,9 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
 
   const entries = parseNsCollectorsCsv(nonEmptyTabs);
   const existingCanonical = await env.DB.prepare(
-    `SELECT id, platform_id, normalized_title, region, variants, source
+    `SELECT id, platform_id, normalized_title, region, variants, source, is_verified_physical
      FROM canonical_releases
-     WHERE platform_id IN (26, 27)
-       AND source IN ('nscollectors', 'nscollectors_upcoming', 'nscollectors_ciab')`,
+     WHERE platform_id IN (26, 27)`,
   ).all<{
     id: number;
     platform_id: number;
@@ -13000,13 +13013,32 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     region: string | null;
     variants: string | null;
     source: string;
+    is_verified_physical: number;
   }>();
 
+  const existingCanonicalRows = existingCanonical.results || [];
   const existingCanonicalSet = new Set<string>();
-  for (const row of existingCanonical.results || []) {
-    existingCanonicalSet.add(
-      `${row.platform_id}::${row.normalized_title}::${row.region || 'World'}::${row.source}::${row.variants || ''}`,
-    );
+  const verifyUpcomingStmts: D1PreparedStatement[] = [];
+  for (const row of existingCanonicalRows) {
+    if (
+      row.source === 'nscollectors' ||
+      row.source === 'nscollectors_upcoming' ||
+      row.source === 'nscollectors_ciab'
+    ) {
+      existingCanonicalSet.add(
+        `${row.platform_id}::${row.normalized_title}::${row.region || 'World'}::${row.source}::${row.variants || ''}`,
+      );
+      if (
+        row.source === 'nscollectors_upcoming' &&
+        row.is_verified_physical !== 1
+      ) {
+        verifyUpcomingStmts.push(
+          env.DB.prepare(
+            `UPDATE canonical_releases SET is_verified_physical = 1 WHERE id = ?`,
+          ).bind(row.id),
+        );
+      }
+    }
   }
 
   const insertCanonicalStmts: D1PreparedStatement[] = [];
@@ -13032,8 +13064,208 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     );
   }
 
+  for (let i = 0; i < verifyUpcomingStmts.length; i += 100) {
+    await env.DB.batch(verifyUpcomingStmts.slice(i, i + 100));
+  }
   for (let i = 0; i < insertCanonicalStmts.length; i += 100) {
     await env.DB.batch(insertCanonicalStmts.slice(i, i + 100));
+  }
+
+  // Safe, user-state-independent 2-miss cancellation pruning for nscollectors_upcoming
+  const fetchedTabIds = new Set(nonEmptyTabs.map((t) => t.tab.id));
+  const currentUpcomingByPlatNorm = new Map<
+    string,
+    Array<{ region: string | null }>
+  >();
+  const parsedUpcomingCountByPlat = new Map<number, number>([
+    [26, 0],
+    [27, 0],
+  ]);
+  const verifiedNonUpcomingByPlatNorm = new Map<
+    string,
+    Array<{ region: string | null }>
+  >();
+
+  for (const row of existingCanonicalRows) {
+    if (
+      row.source !== 'nscollectors_upcoming' &&
+      (row.is_verified_physical === 1 || row.source === 'nscollectors')
+    ) {
+      const k = `${row.platform_id}::${row.normalized_title}`;
+      const list = verifiedNonUpcomingByPlatNorm.get(k) || [];
+      list.push({ region: row.region });
+      verifiedNonUpcomingByPlatNorm.set(k, list);
+    }
+  }
+  for (const entry of entries) {
+    const cr = entry.release;
+    const k = `${cr.platform_id}::${cr.normalized_title}`;
+    if (cr.source === 'nscollectors_upcoming') {
+      const list = currentUpcomingByPlatNorm.get(k) || [];
+      list.push({ region: cr.region });
+      currentUpcomingByPlatNorm.set(k, list);
+      parsedUpcomingCountByPlat.set(
+        cr.platform_id,
+        (parsedUpcomingCountByPlat.get(cr.platform_id) || 0) + 1,
+      );
+    } else if (cr.source === 'nscollectors') {
+      const list = verifiedNonUpcomingByPlatNorm.get(k) || [];
+      list.push({ region: cr.region });
+      verifiedNonUpcomingByPlatNorm.set(k, list);
+    }
+  }
+
+  let missMap: Record<string, number> = {};
+  let prevMissJson = '{}';
+  try {
+    const missRow = await env.DB.prepare(
+      "SELECT value FROM sync_state WHERE key = 'nscollectors_upcoming_missing_v1'",
+    ).first<{ value: string }>();
+    if (missRow?.value) {
+      const parsed = JSON.parse(missRow.value);
+      if (parsed && typeof parsed === 'object') {
+        missMap = parsed as Record<string, number>;
+        prevMissJson = JSON.stringify(missMap);
+      }
+    }
+  } catch {
+    missMap = {};
+  }
+
+  const cancelledCanonicalIds: number[] = [];
+  for (const pid of [26, 27] as const) {
+    const upcomingTabId = pid === 26 ? 'sw1_upcoming' : 'sw2_upcoming';
+    if (!fetchedTabIds.has(upcomingTabId)) continue;
+    const dbUpcomingRows = existingCanonicalRows.filter(
+      (r) => r.platform_id === pid && r.source === 'nscollectors_upcoming',
+    );
+    if (dbUpcomingRows.length === 0) continue;
+
+    // Partition graduated upcoming rows out before evaluating the 50% sheet-truncation sanity denominator
+    const activeDbUpcomingRows: typeof dbUpcomingRows = [];
+    for (const row of dbUpcomingRows) {
+      const platNormKey = `${row.platform_id}::${row.normalized_title}`;
+      const graduated = (
+        verifiedNonUpcomingByPlatNorm.get(platNormKey) || []
+      ).some((v) => regionsOverlap(row.region, v.region));
+      if (graduated) {
+        delete missMap[String(row.id)];
+      } else {
+        activeDbUpcomingRows.push(row);
+      }
+    }
+
+    if (activeDbUpcomingRows.length === 0) continue;
+    const parsedCount = parsedUpcomingCountByPlat.get(pid) || 0;
+    // Sanity gate: skip incrementing misses if upstream sheet looks truncated (< 50% of active upcoming rows)
+    if (parsedCount < Math.ceil(activeDbUpcomingRows.length * 0.5)) continue;
+
+    for (const row of activeDbUpcomingRows) {
+      const idKey = String(row.id);
+      const platNormKey = `${row.platform_id}::${row.normalized_title}`;
+      const stillUpcoming = (
+        currentUpcomingByPlatNorm.get(platNormKey) || []
+      ).some((u) => regionsOverlap(row.region, u.region));
+
+      if (stillUpcoming) {
+        delete missMap[idKey];
+      } else {
+        const nextMisses = (Number(missMap[idKey]) || 0) + 1;
+        if (nextMisses >= 2) {
+          cancelledCanonicalIds.push(row.id);
+          delete missMap[idKey];
+        } else {
+          missMap[idKey] = nextMisses;
+        }
+      }
+    }
+  }
+
+  let cancelledCanonical = 0;
+  let cancelledReleasesRemoved = 0;
+  if (cancelledCanonicalIds.length > 0) {
+    const affectedGameIds = new Set<number>();
+    const deleteRelStmts: D1PreparedStatement[] = [];
+    const deleteCanonStmts: D1PreparedStatement[] = [];
+    for (const canonId of cancelledCanonicalIds) {
+      const relGames = await env.DB.prepare(
+        `SELECT DISTINCT game_id FROM game_releases WHERE canonical_release_id = ?`,
+      )
+        .bind(canonId)
+        .all<{ game_id: number }>();
+      for (const rg of relGames.results || []) {
+        affectedGameIds.add(rg.game_id);
+        cancelledReleasesRemoved++;
+      }
+      deleteRelStmts.push(
+        env.DB.prepare(
+          `DELETE FROM game_releases WHERE canonical_release_id = ?`,
+        ).bind(canonId),
+      );
+      deleteCanonStmts.push(
+        env.DB.prepare(`DELETE FROM canonical_releases WHERE id = ?`).bind(
+          canonId,
+        ),
+      );
+    }
+    for (let i = 0; i < deleteRelStmts.length; i += 100) {
+      await env.DB.batch(deleteRelStmts.slice(i, i + 100));
+    }
+    const deleteGameStmts: D1PreparedStatement[] = [];
+    for (const gid of affectedGameIds) {
+      const remaining = await env.DB.prepare(
+        `SELECT 1 AS ok FROM game_releases WHERE game_id = ? LIMIT 1`,
+      )
+        .bind(gid)
+        .first<{ ok: number }>();
+      if (!remaining) {
+        deleteGameStmts.push(
+          env.DB.prepare(`DELETE FROM games WHERE stable_id = ?`).bind(gid),
+        );
+      }
+    }
+    for (let i = 0; i < deleteGameStmts.length; i += 100) {
+      await env.DB.batch(deleteGameStmts.slice(i, i + 100));
+    }
+    for (let i = 0; i < deleteCanonStmts.length; i += 100) {
+      await env.DB.batch(deleteCanonStmts.slice(i, i + 100));
+    }
+    cancelledCanonical = cancelledCanonicalIds.length;
+  }
+
+  const nextMissJson = JSON.stringify(missMap);
+  if (nextMissJson !== prevMissJson) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at) VALUES ('nscollectors_upcoming_missing_v1', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+        .bind(nextMissJson)
+        .run();
+    } catch {
+      // Ignore in minimal schemas
+    }
+  }
+
+  const canonicalIdRows = await env.DB.prepare(
+    `SELECT id, platform_id, normalized_title, region, source, variants
+     FROM canonical_releases
+     WHERE platform_id IN (26, 27)
+       AND source IN ('nscollectors', 'nscollectors_upcoming')`,
+  ).all<{
+    id: number;
+    platform_id: number;
+    normalized_title: string;
+    region: string | null;
+    source: string;
+    variants: string | null;
+  }>();
+  const canonicalIdMap = new Map<string, number>();
+  for (const row of canonicalIdRows.results || []) {
+    canonicalIdMap.set(
+      `${row.platform_id}::${row.normalized_title}::${row.region || 'World'}::${row.source}::${row.variants || ''}`,
+      row.id,
+    );
   }
 
   const gamesRes = await env.DB.prepare(
@@ -13045,6 +13277,37 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     platform_id: number;
     igdb_id?: number | null;
   }>();
+
+  const existingRelsRes = await env.DB.prepare(
+    `SELECT r.id, r.game_id, r.region, r.variants, r.canonical_release_id, r.verified_source
+     FROM game_releases r
+     JOIN games g ON g.stable_id = r.game_id
+     WHERE g.platform_id IN (26, 27)`,
+  ).all<{
+    id: string;
+    game_id: number;
+    region: string | null;
+    variants: string | null;
+    canonical_release_id: number | null;
+    verified_source: string | null;
+  }>();
+
+  const existingRelsByGame = new Map<
+    number,
+    Array<{
+      id: string;
+      game_id: number;
+      region: string | null;
+      variants: string | null;
+      canonical_release_id: number | null;
+      verified_source: string | null;
+    }>
+  >();
+  for (const rel of existingRelsRes.results || []) {
+    const arr = existingRelsByGame.get(rel.game_id) || [];
+    arr.push(rel);
+    existingRelsByGame.set(rel.game_id, arr);
+  }
 
   const existingGameByPlatformNorm = new Map<string, number>();
   const existingIgdbByPlatform = new Set<string>();
@@ -13069,7 +13332,10 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
   }
 
   let matchedGames = 0;
+  let linkedReleases = 0;
+  let upgradedReleases = 0;
   const matchedDatesToFill = new Map<number, string>();
+  const linkOrUpgradeStmts: D1PreparedStatement[] = [];
   const pendingIngest = new Map<string, (typeof entries)[0]>();
   const NSCOLLECTORS_AUTO_INGEST_CAP = 20;
 
@@ -13090,10 +13356,87 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
       if (entry.releaseDate && !matchedDatesToFill.has(existingStableId)) {
         matchedDatesToFill.set(existingStableId, entry.releaseDate);
       }
+      if (cr.source !== 'nscollectors_ciab') {
+        const canonId = canonicalIdMap.get(
+          `${cr.platform_id}::${cr.normalized_title}::${cr.region || 'World'}::${cr.source}::${cr.variants || ''}`,
+        );
+        if (canonId != null) {
+          const rels = existingRelsByGame.get(existingStableId) || [];
+          const unlinked = rels.find(
+            (r) =>
+              r.canonical_release_id == null &&
+              regionsOverlap(r.region, cr.region || 'USA'),
+          );
+          if (unlinked) {
+            unlinked.canonical_release_id = canonId;
+            unlinked.verified_source = cr.source;
+            linkedReleases++;
+            linkOrUpgradeStmts.push(
+              env.DB.prepare(
+                `UPDATE game_releases
+                 SET canonical_release_id = ?,
+                     verified_source = ?,
+                     serial_code = COALESCE(serial_code, ?),
+                     canonical_title = COALESCE(canonical_title, ?),
+                     publisher = COALESCE(publisher, ?),
+                     variants = COALESCE(variants, ?),
+                     release_date = COALESCE(release_date, ?)
+                 WHERE id = ?`,
+              ).bind(
+                canonId,
+                cr.source,
+                cr.serial_code ?? null,
+                cr.raw_title ?? null,
+                cr.publisher ?? null,
+                cr.variants ?? null,
+                entry.releaseDate ?? null,
+                unlinked.id,
+              ),
+            );
+          } else if (cr.source === 'nscollectors') {
+            const upcomingRel = rels.find(
+              (r) =>
+                r.verified_source === 'nscollectors_upcoming' &&
+                r.canonical_release_id !== canonId &&
+                regionsOverlap(r.region, cr.region || 'USA'),
+            );
+            if (upcomingRel) {
+              upcomingRel.canonical_release_id = canonId;
+              upcomingRel.verified_source = 'nscollectors';
+              upgradedReleases++;
+              linkOrUpgradeStmts.push(
+                env.DB.prepare(
+                  `UPDATE game_releases
+                   SET canonical_release_id = ?,
+                       verified_source = 'nscollectors',
+                       serial_code = COALESCE(serial_code, ?),
+                       canonical_title = COALESCE(canonical_title, ?),
+                       publisher = COALESCE(publisher, ?),
+                       variants = COALESCE(?, variants),
+                       release_date = COALESCE(?, release_date)
+                   WHERE id = ?`,
+                ).bind(
+                  canonId,
+                  cr.serial_code ?? null,
+                  cr.raw_title ?? null,
+                  cr.publisher ?? null,
+                  cr.variants ?? null,
+                  entry.releaseDate ?? null,
+                  upcomingRel.id,
+                ),
+              );
+            }
+          }
+        }
+      }
       continue;
     }
 
     if (cr.source === 'nscollectors_ciab') continue;
+    const ingestCanonId = canonicalIdMap.get(
+      `${cr.platform_id}::${cr.normalized_title}::${cr.region || 'World'}::${cr.source}::${cr.variants || ''}`,
+    );
+    if (ingestCanonId == null) continue;
     const ingestKey = `${cr.platform_id}::${cr.normalized_title}`;
     if (
       !pendingIngest.has(ingestKey) &&
@@ -13101,6 +13444,10 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     ) {
       pendingIngest.set(ingestKey, entry);
     }
+  }
+
+  for (let i = 0; i < linkOrUpgradeStmts.length; i += 100) {
+    await env.DB.batch(linkOrUpgradeStmts.slice(i, i + 100));
   }
 
   const releaseDateStmts: D1PreparedStatement[] = [];
@@ -13154,27 +13501,6 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
       releases: Array<{ id: string; region: string | null }>;
     }> = [];
 
-    const canonicalIdRows = await env.DB.prepare(
-      `SELECT id, platform_id, normalized_title, region, source, variants
-       FROM canonical_releases
-       WHERE platform_id IN (26, 27)
-         AND source IN ('nscollectors', 'nscollectors_upcoming')`,
-    ).all<{
-      id: number;
-      platform_id: number;
-      normalized_title: string;
-      region: string | null;
-      source: string;
-      variants: string | null;
-    }>();
-    const canonicalIdMap = new Map<string, number>();
-    for (const row of canonicalIdRows.results || []) {
-      canonicalIdMap.set(
-        `${row.platform_id}::${row.normalized_title}::${row.region || 'World'}::${row.source}::${row.variants || ''}`,
-        row.id,
-      );
-    }
-
     for (const [key, entry] of pendingIngest.entries()) {
       const cr = entry.release;
       const igdbMeta = igdbMetaMap.get(key) ?? null;
@@ -13198,6 +13524,7 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
         canonicalIdMap.get(
           `${cr.platform_id}::${cr.normalized_title}::${cr.region || 'World'}::${cr.source}::${cr.variants || ''}`,
         ) ?? null;
+      if (canonicalId == null) continue;
 
       const inserted = await insertCatalogGameWithReleases(env, {
         title: canonicalTitle,
@@ -13266,15 +13593,26 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     }
   }
 
-  if (insertCanonicalStmts.length > 0) {
+  if (
+    insertCanonicalStmts.length > 0 ||
+    verifyUpcomingStmts.length > 0 ||
+    cancelledCanonical > 0
+  ) {
     await markCanonicalReleasesDirty(env);
   }
   if (
     insertCanonicalStmts.length > 0 ||
     ingestedGames > 0 ||
-    releaseDateStmts.length > 0
+    releaseDateStmts.length > 0 ||
+    linkOrUpgradeStmts.length > 0 ||
+    cancelledReleasesRemoved > 0
   ) {
     await markCatalogChunksDirty(env);
+  }
+  if (cancelledCanonical > 0 && ingestedGames === 0) {
+    invalidateSeriesScanCache();
+    await invalidateCatalogManifest(env);
+    await markDbDirty(env);
   }
   await env.DB.prepare(
     `INSERT INTO sync_state (key, value, updated_at) VALUES ('nscollectors_sync_hash', ?, datetime('now'))
@@ -13289,6 +13627,9 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     addedCanonical: insertCanonicalStmts.length,
     matchedGames,
     ingestedGames,
+    linkedReleases,
+    upgradedReleases,
+    cancelledCanonical,
   };
 }
 
@@ -14992,6 +15333,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
             source: canonicalSource,
           },
         );
+        if (!canonicalRef?.id) continue;
 
         const inserted = await insertCatalogGameWithReleases(env, {
           title: canonicalTitle,
@@ -18204,34 +18546,25 @@ export async function syncWorkerWatchedSeriesDiscovery(
           game.first_release_date,
         );
 
-        const releasesToCreate =
-          detection.matched_releases.length > 0
-            ? detection.matched_releases.map((cr, idx) => ({
-                slugSuffix:
-                  cr.rom_crc ||
-                  cr.serial_code ||
-                  cr.rom_name ||
-                  cr.region ||
-                  `rel-${idx + 1}`,
-                region: cr.region || 'USA',
-                variants: cr.variants || null,
-                romName: cr.rom_name || null,
-                romCrc: cr.rom_crc || null,
-                releaseDate: platReleaseDate,
-                canonicalReleaseId: cr.id,
-                verifiedSource: cr.source ?? null,
-                serialCode: cr.serial_code ?? null,
-                canonicalTitle: cr.raw_title ?? null,
-                publisher: cr.publisher ?? null,
-              }))
-            : [
-                {
-                  slugSuffix: 'usa',
-                  region: 'USA',
-                  variants: 'Standard Edition',
-                  releaseDate: platReleaseDate,
-                },
-              ];
+        if (detection.matched_releases.length === 0) continue;
+        const releasesToCreate = detection.matched_releases.map((cr, idx) => ({
+          slugSuffix:
+            cr.rom_crc ||
+            cr.serial_code ||
+            cr.rom_name ||
+            cr.region ||
+            `rel-${idx + 1}`,
+          region: cr.region || 'USA',
+          variants: cr.variants || null,
+          romName: cr.rom_name || null,
+          romCrc: cr.rom_crc || null,
+          releaseDate: platReleaseDate,
+          canonicalReleaseId: cr.id,
+          verifiedSource: cr.source ?? null,
+          serialCode: cr.serial_code ?? null,
+          canonicalTitle: cr.raw_title ?? null,
+          publisher: cr.publisher ?? null,
+        }));
 
         const inserted = await insertCatalogGameWithReleases(env, {
           title: game.name!,

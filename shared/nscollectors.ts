@@ -4,10 +4,10 @@
  * Parses CSV exports from the community-maintained r/NSCollectors Switch 1 & Switch 2
  * physical release Google Sheets:
  * - SW1 Master Sheet (`nscollectors`, is_verified_physical = 1)
- * - SW1 Upcoming Releases (`nscollectors_upcoming`, is_verified_physical = 0)
+ * - SW1 Upcoming Releases (`nscollectors_upcoming`, is_verified_physical = 1)
  * - SW1 Code in a Box (`nscollectors_ciab`, is_verified_physical = 0)
  * - SW2 Physical Details (`nscollectors`, is_verified_physical = 1, Game-Key Card tagged)
- * - SW2 Upcoming Releases (`nscollectors_upcoming`, is_verified_physical = 0)
+ * - SW2 Upcoming Releases (`nscollectors_upcoming`, is_verified_physical = 1)
  */
 
 import { CanonicalRelease } from './canonical_releases.js';
@@ -62,7 +62,7 @@ export const NSCOLLECTORS_TABS: NsCollectorsTabConfig[] = [
     gid: '238551450',
     platformId: 26,
     source: 'nscollectors_upcoming',
-    isVerifiedPhysical: 0,
+    isVerifiedPhysical: 1,
   },
   {
     id: 'sw1_ciab',
@@ -89,7 +89,7 @@ export const NSCOLLECTORS_TABS: NsCollectorsTabConfig[] = [
     gid: '238551450',
     platformId: 27,
     source: 'nscollectors_upcoming',
-    isVerifiedPhysical: 0,
+    isVerifiedPhysical: 1,
   },
 ];
 

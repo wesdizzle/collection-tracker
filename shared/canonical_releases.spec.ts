@@ -1490,6 +1490,7 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(getCanonicalSourceTier('nscollectors')).toBe(3);
       expect(getCanonicalSourceTier('retail_catalog')).toBe(4);
       expect(getCanonicalSourceTier('lgn')).toBe(4);
+      expect(getCanonicalSourceTier('nscollectors_upcoming')).toBe(4);
       expect(getCanonicalSourceTier('nscollectors_ciab')).toBe(0);
     });
 

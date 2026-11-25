@@ -958,7 +958,7 @@ export function regionsOverlap(
  * Tier 1 (checksum/official): dat, mame, nintendo_revised
  * Tier 2 (serial/catalog DB): serialstation
  * Tier 3 (curated community): ps5db, nscollectors, neogeo_x, community_csv
- * Tier 4 (verified retail/boutique fallback): retail_catalog, lgn
+ * Tier 4 (verified retail/boutique/upcoming fallback): retail_catalog, lgn, nscollectors_upcoming
  */
 export const CANONICAL_SOURCE_PRIORITY: Record<string, number> = {
   dat: 10,
@@ -971,7 +971,7 @@ export const CANONICAL_SOURCE_PRIORITY: Record<string, number> = {
   community_csv: 80,
   retail_catalog: 90,
   lgn: 100,
-  nscollectors_upcoming: 200,
+  nscollectors_upcoming: 110,
   nscollectors_ciab: 210,
   igdb_physical: 220,
   publisher_whitelist: 230,
@@ -989,7 +989,7 @@ export function getCanonicalSourcePriority(
 
 /**
  * Maps a canonical source string onto its 1–4 verification tier (or 0 for unverified/fallback).
- * Tier 4 (`retail_catalog`, `lgn`) remains verified at the lowest priority in the hierarchy.
+ * Tier 4 (`retail_catalog`, `lgn`, `nscollectors_upcoming`) remains verified at the lowest priority in the hierarchy.
  */
 export function getCanonicalSourceTier(
   source: string | null | undefined,
@@ -1008,6 +1008,7 @@ export function getCanonicalSourceTier(
       return 3;
     case 'retail_catalog':
     case 'lgn':
+    case 'nscollectors_upcoming':
       return 4;
     default:
       return 0;

@@ -84,7 +84,7 @@ describe('r/NSCollectors Physical Release Parser', () => {
       (e) => e.release.source === 'nscollectors_upcoming',
     )!;
     expect(upcoming.release.platform_id).toBe(27);
-    expect(upcoming.release.is_verified_physical).toBe(0);
+    expect(upcoming.release.is_verified_physical).toBe(1);
     expect(upcoming.releaseDate).toBe('2026-11-12');
   });
 });

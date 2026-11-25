@@ -10097,6 +10097,184 @@ describe('Worker API Logic', () => {
       }
     });
 
+    it('syncWorkerNsCollectors links unlinked releases, upgrades upcoming to master, and prunes 2-miss cancelled upcoming rows regardless of ownership', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, region)
+         VALUES (7001, '7001', 'Unlinked Switch One', 26, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region) VALUES ('7001-1', 7001, 'USA')`,
+      ).run();
+
+      const oldUpcomingCanon = db
+        .prepare(
+          `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+           VALUES (26, 'Graduating Quest', 'graduatingquest', 'USA', 'nscollectors_upcoming', 1)`,
+        )
+        .run();
+      // Seed historical graduated upcoming rows + their verified master counterparts so we verify
+      // graduated rows are excluded from the 50% truncation sanity denominator.
+      db.prepare(
+        `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+         VALUES (26, 'Graduated Historical One', 'graduatedhistoricalone', 'USA', 'nscollectors_upcoming', 1),
+                (26, 'Graduated Historical One', 'graduatedhistoricalone', 'USA', 'nscollectors', 1),
+                (26, 'Graduated Historical Two', 'graduatedhistoricaltwo', 'USA', 'nscollectors_upcoming', 1),
+                (26, 'Graduated Historical Two', 'graduatedhistoricaltwo', 'USA', 'nscollectors', 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, region)
+         VALUES (7002, '7002', 'Graduating Quest', 26, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, canonical_release_id, verified_source)
+         VALUES ('7002-1', 7002, 'USA', ?, 'nscollectors_upcoming')`,
+      ).run(Number(oldUpcomingCanon.lastInsertRowid));
+
+      let phase = 1;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('gid=2004832329')) {
+            return new Response(
+              [
+                'Title,Region,Release Date,Publisher',
+                'Unlinked Switch One,NA,2024-05-01,IndiePub',
+                'Graduating Quest,NA,2026-04-01,QuestPub',
+              ].join('\n'),
+              { status: 200, headers: { 'Content-Type': 'text/csv' } },
+            );
+          }
+          if (urlStr.includes('gid=238551450') && urlStr.includes('1FNyvbb')) {
+            if (phase === 1) {
+              return new Response(
+                [
+                  'Title,Region,Release Date,Publisher',
+                  'Surviving Upcoming,NA,2027-01-01,PubA',
+                  'Cancelled Upcoming,NA,2027-02-01,PubB',
+                ].join('\n'),
+                { status: 200, headers: { 'Content-Type': 'text/csv' } },
+              );
+            }
+            // Phase 2 & 3: Cancelled Upcoming removed while >= 50% (1/2) rows remain
+            return new Response(
+              [
+                'Title,Region,Release Date,Publisher',
+                'Surviving Upcoming,NA,2027-01-01,PubA',
+                phase === 2
+                  ? 'Other Upcoming,NA,2027-03-01,PubC'
+                  : 'Yet Another Upcoming,NA,2027-04-01,PubD',
+              ].join('\n'),
+              { status: 200, headers: { 'Content-Type': 'text/csv' } },
+            );
+          }
+          return new Response('Title,Region\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/csv' },
+          });
+        });
+
+      try {
+        // Phase 1: ingest Surviving Upcoming + Cancelled Upcoming, link 7001-1, upgrade 7002-1
+        const r1 = await syncWorkerNsCollectors(mockEnv);
+        expect(r1.linkedReleases).toBe(1);
+        expect(r1.upgradedReleases).toBe(1);
+        expect(r1.cancelledCanonical).toBe(0);
+
+        const rel7001 = db
+          .prepare(
+            `SELECT canonical_release_id, verified_source FROM game_releases WHERE id = '7001-1'`,
+          )
+          .get() as {
+          canonical_release_id: number | null;
+          verified_source: string | null;
+        };
+        expect(rel7001.canonical_release_id).toBeGreaterThan(0);
+        expect(rel7001.verified_source).toBe('nscollectors');
+
+        const rel7002 = db
+          .prepare(
+            `SELECT verified_source FROM game_releases WHERE id = '7002-1'`,
+          )
+          .get() as { verified_source: string | null };
+        expect(rel7002.verified_source).toBe('nscollectors');
+
+        // Track Cancelled Upcoming under user 1 (ownership_status > 0 must NOT block pruning)
+        const cancelledGame = db
+          .prepare(
+            `SELECT r.id AS release_id, r.game_id FROM game_releases r JOIN games g ON g.stable_id = r.game_id WHERE g.title = 'Cancelled Upcoming'`,
+          )
+          .get() as { release_id: string; game_id: number };
+        expect(cancelledGame).toBeDefined();
+        db.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status) VALUES (1, ?, 2)`,
+        ).run(cancelledGame.release_id);
+
+        // Phase 2: 1st miss (not deleted yet)
+        phase = 2;
+        const r2 = await syncWorkerNsCollectors(mockEnv);
+        expect(r2.cancelledCanonical).toBe(0);
+        expect(
+          db
+            .prepare(`SELECT 1 FROM games WHERE stable_id = ?`)
+            .get(cancelledGame.game_id),
+        ).toBeDefined();
+
+        // Phase 3: 2nd consecutive miss -> cancelled row, release, game, and cascaded user row pruned
+        phase = 3;
+        const r3 = await syncWorkerNsCollectors(mockEnv);
+        expect(r3.cancelledCanonical).toBe(1);
+        expect(
+          db
+            .prepare(`SELECT 1 FROM games WHERE stable_id = ?`)
+            .get(cancelledGame.game_id),
+        ).toBeUndefined();
+        expect(
+          db
+            .prepare(`SELECT 1 FROM user_game_releases WHERE release_id = ?`)
+            .get(cancelledGame.release_id),
+        ).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerNsCollectors skips cancellation pruning when upcoming tab truncates below 50%', async () => {
+      db.prepare(
+        `INSERT INTO canonical_releases (platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+         VALUES (26, 'Upcoming One', 'upcomingone', 'USA', 'nscollectors_upcoming', 1),
+                (26, 'Upcoming Two', 'upcomingtwo', 'USA', 'nscollectors_upcoming', 1),
+                (26, 'Upcoming Three', 'upcomingthree', 'USA', 'nscollectors_upcoming', 1)`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('gid=238551450') && urlStr.includes('1FNyvbb')) {
+            // Only 1 row of 3 (< 50%) returned
+            return new Response(
+              'Title,Region,Release Date,Publisher\nUpcoming One,NA,2027-01-01,PubA\n',
+              { status: 200, headers: { 'Content-Type': 'text/csv' } },
+            );
+          }
+          return new Response('Title,Region\n', { status: 200 });
+        });
+
+      try {
+        const res = await syncWorkerNsCollectors(mockEnv);
+        expect(res.cancelledCanonical).toBe(0);
+        const missRow = db
+          .prepare(
+            `SELECT value FROM sync_state WHERE key = 'nscollectors_upcoming_missing_v1'`,
+          )
+          .get();
+        expect(missRow).toBeUndefined();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
     it('syncWorkerWatchedSeriesDiscovery ingests verified physical IGDB series entries without querying game_format/packaging and skips unverified items', async () => {
       db.prepare(
         `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
