@@ -307,8 +307,8 @@ const COMMON_PLATFORMS: PlatformOption[] = [
                   <span>Game Launch Day Alerts</span>
                 </div>
                 <div class="text-2xs text-muted mt-3xs">
-                  Dispatches push alert on the calendar release date for
-                  upcoming games in your list
+                  Dispatches push alert on launch morning (13:00 UTC) for
+                  upcoming releases
                 </div>
               </div>
               <button
@@ -322,6 +322,52 @@ const COMMON_PLATFORMS: PlatformOption[] = [
                 <span class="toggle-knob"></span>
               </button>
             </div>
+
+            @if (localPrefs.notify_game_releases !== false) {
+              <div
+                class="setting-card-group mt-sm"
+                data-testid="launch-day-scope-group"
+              >
+                <div class="setting-section">
+                  <label class="section-label">Launch Day Alert Scope</label>
+                  <div class="segmented-group">
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      [class.active]="
+                        (localPrefs.launch_day_scope ?? 'tracked_only') ===
+                        'tracked_only'
+                      "
+                      (click)="setLaunchDayScope('tracked_only')"
+                    >
+                      Seeking / Ordered Only
+                    </button>
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      [class.active]="
+                        localPrefs.launch_day_scope === 'tracked_and_series'
+                      "
+                      (click)="setLaunchDayScope('tracked_and_series')"
+                    >
+                      Tracked + Watched Series
+                    </button>
+                  </div>
+                  <p class="text-2xs text-muted mt-2xs">
+                    @if (
+                      (localPrefs.launch_day_scope ?? 'tracked_only') ===
+                      'tracked_only'
+                    ) {
+                      Only notify for releases explicitly marked Seeking,
+                      Priority Seeking, or Ordered.
+                    } @else {
+                      Notify for Seeking/Ordered releases plus launches matching
+                      your Watched Series rules in your region.
+                    }
+                  </p>
+                </div>
+              </div>
+            }
           </div>
 
           <!-- Section 2b: Watched Series Additions -->
@@ -389,7 +435,7 @@ const COMMON_PLATFORMS: PlatformOption[] = [
             </button>
 
             @if (dealsExpanded()) {
-              <div class="setting-card-group">
+              <div class="setting-card-group" data-testid="deals-filters-panel">
                 <!-- Dimension 1: Collection Scope -->
                 <div class="setting-section">
                   <label class="section-label">Deals Collection Scope</label>
@@ -1443,6 +1489,13 @@ export class NotificationSettingsModalComponent {
     this._localPrefs.update((p) => ({
       ...p,
       notify_game_releases: p.notify_game_releases === false ? true : false,
+    }));
+  }
+
+  public setLaunchDayScope(scope: 'tracked_only' | 'tracked_and_series'): void {
+    this._localPrefs.update((p) => ({
+      ...p,
+      launch_day_scope: scope,
     }));
   }
 

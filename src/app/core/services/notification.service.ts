@@ -16,6 +16,7 @@ export const DEFAULT_DEAL_PREFERENCES: DealNotificationPreferences = {
   platformIds: [],
   stores: ['VGP', 'PNP Games'],
   notify_game_releases: true,
+  launch_day_scope: 'tracked_only',
   notify_physical_announcements: true,
   notify_watched_series: true,
   physical_announcement_scope: {

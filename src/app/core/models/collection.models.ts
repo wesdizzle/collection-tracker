@@ -383,6 +383,7 @@ export interface DealNotificationPreferences {
   platformIds: number[];
   stores: string[];
   notify_game_releases?: boolean;
+  launch_day_scope?: 'tracked_only' | 'tracked_and_series';
   notify_physical_announcements?: boolean;
   notify_watched_series?: boolean;
   physical_announcement_scope?: PhysicalAnnouncementScope;

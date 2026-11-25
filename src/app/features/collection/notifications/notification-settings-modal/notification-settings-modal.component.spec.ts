@@ -99,6 +99,25 @@ describe('NotificationSettingsModalComponent', () => {
     expect(component.localPrefs.notify_watched_series).toBe(true);
   });
 
+  it('should configure launch day notification scope and persist on save', async () => {
+    expect(component.localPrefs.launch_day_scope ?? 'tracked_only').toBe(
+      'tracked_only',
+    );
+    const scopeGroup = fixture.nativeElement.querySelector(
+      '[data-testid="launch-day-scope-group"]',
+    );
+    expect(scopeGroup).toBeTruthy();
+
+    component.setLaunchDayScope('tracked_and_series');
+    fixture.detectChanges();
+    expect(component.localPrefs.launch_day_scope).toBe('tracked_and_series');
+
+    await component.onSavePreferences();
+    expect(mockNotificationService.updatePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ launch_day_scope: 'tracked_and_series' }),
+    );
+  });
+
   it('should update local dimension choices', () => {
     component.setScope('seeking_and_unowned');
     expect(component.localPrefs.scope).toBe('seeking_and_unowned');
@@ -197,7 +216,11 @@ describe('NotificationSettingsModalComponent', () => {
 
   it('should collapse retail deal filters by default with summary badge and expand on click', () => {
     expect(component.dealsExpanded()).toBe(false);
-    expect(fixture.nativeElement.querySelector('.segmented-group')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="deals-filters-panel"]',
+      ),
+    ).toBeNull();
 
     const toggleBtn = fixture.nativeElement.querySelector(
       '[data-testid="toggle-deals-filters-btn"]',
@@ -210,7 +233,9 @@ describe('NotificationSettingsModalComponent', () => {
 
     expect(component.dealsExpanded()).toBe(true);
     expect(
-      fixture.nativeElement.querySelector('.segmented-group'),
+      fixture.nativeElement.querySelector(
+        '[data-testid="deals-filters-panel"] .segmented-group',
+      ),
     ).toBeTruthy();
   });
 });

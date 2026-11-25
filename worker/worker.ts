@@ -10898,29 +10898,6 @@ export default {
           { error: msg },
         );
       }
-
-      // Launch-day release notifications (both Paid & Free tiers)
-      const launchStart = Date.now();
-      try {
-        const res = await syncWorkerLaunchDayNotifications(env);
-        logCronExecution(
-          'launch_day',
-          'SUCCESS',
-          Date.now() - launchStart,
-          `Dispatched ${res.dispatchedCount} launch day alerts`,
-          res,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[WorkerCron] Launch-day release scan failed:', err);
-        logCronExecution(
-          'launch_day',
-          'ERROR',
-          Date.now() - launchStart,
-          `Failed: ${msg}`,
-          { error: msg },
-        );
-      }
     } else {
       // Daytime lightweight R2 disaster-recovery catchup only when incomplete/stale
       if (env.BACKUP_BUCKET && typeof env.BACKUP_BUCKET.head === 'function') {
@@ -11020,6 +10997,31 @@ export default {
           );
         }
       };
+
+      if (utcHour === 13) {
+        // Launch-day release notifications at 13:00 UTC (8 AM EST / 9 AM EDT) in both Paid & Free tiers
+        const launchStart = Date.now();
+        try {
+          const res = await syncWorkerLaunchDayNotifications(env);
+          logCronExecution(
+            'launch_day',
+            'SUCCESS',
+            Date.now() - launchStart,
+            `Dispatched ${res.dispatchedCount} launch day alerts`,
+            res,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[WorkerCron] Launch-day release scan failed:', err);
+          logCronExecution(
+            'launch_day',
+            'ERROR',
+            Date.now() - launchStart,
+            `Failed: ${msg}`,
+            { error: msg },
+          );
+        }
+      }
 
       switch (utcHour) {
         case 1:
@@ -15381,8 +15383,12 @@ async function dispatchPhysicalAnnouncementNotifications(
 }
 
 /**
- * Checks for physical games releasing on today's calendar date and dispatches
- * launch-day push notifications once per game via `sync_state` deduplication.
+ * Scans `game_releases` for releases matching `DATE('now')` and dispatches per-user
+ * launch-day push notifications once per `(user_id, release_id, release_date)` via
+ * `sync_state` deduplication. Alerts only trigger for releases on the user's tracked
+ * list (`Seeking`, `Priority Seeking`, `Ordered`) or—when `launch_day_scope` is
+ * `'tracked_and_series'`—for unowned games matching an active `Watched Series` rule
+ * in an overlapping region.
  */
 export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
   dispatchedCount: number;
@@ -15393,17 +15399,22 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
 
   try {
     const launchRows = await env.DB.prepare(
-      `SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, p.display_name as platform_name, r.release_date
-       FROM games g
+      `SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.canonical_series,
+              COALESCE(p.display_name, p.name) as platform_name,
+              r.id as release_id, r.region as release_region, r.release_date
+       FROM game_releases r
+       JOIN games g ON g.stable_id = r.game_id
        JOIN platforms p ON p.id = g.platform_id
-       JOIN game_releases r ON r.game_id = g.stable_id
        WHERE r.release_date = DATE('now')`,
     ).all<{
       stable_id: number;
       id: string;
       title: string;
       platform_id: number;
+      canonical_series: string | null;
       platform_name: string;
+      release_id: string;
+      release_region: string | null;
       release_date: string;
     }>();
 
@@ -15412,13 +15423,140 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
       return { dispatchedCount: 0, purgedCount: 0 };
     }
 
-    const dedupKeys = allLaunchingToday.map(
-      (g) => `launch_notified:${g.stable_id}:${g.release_date}`,
+    let subscriptions: Array<{
+      user_id: number;
+      home_region: string;
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      preferences_json: string | null;
+    }> = [];
+    try {
+      const subRows = await env.DB.prepare(
+        `SELECT COALESCE(ps.user_id, 1) as user_id,
+                COALESCE(u.home_region, 'USA') as home_region,
+                ps.endpoint, ps.p256dh, ps.auth, ps.preferences_json
+         FROM push_subscriptions ps
+         LEFT JOIN users u ON u.id = COALESCE(ps.user_id, 1)`,
+      ).all<{
+        user_id: number;
+        home_region: string;
+        endpoint: string;
+        p256dh: string;
+        auth: string;
+        preferences_json: string | null;
+      }>();
+      subscriptions = subRows.results || [];
+    } catch {
+      const fallbackSubRows = await env.DB.prepare(
+        `SELECT COALESCE(user_id, 1) as user_id, endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
+      ).all<{
+        user_id: number;
+        endpoint: string;
+        p256dh: string;
+        auth: string;
+        preferences_json: string | null;
+      }>();
+      subscriptions = (fallbackSubRows.results || []).map((s) => ({
+        ...s,
+        home_region: 'USA',
+      }));
+    }
+
+    if (subscriptions.length === 0) {
+      return { dispatchedCount: 0, purgedCount: 0 };
+    }
+
+    const subscribedUserIds = Array.from(
+      new Set(subscriptions.map((s) => Number(s.user_id || 1))),
     );
+    const launchingGameIds = Array.from(
+      new Set(allLaunchingToday.map((g) => Number(g.stable_id))),
+    );
+
+    const statusByUserRelease = new Map<string, number>();
+    const ownedGamesByUser = new Map<number, Set<number>>();
+    try {
+      const subPh = subscribedUserIds.map(() => '?').join(',');
+      for (let i = 0; i < launchingGameIds.length; i += 80) {
+        const gameChunk = launchingGameIds.slice(i, i + 80);
+        const gamePh = gameChunk.map(() => '?').join(',');
+        const ugrRows = await env.DB.prepare(
+          `SELECT ugr.user_id, r.id as release_id, r.game_id as stable_id, ugr.ownership_status
+           FROM user_game_releases ugr
+           JOIN game_releases r ON r.id = ugr.release_id
+           WHERE ugr.user_id IN (${subPh}) AND r.game_id IN (${gamePh})`,
+        )
+          .bind(...subscribedUserIds, ...gameChunk)
+          .all<{
+            user_id: number;
+            release_id: string;
+            stable_id: number;
+            ownership_status: number;
+          }>();
+        for (const row of ugrRows.results || []) {
+          statusByUserRelease.set(
+            `${row.user_id}:${row.release_id}`,
+            Number(row.ownership_status ?? 0),
+          );
+          if (Number(row.ownership_status) === 1) {
+            let ownedSet = ownedGamesByUser.get(row.user_id);
+            if (!ownedSet) {
+              ownedSet = new Set<number>();
+              ownedGamesByUser.set(row.user_id, ownedSet);
+            }
+            ownedSet.add(Number(row.stable_id));
+          }
+        }
+      }
+    } catch {
+      // Minimal test schemas may omit user_game_releases
+    }
+
+    const seriesRulesByUser = new Map<number, Map<string, 'home' | 'any'>>();
+    try {
+      const subPh = subscribedUserIds.map(() => '?').join(',');
+      const ruleRows = await env.DB.prepare(
+        `SELECT user_id, match_value, region_scope
+         FROM user_tracking_rules
+         WHERE user_id IN (${subPh}) AND rule_type = 'series' AND is_ignored = 0`,
+      )
+        .bind(...subscribedUserIds)
+        .all<{
+          user_id: number;
+          match_value: string;
+          region_scope: string | null;
+        }>();
+      for (const rule of ruleRows.results || []) {
+        const seriesKey = (rule.match_value || '').trim().toLowerCase();
+        if (!seriesKey) continue;
+        let userMap = seriesRulesByUser.get(rule.user_id);
+        if (!userMap) {
+          userMap = new Map<string, 'home' | 'any'>();
+          seriesRulesByUser.set(rule.user_id, userMap);
+        }
+        const nextScope: 'home' | 'any' =
+          rule.region_scope === 'any' || userMap.get(seriesKey) === 'any'
+            ? 'any'
+            : 'home';
+        userMap.set(seriesKey, nextScope);
+      }
+    } catch {
+      // Minimal test schemas may omit user_tracking_rules
+    }
+
+    const candidateDedupKeys: string[] = [];
+    for (const userId of subscribedUserIds) {
+      for (const rel of allLaunchingToday) {
+        candidateDedupKeys.push(
+          `launch_notified:${userId}:${rel.release_id}:${rel.release_date}`,
+        );
+      }
+    }
     const alreadyNotifiedSet = new Set<string>();
     try {
-      for (let i = 0; i < dedupKeys.length; i += 80) {
-        const chunk = dedupKeys.slice(i, i + 80);
+      for (let i = 0; i < candidateDedupKeys.length; i += 80) {
+        const chunk = candidateDedupKeys.slice(i, i + 80);
         const ph = chunk.map(() => '?').join(',');
         const existing = await env.DB.prepare(
           `SELECT key FROM sync_state WHERE key IN (${ph})`,
@@ -15433,28 +15571,16 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
       // Minimal test schemas may omit sync_state
     }
 
-    const gamesLaunchingToday = allLaunchingToday.filter(
-      (g) =>
-        !alreadyNotifiedSet.has(
-          `launch_notified:${g.stable_id}:${g.release_date}`,
-        ),
-    );
-    if (gamesLaunchingToday.length === 0) {
-      return { dispatchedCount: 0, purgedCount: 0 };
-    }
+    const succeededDedupKeys = new Set<string>();
 
-    const subRows = await env.DB.prepare(
-      `SELECT endpoint, p256dh, auth, preferences_json FROM push_subscriptions`,
-    ).all<{
-      endpoint: string;
-      p256dh: string;
-      auth: string;
-      preferences_json: string | null;
-    }>();
-
-    const subscriptions = subRows.results || [];
     for (const sub of subscriptions) {
-      let prefs: Partial<DealNotificationPreferences> = {};
+      const subUserId = Number(sub.user_id || 1);
+      const subHomeRegion = sub.home_region || 'USA';
+      let prefs: Partial<
+        DealNotificationPreferences & {
+          launch_day_scope?: 'tracked_only' | 'tracked_and_series';
+        }
+      > = {};
       try {
         if (sub.preferences_json) {
           prefs = JSON.parse(sub.preferences_json);
@@ -15467,9 +15593,57 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
         continue;
       }
 
-      for (const game of gamesLaunchingToday) {
-        const title = `🎉 Game Launch Day: ${game.title}`;
-        const body = `${game.title} officially releases today on ${game.platform_name}!`;
+      const userPlatforms =
+        prefs.platformIds && prefs.platformIds.length > 0
+          ? new Set(prefs.platformIds)
+          : null;
+      const launchScope = prefs.launch_day_scope ?? 'tracked_only';
+      const userSeriesRules = seriesRulesByUser.get(subUserId);
+      const userOwnedGames = ownedGamesByUser.get(subUserId);
+
+      for (const rel of allLaunchingToday) {
+        if (userPlatforms && !userPlatforms.has(rel.platform_id)) {
+          continue;
+        }
+
+        const dedupKey = `launch_notified:${subUserId}:${rel.release_id}:${rel.release_date}`;
+        if (alreadyNotifiedSet.has(dedupKey)) {
+          continue;
+        }
+
+        const relStatus =
+          statusByUserRelease.get(`${subUserId}:${rel.release_id}`) ?? 0;
+        let reason: string | null = null;
+        if (relStatus === 2) {
+          reason = 'Seeking';
+        } else if (relStatus === 3) {
+          reason = 'Ordered';
+        } else if (relStatus === 4) {
+          reason = 'Priority Seeking';
+        } else if (
+          launchScope === 'tracked_and_series' &&
+          rel.canonical_series &&
+          !userOwnedGames?.has(rel.stable_id)
+        ) {
+          const ruleScope = userSeriesRules?.get(
+            rel.canonical_series.trim().toLowerCase(),
+          );
+          if (
+            ruleScope &&
+            (ruleScope === 'any' ||
+              regionsOverlap(rel.release_region, subHomeRegion))
+          ) {
+            reason = `Tracked Series: ${rel.canonical_series}`;
+          }
+        }
+
+        if (!reason) {
+          continue;
+        }
+
+        const regionTag = rel.release_region ? ` (${rel.release_region})` : '';
+        const title = `🎉 Game Launch Day: ${rel.title}`;
+        const body = `${reason}${regionTag} — releases today on ${rel.platform_name}!`;
 
         const payload: WebPushNotificationPayload = {
           title,
@@ -15477,7 +15651,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
           data: {
-            url: `/game/${game.stable_id}`,
+            url: `/game/${rel.stable_id}`,
           },
         };
 
@@ -15494,6 +15668,7 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
 
         if (result.success) {
           dispatchedCount++;
+          succeededDedupKeys.add(dedupKey);
         } else if (result.shouldDelete) {
           await env.DB.prepare(
             'DELETE FROM push_subscriptions WHERE endpoint = ?',
@@ -15505,14 +15680,14 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
       }
     }
 
-    if (dispatchedCount > 0) {
+    if (succeededDedupKeys.size > 0) {
       try {
-        const dedupStmts = gamesLaunchingToday.map((g) =>
+        const dedupStmts = Array.from(succeededDedupKeys).map((key) =>
           env.DB.prepare(
             `INSERT INTO sync_state (key, value, updated_at)
              VALUES (?, '1', datetime('now'))
              ON CONFLICT(key) DO NOTHING`,
-          ).bind(`launch_notified:${g.stable_id}:${g.release_date}`),
+          ).bind(key),
         );
         for (let i = 0; i < dedupStmts.length; i += 100) {
           await env.DB.batch(dedupStmts.slice(i, i + 100));
@@ -15522,7 +15697,10 @@ export async function syncWorkerLaunchDayNotifications(env: Env): Promise<{
       }
     }
   } catch (err) {
-    console.error('[WebPush] Error dispatching launch day notifications:', err);
+    console.error(
+      '[WorkerPush] Error dispatching launch day notifications:',
+      err,
+    );
   }
 
   return { dispatchedCount, purgedCount };

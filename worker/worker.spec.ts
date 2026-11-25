@@ -1681,7 +1681,7 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerLaunchDayNotifications dispatches launch alerts once per calendar day via sync_state dedup', async () => {
+    it('syncWorkerLaunchDayNotifications scopes alerts per user list/series/region with configurable scope and dedups via sync_state', async () => {
       db.prepare(
         `
         INSERT OR IGNORE INTO platforms (id, name, display_name)
@@ -1691,21 +1691,38 @@ describe('Worker API Logic', () => {
 
       db.prepare(
         `
-        INSERT INTO games (stable_id, id, title, platform_id)
-        VALUES (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26)
+        INSERT INTO games (stable_id, id, title, platform_id, canonical_series)
+        VALUES
+          (888, 'metroid-prime-4', 'Metroid Prime 4: Beyond', 26, 'Metroid'),
+          (889, 'expelled-paradise', 'Expelled from Paradise: The Stellar Angel', 26, 'Expelled from Paradise'),
+          (890, 'mario-kart-next', 'Mario Kart Next', 26, 'Mario Kart')
       `,
       ).run();
 
       db.prepare(
         `
-        INSERT INTO game_releases (id, game_id, release_date)
-        VALUES ('mp4-rel', 888, DATE('now'))
+        INSERT INTO game_releases (id, game_id, region, release_date)
+        VALUES
+          ('mp4-rel', 888, 'USA', DATE('now')),
+          ('efp-rel-asia', 889, 'Asia', DATE('now')),
+          ('mk-rel-jp', 890, 'Japan', DATE('now')),
+          ('mk-rel-us', 890, 'USA', DATE('now'))
       `,
       ).run();
 
       db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (1, 'mp4-rel', 2)`,
+      ).run();
+
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, region_scope, is_ignored)
+         VALUES (1, 'series', 'Mario Kart', 'home', 0)`,
+      ).run();
+
+      db.prepare(
         `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, user_agent, created_at, updated_at)
-         VALUES ('sub-launch', 1, 'https://push.example.com/launch', 'p256', 'auth', '{"enabled": true, "notify_game_releases": true}', 'agent', datetime('now'), datetime('now'))`,
+         VALUES ('sub-launch', 1, 'https://push.example.com/launch', 'p256', 'auth', '{"enabled": true, "notify_game_releases": true, "launch_day_scope": "tracked_only"}', 'agent', datetime('now'), datetime('now'))`,
       ).run();
 
       const webPushSpy = vi
@@ -1713,15 +1730,30 @@ describe('Worker API Logic', () => {
         .mockResolvedValue({ success: true, status: 201, shouldDelete: false });
 
       try {
+        // Default tracked_only notifies ONLY Seeking/Ordered release ('mp4-rel'), skipping untracked game & untracked watched series
         const first = await syncWorkerLaunchDayNotifications(mockEnv);
         expect(first.dispatchedCount).toBe(1);
         expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy.mock.calls[0][1].body).toContain('Seeking (USA)');
 
         // Second run on the same launch day must be deduplicated cleanly
         webPushSpy.mockClear();
         const second = await syncWorkerLaunchDayNotifications(mockEnv);
         expect(second.dispatchedCount).toBe(0);
         expect(webPushSpy).not.toHaveBeenCalled();
+
+        // Enable tracked_and_series -> notifies USA watched-series launch ONLY (skips Japan release for home_region=USA and skips untracked Expelled from Paradise)
+        db.prepare(
+          `UPDATE push_subscriptions SET preferences_json = '{"enabled": true, "notify_game_releases": true, "launch_day_scope": "tracked_and_series"}' WHERE id = 'sub-launch'`,
+        ).run();
+        webPushSpy.mockClear();
+        const third = await syncWorkerLaunchDayNotifications(mockEnv);
+        expect(third.dispatchedCount).toBe(1);
+        expect(webPushSpy).toHaveBeenCalledTimes(1);
+        expect(webPushSpy.mock.calls[0][1].title).toContain('Mario Kart Next');
+        expect(webPushSpy.mock.calls[0][1].body).toContain(
+          'Tracked Series: Mario Kart (USA)',
+        );
       } finally {
         webPushSpy.mockRestore();
       }
@@ -11164,6 +11196,36 @@ describe('Worker API Logic', () => {
           {} as ExecutionContext,
         );
         expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
+
+        // Hour 13 UTC in free tier -> launch_day notification scan runs outside ingestion gate!
+        await worker.scheduled(
+          {
+            cron: '0 * * * *',
+            type: 'scheduled',
+            scheduledTime: Date.parse('2026-11-24T13:00:00Z'),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        const logsAfter13 = logSpy.mock.calls
+          .map(([arg]) => arg)
+          .filter(
+            (a): a is Record<string, unknown> =>
+              typeof a === 'object' &&
+              a !== null &&
+              (a as Record<string, unknown>)['event'] === 'cron_execution',
+          );
+        expect(
+          logsAfter13.some(
+            (l) => l['job_name'] === 'launch_day' && l['status'] === 'SUCCESS',
+          ),
+        ).toBe(true);
+        expect(
+          logsAfter13.some(
+            (l) =>
+              l['job_name'] === 'worker_dat_sync' && l['status'] === 'SKIPPED',
+          ),
+        ).toBe(true);
       } finally {
         logSpy.mockRestore();
         fetchSpy.mockRestore();
