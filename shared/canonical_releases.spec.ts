@@ -878,12 +878,20 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(ffxDetail.ownership_status).toBe(1);
       expect(ffxDetail.has_media).toBe(1);
 
+      // Simulated localized display title ("Mega Man Legacy Collection") with base_title preserved
       const megaManDetail = {
-        id: 'mega-man-legacy-collection-1-2-switch',
-        title: 'Mega Man Legacy Collection 1 + 2',
+        id: '1663-1',
+        title: 'Mega Man Legacy Collection',
+        base_title: 'Mega Man Legacy Collection 1 + 2',
         platform_id: 26, // Switch
         region: 'USA',
-        releases: [],
+        releases: [
+          {
+            id: '1663-1',
+            source: 'nintendo_revised',
+            comments: 'Download updates to version 1.0.1',
+          },
+        ],
         voucher_notes: undefined as string[] | undefined,
       };
 
@@ -892,6 +900,58 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(megaManDetail.voucher_notes![0]).toContain(
         'Mega Man Legacy Collection 2',
       );
+
+      // Japanese Switch release of Mega Man Legacy Collection doesn't wrongly inherit USA voucher fallback
+      const megaManJp = {
+        id: '1663-3',
+        title: 'Mega Man Legacy Collection 1 + 2',
+        platform_id: 26,
+        region: 'Japan',
+        releases: [
+          { id: '1663-3', source: 'nscollectors', comments: 'Capcom' },
+        ],
+        voucher_notes: undefined as string[] | undefined,
+      };
+      enrichGameDetailWithCompanionsAndVouchers(megaManJp, []);
+      expect(megaManJp.voucher_notes).toBeUndefined();
+
+      // Database-first promotion from Nintendo Revised D1 comments (e.g. Mega Man X: Legacy Collection 1+2)
+      const mmxUsa = {
+        id: '1665-1',
+        title: 'Mega Man X: Legacy Collection 1+2',
+        platform_id: 26,
+        region: 'USA',
+        releases: [
+          {
+            id: '1665-1',
+            source: 'nintendo_revised',
+            comments:
+              'Mega Man X Legacy Collection 1 is Complete on cart, Mega Man X Legacy Collection 2 is a download code and has a 6.6 GB download',
+          },
+        ],
+        voucher_notes: undefined as string[] | undefined,
+      };
+      enrichGameDetailWithCompanionsAndVouchers(mmxUsa, []);
+      expect(mmxUsa.voucher_notes).toHaveLength(1);
+      expect(mmxUsa.voucher_notes![0]).toContain('download code');
+
+      // Non-voucher "Complete on cart" comments on Asia imports stay clean
+      const ffxAsia = {
+        id: '1567-5',
+        title: 'Final Fantasy X/X-2 HD Remaster',
+        platform_id: 26,
+        region: 'Asia',
+        releases: [
+          {
+            id: '1567-5',
+            source: 'nintendo_revised',
+            comments: 'Complete on cart **Both FFX and FFX-2 are on cart**',
+          },
+        ],
+        voucher_notes: undefined as string[] | undefined,
+      };
+      enrichGameDetailWithCompanionsAndVouchers(ffxAsia, []);
+      expect(ffxAsia.voucher_notes).toBeUndefined();
     });
   });
 

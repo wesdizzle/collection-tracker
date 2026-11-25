@@ -1999,17 +1999,31 @@ export interface VoucherBundleDefinition {
   aliases?: string[];
   /** Titles of companion games included exclusively via digital voucher code */
   voucherTitles: string[];
+  /** Optional localized/edition regions where the physical SKU includes the voucher */
+  regions?: string[];
   /** User-facing explanation of the physical vs voucher contents */
   note: string;
 }
 
 /**
- * Curated registry of multi-game retail packages where companion titles were
- * distributed exclusively via single-use digital download voucher codes rather than on physical media.
- * Vouchers are tracked purely as informational metadata on the physical parent release.
- * They carry zero backup expectations and never penalize collection completion stats.
+ * Fallback registry for the 4 multi-game retail packages whose bundled paper
+ * download-code vouchers are omitted by upstream canonical sources.
+ *
+ * All other Switch mixed media + download-code SKUs (such as Mega Man X:
+ * Legacy Collection 1+2, Final Fantasy X/X-2 HD Remaster USA, Borderlands
+ * Legendary Collection, BioShock: The Collection, Resident Evil Triple Pack /
+ * Revelations Collection, Batman: Arkham Trilogy, etc.) already carry explicit
+ * notes in the ingested Nintendo Revised D1 `comments` (`game_releases.publisher`)
+ * and are promoted dynamically from the database without code entries.
+ *
+ * Kept strictly for these genuine upstream blind spots:
+ * - PlayStation Vita (33): Redump/No-Intro/SerialStation only index cartridges,
+ *   not paper PSN voucher inserts inside retail cases.
+ * - Nintendo Switch (26): Nintendo Revised omits the Part 2 / Bayonetta 1
+ *   download vouchers on Western releases of Mega Man Legacy Collection 1 + 2
+ *   and Bayonetta 2.
  */
-export const CANONICAL_VOUCHER_BUNDLES: VoucherBundleDefinition[] = [
+export const VOUCHER_BUNDLES_MISSING_IN_SOURCES: VoucherBundleDefinition[] = [
   {
     platformId: 33, // Vita
     parentDisplayTitle: 'Final Fantasy X / X-2 HD Remaster',
@@ -2044,25 +2058,8 @@ export const CANONICAL_VOUCHER_BUNDLES: VoucherBundleDefinition[] = [
       normalizeForLabelMatch('Mega Man Legacy Collection 1 & 2'),
     ],
     voucherTitles: ['Mega Man Legacy Collection 2'],
+    regions: ['usa', 'europe'],
     note: 'Original retail release contained Mega Man Legacy Collection on cartridge, plus a digital download voucher for Mega Man Legacy Collection 2.',
-  },
-  {
-    platformId: 26, // Switch
-    parentDisplayTitle: 'Resident Evil: Triple Pack',
-    parentNormalizedTitle: normalizeForLabelMatch('Resident Evil: Triple Pack'),
-    aliases: [normalizeForLabelMatch('Resident Evil Triple Pack')],
-    voucherTitles: ['Resident Evil 5', 'Resident Evil 6'],
-    note: 'Original retail release contained Resident Evil 4 on cartridge, plus digital download vouchers for Resident Evil 5 and Resident Evil 6.',
-  },
-  {
-    platformId: 26, // Switch
-    parentDisplayTitle: 'Resident Evil Revelations Collection',
-    parentNormalizedTitle: normalizeForLabelMatch(
-      'Resident Evil Revelations Collection',
-    ),
-    aliases: [normalizeForLabelMatch('Resident Evil: Revelations Collection')],
-    voucherTitles: ['Resident Evil Revelations 2'],
-    note: 'Original retail release contained Resident Evil Revelations on cartridge, plus a digital download voucher for Resident Evil Revelations 2.',
   },
   {
     platformId: 26, // Switch
@@ -2070,24 +2067,7 @@ export const CANONICAL_VOUCHER_BUNDLES: VoucherBundleDefinition[] = [
     parentNormalizedTitle: normalizeForLabelMatch('Bayonetta 2'),
     aliases: [],
     voucherTitles: ['Bayonetta'],
+    regions: ['usa', 'europe'],
     note: 'Original standard retail release included a digital download voucher for the original Bayonetta.',
-  },
-  {
-    platformId: 26, // Switch
-    parentDisplayTitle: 'Borderlands Legendary Collection',
-    parentNormalizedTitle: normalizeForLabelMatch(
-      'Borderlands Legendary Collection',
-    ),
-    aliases: [],
-    voucherTitles: ['Borderlands 2', 'Borderlands: The Pre-Sequel'],
-    note: 'Original retail release contained Borderlands: Game of the Year Edition on cartridge, plus digital download vouchers for Borderlands 2 and Borderlands: The Pre-Sequel.',
-  },
-  {
-    platformId: 26, // Switch
-    parentDisplayTitle: 'Batman: Arkham Trilogy',
-    parentNormalizedTitle: normalizeForLabelMatch('Batman: Arkham Trilogy'),
-    aliases: [normalizeForLabelMatch('Batman Arkham Trilogy')],
-    voucherTitles: ['Batman: Arkham City', 'Batman: Arkham Knight'],
-    note: 'Original retail release contained Batman: Arkham Asylum on cartridge, plus digital download vouchers for Batman: Arkham City and Batman: Arkham Knight.',
   },
 ];

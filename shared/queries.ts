@@ -21,7 +21,7 @@ import {
   BOX_SET_DISC_LABELS,
   BOX_SET_ROM_GROUPING_MAP,
   BoxSetCompanionSpec,
-  CANONICAL_VOUCHER_BUNDLES,
+  VOUCHER_BUNDLES_MISSING_IN_SOURCES,
   RETAIL_PACKIN_DISCS,
   STANDALONE_BONUS_DISC_LINKS,
   SUPERSEDED_RELEASE_PAIRS,
@@ -1071,6 +1071,7 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     id?: string;
     stable_id?: number;
     title?: string;
+    base_title?: string | null;
     platform_id?: number;
     region?: string | null;
     variants?: string | null;
@@ -1558,18 +1559,52 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     game.shared_media_releases = sharedLinks;
   }
 
-  // 6. Check if this release is a Physical Parent in CANONICAL_VOUCHER_BUNDLES
+  // 6. Promote D1-ingested Nintendo Revised download-code comments into `voucher_notes`,
+  //    then fall back to VOUCHER_BUNDLES_MISSING_IN_SOURCES for the 4 upstream-omitted boxes.
+  const normBaseTitle = normalizeForLabelMatch(game.base_title || '');
   const voucherNotes: string[] = [];
-  for (const bundle of CANONICAL_VOUCHER_BUNDLES) {
-    if (bundle.platformId !== game.platform_id) continue;
-    const isParentMatch =
-      normGameTitle === bundle.parentNormalizedTitle ||
-      normRomTitle === bundle.parentNormalizedTitle ||
-      (bundle.aliases &&
-        (bundle.aliases.includes(normGameTitle) ||
-          bundle.aliases.includes(normRomTitle)));
-    if (isParentMatch) {
-      voucherNotes.push(bundle.note);
+  const NINTENDO_REVISED_VOUCHER_RE =
+    /\b(?:download\s+code|download\s+only|download\s+is\s+required|free\s+downloads?\s+from\s+e?shop|full\s+game\s+download|only\s+on\s+cart|voucher|patch\s+is\s+required|none\s+of\s+the\s+(?:two|three)\s+games)\b/i;
+
+  for (const rel of game.releases) {
+    const relSource = String(rel['source'] ?? rel['verified_source'] ?? '')
+      .trim()
+      .toLowerCase();
+    if (relSource !== 'nintendo_revised') continue;
+    const rawComments = String(rel['comments'] ?? '').trim();
+    if (!rawComments) continue;
+    if (
+      NINTENDO_REVISED_VOUCHER_RE.test(rawComments) &&
+      !voucherNotes.includes(rawComments)
+    ) {
+      voucherNotes.push(rawComments);
+    }
+  }
+
+  if (voucherNotes.length === 0) {
+    for (const bundle of VOUCHER_BUNDLES_MISSING_IN_SOURCES) {
+      if (bundle.platformId !== game.platform_id) continue;
+      if (
+        bundle.regions &&
+        bundle.regions.length > 0 &&
+        regTokens.length > 0 &&
+        !regTokens.some((r) => bundle.regions!.includes(r))
+      ) {
+        continue;
+      }
+      const titleCandidates = [
+        normBaseTitle,
+        normGameTitle,
+        normRomTitle,
+      ].filter(Boolean);
+      const isParentMatch = titleCandidates.some(
+        (cand) =>
+          cand === bundle.parentNormalizedTitle ||
+          (bundle.aliases ? bundle.aliases.includes(cand) : false),
+      );
+      if (isParentMatch && !voucherNotes.includes(bundle.note)) {
+        voucherNotes.push(bundle.note);
+      }
     }
   }
   if (voucherNotes.length > 0) {

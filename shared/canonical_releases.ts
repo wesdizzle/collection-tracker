@@ -31,12 +31,12 @@ export {
   KNOWN_PS5_PHYSICAL_DISC_SERIALS,
 };
 import {
-  CANONICAL_VOUCHER_BUNDLES,
+  VOUCHER_BUNDLES_MISSING_IN_SOURCES,
   findRetailPackInDisc,
   normalizeForLabelMatch,
   type VoucherBundleDefinition,
 } from './special_labels.js';
-export { CANONICAL_VOUCHER_BUNDLES, type VoucherBundleDefinition };
+export { VOUCHER_BUNDLES_MISSING_IN_SOURCES, type VoucherBundleDefinition };
 
 export interface CanonicalRelease {
   id?: number;
