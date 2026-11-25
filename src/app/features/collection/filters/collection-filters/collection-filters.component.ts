@@ -95,13 +95,6 @@ export class CollectionFiltersComponent implements OnDestroy {
     return this.filters().ownership === 1 && !this.filters().deals_only;
   });
 
-  public readonly isHomeRegionAndOwnedActive = computed(() => {
-    return (
-      this.filters().ownership === 'home_region_and_owned' &&
-      !this.filters().deals_only
-    );
-  });
-
   public readonly isAllActive = computed(() => {
     const o = this.filters().ownership;
     return (o === 'all' || o === undefined) && !this.filters().deals_only;
@@ -128,13 +121,6 @@ export class CollectionFiltersComponent implements OnDestroy {
         id: 'owned',
         label: 'Owned',
         active: this.isOwnedActive(),
-      },
-      {
-        id: 'home_region_and_owned',
-        label: 'Home Region & Owned',
-        active: this.isHomeRegionAndOwnedActive(),
-        title:
-          'All owned items, plus seeking/unowned items from your home region',
       },
       {
         id: 'all',
@@ -179,36 +165,18 @@ export class CollectionFiltersComponent implements OnDestroy {
       return;
     }
     this.selectQuickStatus(
-      pillId as
-        | 'owned'
-        | 'home_region_and_owned'
-        | 'all'
-        | 'priority_seeking'
-        | 'seeking'
-        | 'deals',
+      pillId as 'owned' | 'all' | 'priority_seeking' | 'seeking' | 'deals',
     );
   }
 
   public selectQuickStatus(
-    status:
-      | 'owned'
-      | 'home_region_and_owned'
-      | 'all'
-      | 'priority_seeking'
-      | 'seeking'
-      | 'deals',
+    status: 'owned' | 'all' | 'priority_seeking' | 'seeking' | 'deals',
   ) {
     if (status === 'deals') {
       this.filtersChange.emit({
         ...this.filters(),
         ownership: 'seeking_or_unowned',
         deals_only: true,
-      });
-    } else if (status === 'home_region_and_owned') {
-      this.filtersChange.emit({
-        ...this.filters(),
-        ownership: 'home_region_and_owned',
-        deals_only: false,
       });
     } else if (status === 'owned') {
       this.filtersChange.emit({
@@ -260,8 +228,7 @@ export class CollectionFiltersComponent implements OnDestroy {
     if (
       f.ownership === 3 ||
       f.ownership === 0 ||
-      f.ownership === 'seeking_or_unowned' ||
-      f.ownership === 'home_region_and_owned'
+      f.ownership === 'seeking_or_unowned'
     )
       count++;
     if (this.showProvenanceFilters()) {
@@ -413,19 +380,10 @@ export class CollectionFiltersComponent implements OnDestroy {
 
   /** --- Options Catalogues --- */
   readonly ownershipOptions: {
-    value:
-      | 'all'
-      | 'seeking_or_unowned'
-      | 'home_region_and_owned'
-      | 1
-      | 4
-      | 2
-      | 3
-      | 0;
+    value: 'all' | 'seeking_or_unowned' | 1 | 4 | 2 | 3 | 0;
     label: string;
   }[] = [
     { value: 'all', label: 'All' },
-    { value: 'home_region_and_owned', label: 'Home Region & Owned' },
     { value: 'seeking_or_unowned', label: 'Seeking or Unowned' },
     { value: 1, label: 'Owned' },
     { value: 4, label: 'Priority Seeking' },

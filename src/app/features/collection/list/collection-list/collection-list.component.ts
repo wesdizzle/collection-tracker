@@ -58,7 +58,6 @@ import {
   getOwnedMediaCount,
   getReleaseMediaItems,
   getSeriesCrossLanguageAliases,
-  isRegionMatchingHome,
   isItemAvailableAtRetail,
   normalizeBudgetToken,
 } from '../../../../core/models/collection.models';
@@ -217,17 +216,15 @@ export class CollectionListComponent
       } else if (qs === 'seeking') {
         qpFilters.ownership = 2;
       } else if (qs === 'home_region_and_owned') {
-        qpFilters.ownership = 'home_region_and_owned';
+        qpFilters.ownership = 'all';
       }
     }
     if (qp['ownership'] !== undefined) {
       const ownStr = String(qp['ownership']);
-      if (
-        ownStr === 'all' ||
-        ownStr === 'seeking_or_unowned' ||
-        ownStr === 'home_region_and_owned'
-      ) {
+      if (ownStr === 'all' || ownStr === 'seeking_or_unowned') {
         qpFilters.ownership = ownStr;
+      } else if (ownStr === 'home_region_and_owned') {
+        qpFilters.ownership = 'all';
       } else {
         const own = parseInt(ownStr, 10);
         if (!isNaN(own)) qpFilters.ownership = own as OwnershipStatus;
@@ -763,18 +760,6 @@ export class CollectionListComponent
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
-      } else if (f.ownership === 'home_region_and_owned') {
-        const isOwnedOrOrdered =
-          status === OwnershipStatus.Owned ||
-          status === OwnershipStatus.Ordered;
-        if (!isOwnedOrOrdered) {
-          // For unowned or seeking games, only include if matching user's home region (with regional hierarchy)
-          if (
-            !isRegionMatchingHome(g.region, this.collectionService.homeRegion())
-          ) {
-            return false;
-          }
-        }
       } else if (f.ownership !== 'all' && f.ownership !== status) {
         return false;
       }
@@ -1419,20 +1404,6 @@ export class CollectionListComponent
           status === OwnershipStatus.Seeking ||
           status === OwnershipStatus.Unowned;
         if (!isSeekingOrUnowned) return false;
-      } else if (f.ownership === 'home_region_and_owned') {
-        const isOwnedOrOrdered =
-          status === OwnershipStatus.Owned ||
-          status === OwnershipStatus.Ordered;
-        if (!isOwnedOrOrdered) {
-          if (
-            !isRegionMatchingHome(
-              toy.region,
-              this.collectionService.homeRegion(),
-            )
-          ) {
-            return false;
-          }
-        }
       } else if (f.ownership !== 'all' && f.ownership !== status) {
         return false;
       }
@@ -2211,7 +2182,6 @@ export class CollectionListComponent
     const needsUnowned =
       filters.ownership === 0 ||
       filters.ownership === 'all' ||
-      filters.ownership === 'home_region_and_owned' ||
       (filters.ownership === 'seeking_or_unowned' && !filters.deals_only);
     if (
       needsUnowned &&

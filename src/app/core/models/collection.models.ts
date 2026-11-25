@@ -295,11 +295,7 @@ export type ReleaseDecadeFilter =
   | '20s';
 
 export interface FilterState {
-  ownership:
-    | 'all'
-    | 'seeking_or_unowned'
-    | 'home_region_and_owned'
-    | OwnershipStatus;
+  ownership: 'all' | 'seeking_or_unowned' | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
   has_media?: 'all' | 0 | 1;
   budget_label?:
