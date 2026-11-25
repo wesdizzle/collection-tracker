@@ -843,7 +843,15 @@ export const SUPERSEDED_RELEASE_PAIRS: SupersededReleasePair[] = [
  * consolidated into a multi-game box set.
  * Keyed by lowercase ROM filename without file extension.
  */
-export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<string, string[]> = {
+export interface SubsequentVersionBudgetEntry {
+  labels: string[];
+  platformIds?: number[];
+}
+
+export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<
+  string,
+  string[] | SubsequentVersionBudgetEntry
+> = {
   "assassin's creed iii (australia) (v02.00)": ['Essentials'],
   'lego harry potter - years 1-4 (europe) (en,fr,de,es,it,da) (v03.01)': [
     'Essentials',
@@ -904,10 +912,22 @@ export const SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES: Record<string, string[]> = {
     ["Player's Choice"],
   "luigi's mansion (europe) (en,fr,de,es,it) (rev 1)": ["Player's Choice"],
   'mario party 4 (europe) (en,fr,de,es,it) (rev 2)': ["Player's Choice"],
-  'spider-man (europe) (rev 1)': ['Xbox Classics'],
-  'spider-man (usa) (rev 1)': ['Platinum Hits'],
-  'star fox adventures (usa) (rev 1)': ["Player's Choice"],
-  'spider-man (germany) (rev 1)': ['Xbox Classics'],
+  'spider-man (europe) (rev 1)': {
+    labels: ['Xbox Classics'],
+    platformIds: [47],
+  },
+  'spider-man (usa) (rev 1)': {
+    labels: ['Platinum Hits'],
+    platformIds: [47],
+  },
+  'star fox adventures (usa) (rev 1)': {
+    labels: ["Player's Choice"],
+    platformIds: [20],
+  },
+  'spider-man (germany) (rev 1)': {
+    labels: ['Xbox Classics'],
+    platformIds: [47],
+  },
   'blinx - the time sweeper (usa) (en,ja) (rev 1)': ['Platinum Hits'],
   'star wars - battlefront ii (usa) (en,es,it) (rev 1)': ['Platinum Hits'],
   'star wars - knights of the old republic (usa) (rev 1)': ['Platinum Hits'],
@@ -1909,12 +1929,20 @@ export function getCuratedReleaseTags(
   const rawWithoutExt = rawLower
     .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
     .trim();
-  const subseqLabels = Object.prototype.hasOwnProperty.call(
+  const subseqEntry = Object.prototype.hasOwnProperty.call(
     SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES,
     rawWithoutExt,
   )
     ? SUBSEQUENT_VERSION_BUDGET_EXCLUSIVES[rawWithoutExt]
     : undefined;
+  const subseqLabels = Array.isArray(subseqEntry)
+    ? subseqEntry
+    : subseqEntry &&
+        (platformId === undefined ||
+          !subseqEntry.platformIds ||
+          subseqEntry.platformIds.includes(platformId))
+      ? subseqEntry.labels
+      : undefined;
   if (subseqLabels) {
     for (const lbl of subseqLabels) {
       if (!tags.includes(lbl)) {
