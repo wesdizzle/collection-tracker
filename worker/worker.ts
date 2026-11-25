@@ -4014,6 +4014,31 @@ function isLikelyNonGameMerchTitle(title: string): boolean {
   return NON_GAME_MERCH_REGEX.test(title || '');
 }
 
+/**
+ * Packs notification bullet lines into as few multi-line bodies as possible
+ * while staying within typical mobile/desktop OS body truncation (~350 chars).
+ */
+export function buildMultiLineNotificationBodies(
+  lines: string[],
+  maxBodyChars = 350,
+): string[] {
+  if (lines.length === 0) return [];
+  const chunks: string[] = [];
+  let current = '';
+  for (const line of lines) {
+    if (!current) {
+      current = line;
+    } else if (current.length + 1 + line.length <= maxBodyChars) {
+      current += '\n' + line;
+    } else {
+      chunks.push(current);
+      current = line;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 async function sendWebPushPayloadsToSubscriber(
   env: Env,
   endpoint: string,
@@ -4467,33 +4492,42 @@ export async function dispatchWatchedSeriesNotifications(
       }
 
       const payloadsToSend: WebPushNotificationPayload[] = [];
-      if (userItems.length > 3) {
+      if (userItems.length > 1) {
+        const lines = userItems.map(
+          (item) =>
+            `• ${item.title}${item.platformName ? ` (${item.platformName})` : ''}${item.series ? ` — ${item.series}` : ''}`,
+        );
+        const chunks = buildMultiLineNotificationBodies(lines);
         const top = userItems[0];
+        const targetUrl =
+          top.itemType === 'toy' ? '/collection/toys' : '/collection/games';
+        chunks.forEach((body, idx) => {
+          const suffix =
+            chunks.length > 1 ? ` (${idx + 1}/${chunks.length})` : '';
+          payloadsToSend.push({
+            title: `✨ ${userItems.length} New Watched Series Additions${suffix}`,
+            body,
+            icon: '/icons/icon-192.png',
+            badge: '/icons/badge-96.png',
+            data: {
+              url: targetUrl,
+            },
+          });
+        });
+      } else {
+        const item = userItems[0];
         payloadsToSend.push({
-          title: `✨ ${userItems.length} New Watched Series Additions`,
-          body: `${top.title} (${top.series}) & ${userItems.length - 1} more added to your Seeking list.`,
+          title: `✨ New in ${item.series || 'Watched Series'}: ${item.title}`,
+          body: `Added to your Seeking list${item.platformName ? ` (${item.platformName})` : ''}.`,
           icon: '/icons/icon-192.png',
           badge: '/icons/badge-96.png',
           data: {
             url:
-              top.itemType === 'toy' ? '/collection/toys' : '/collection/games',
+              item.itemType === 'toy'
+                ? `/collection/toy/${item.itemId}`
+                : `/game/${item.itemId}`,
           },
         });
-      } else {
-        for (const item of userItems) {
-          payloadsToSend.push({
-            title: `✨ New in ${item.series || 'Watched Series'}: ${item.title}`,
-            body: `Added to your Seeking list${item.platformName ? ` (${item.platformName})` : ''}.`,
-            icon: '/icons/icon-192.png',
-            badge: '/icons/badge-96.png',
-            data: {
-              url:
-                item.itemType === 'toy'
-                  ? `/collection/toy/${item.itemId}`
-                  : `/game/${item.itemId}`,
-            },
-          });
-        }
       }
 
       const sendRes = await sendWebPushPayloadsToSubscriber(
@@ -12449,42 +12483,47 @@ export async function dispatchDealPushNotifications(
       matchedGames.sort((a, b) => b.discountPct - a.discountPct);
       const top = matchedGames[0];
 
-      let title = `Deal Alert: ${top.title}`;
-      let body = `Now $${top.deal.salePrice.toFixed(2)} (${top.discountPct}% off) at ${top.deal.store}!`;
+      const payloadsToSend: WebPushNotificationPayload[] = [];
       if (matchedGames.length > 1) {
-        title = `Deal Alerts: ${matchedGames.length} Games On Sale`;
-        body = `${top.title} ($${top.deal.salePrice.toFixed(2)}, -${top.discountPct}%) & ${matchedGames.length - 1} more!`;
+        const lines = matchedGames.map(
+          (m) =>
+            `• ${m.title} — $${m.deal.salePrice.toFixed(2)} (-${m.discountPct}%, ${m.deal.store})`,
+        );
+        const chunks = buildMultiLineNotificationBodies(lines);
+        chunks.forEach((body, idx) => {
+          const suffix =
+            chunks.length > 1 ? ` (${idx + 1}/${chunks.length})` : '';
+          payloadsToSend.push({
+            title: `Deal Alerts: ${matchedGames.length} Games On Sale${suffix}`,
+            body,
+            icon: '/icons/icon-192.png',
+            badge: '/icons/badge-96.png',
+            data: {
+              url: '/collection/games',
+            },
+          });
+        });
+      } else {
+        payloadsToSend.push({
+          title: `Deal Alert: ${top.title}`,
+          body: `Now $${top.deal.salePrice.toFixed(2)} (${top.discountPct}% off) at ${top.deal.store}!`,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-96.png',
+          data: {
+            url: `/game/${top.slug}`,
+          },
+        });
       }
 
-      const payload: WebPushNotificationPayload = {
-        title,
-        body,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/badge-96.png',
-        data: {
-          url: `/game/${top.slug}`,
-        },
-      };
-
-      const result = await sendWebPushNotification(
-        { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
-        payload,
-        {
-          publicKey: env.VAPID_PUBLIC_KEY,
-          privateKey: env.VAPID_PRIVATE_KEY,
-          subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
-          fetchFn: fetch,
-        },
+      const sendRes = await sendWebPushPayloadsToSubscriber(
+        env,
+        sub.endpoint,
+        sub.p256dh,
+        sub.auth,
+        payloadsToSend,
       );
-
-      if (result.success) {
-        dispatchedCount++;
-      } else if (result.shouldDelete) {
-        await env.DB.prepare(
-          'DELETE FROM push_subscriptions WHERE endpoint = ?',
-        )
-          .bind(sub.endpoint)
-          .run();
+      dispatchedCount += sendRes.dispatchedCount;
+      if (sendRes.purged) {
         purgedCount++;
       }
     }
@@ -15057,8 +15096,9 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   const games = candidateRows.results || [];
   const catalogIndex = new PlatformCatalogDedupeIndex(games);
 
-  // Read previously announced URLs from sync_state to avoid repeating uncataloged notifications
+  // Read previously announced URLs and per-store seed flags from sync_state
   let announcedUrls = new Set<string>();
+  let seededStores = new Set<string>();
   let isColdStartSeed = false;
   try {
     const seedRow = await env.DB.prepare(
@@ -15068,17 +15108,28 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
       isColdStartSeed = true;
     }
 
-    const seenRows = await env.DB.prepare(
-      `SELECT key FROM sync_state WHERE key >= 'boutique_announced:' AND key < 'boutique_announced;'`,
-    ).all<{ key: string }>();
+    const [seenRows, seededStoreRows] = await Promise.all([
+      env.DB.prepare(
+        `SELECT key FROM sync_state WHERE key >= 'boutique_announced:' AND key < 'boutique_announced;'`,
+      ).all<{ key: string }>(),
+      env.DB.prepare(
+        `SELECT key FROM sync_state WHERE key >= 'boutique_store_seeded:' AND key < 'boutique_store_seeded;'`,
+      ).all<{ key: string }>(),
+    ]);
     announcedUrls = new Set(
       (seenRows.results || []).map((r) =>
         r.key.slice('boutique_announced:'.length),
       ),
     );
+    seededStores = new Set(
+      (seededStoreRows.results || []).map((r) =>
+        r.key.slice('boutique_store_seeded:'.length),
+      ),
+    );
   } catch {
     // sync_state table may not exist yet in unmigrated environments
   }
+  const newlySeededStores = new Set<string>();
 
   const newlyAnnouncedGames: Array<{
     game: {
@@ -15111,6 +15162,10 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
   const statements: D1PreparedStatement[] = [];
 
   for (const po of preOrders) {
+    if (po.store && !seededStores.has(po.store)) {
+      newlySeededStores.add(po.store);
+    }
+    const isStoreColdStart = isColdStartSeed || !seededStores.has(po.store);
     if (!po.platformId) continue;
     // Sold-out boutique items must never update retail status or trigger announcement notifications
     if (po.isAvailable === false) continue;
@@ -15182,7 +15237,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         isActionableAnnouncement &&
         !announcedUrls.has(po.productUrl);
 
-      const shouldNotify = !isColdStartSeed && isUnannouncedSpecialEdition;
+      const shouldNotify = !isStoreColdStart && isUnannouncedSpecialEdition;
 
       if (shouldNotify) {
         newlyAnnouncedGames.push({
@@ -15221,7 +15276,7 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
         po.isPreOrder &&
         isRecentAnnouncement &&
         !announcedUrls.has(po.productUrl) &&
-        !isColdStartSeed;
+        !isStoreColdStart;
 
       const ingestKey = `${effectivePlatformId}::${poNorm}`;
       const canAutoIngest =
@@ -15460,6 +15515,16 @@ export async function syncWorkerBoutiquePreOrders(env: Env): Promise<{
     );
   }
 
+  for (const store of newlySeededStores) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO sync_state (key, value, updated_at)
+         VALUES (?, '1', CURRENT_TIMESTAMP)
+         ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = CURRENT_TIMESTAMP`,
+      ).bind(`boutique_store_seeded:${store}`),
+    );
+  }
+
   if (statements.length > 0) {
     const CHUNK_SIZE = 100;
     for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
@@ -15663,69 +15728,58 @@ async function dispatchPhysicalAnnouncementNotifications(
 
       if (matchedForSub.length === 0) continue;
 
-      // Coalesce into a single summary notification when >3 items trigger for a subscriber
+      // Send multi-line summary listing all matched items (split only if body exceeds OS limit)
       const payloadsToSend: WebPushNotificationPayload[] = [];
-      if (matchedForSub.length > 3) {
-        const top = matchedForSub[0];
-        const titleEdition = top.preOrder.edition
-          ? ` (${top.preOrder.edition})`
-          : '';
-        payloadsToSend.push({
-          title: `📦 ${matchedForSub.length} Physical Editions Announced`,
-          body: `${top.game.title}${titleEdition} at ${top.preOrder.store} & ${matchedForSub.length - 1} more!`,
-          icon: '/icons/icon-192.png',
-          badge: '/icons/badge-96.png',
-          data: {
-            url: '/collection/games',
-          },
-        });
-      } else {
-        for (const top of matchedForSub) {
-          const titleEdition = top.preOrder.edition
-            ? ` (${top.preOrder.edition})`
+      if (matchedForSub.length > 1) {
+        const lines = matchedForSub.map((item) => {
+          const edition = item.preOrder.edition
+            ? ` (${item.preOrder.edition})`
             : '';
-          const title = `📦 Physical Edition Announced: ${top.game.title}${titleEdition}`;
-          const body = `Pre-order now available at ${top.preOrder.store}!`;
-
-          const url = top.isUncataloged
-            ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
-            : `/game/${top.game.stable_id ?? top.game.id}`;
-
+          return `• ${item.game.title}${edition} (${item.preOrder.store})`;
+        });
+        const chunks = buildMultiLineNotificationBodies(lines);
+        chunks.forEach((body, idx) => {
+          const suffix =
+            chunks.length > 1 ? ` (${idx + 1}/${chunks.length})` : '';
           payloadsToSend.push({
-            title,
+            title: `📦 ${matchedForSub.length} Physical Editions Announced${suffix}`,
             body,
             icon: '/icons/icon-192.png',
             badge: '/icons/badge-96.png',
             data: {
-              url,
+              url: '/collection/games',
             },
           });
-        }
+        });
+      } else {
+        const top = matchedForSub[0];
+        const titleEdition = top.preOrder.edition
+          ? ` (${top.preOrder.edition})`
+          : '';
+        const url = top.isUncataloged
+          ? `/collection/games?search=${encodeURIComponent(top.preOrder.cleanTitle)}`
+          : `/game/${top.game.stable_id ?? top.game.id}`;
+        payloadsToSend.push({
+          title: `📦 Physical Edition Announced: ${top.game.title}${titleEdition}`,
+          body: `Pre-order now available at ${top.preOrder.store}!`,
+          icon: '/icons/icon-192.png',
+          badge: '/icons/badge-96.png',
+          data: {
+            url,
+          },
+        });
       }
 
-      for (const payload of payloadsToSend) {
-        const result = await sendWebPushNotification(
-          { endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
-          payload,
-          {
-            publicKey: env.VAPID_PUBLIC_KEY,
-            privateKey: env.VAPID_PRIVATE_KEY,
-            subject: resolveVapidSubject(undefined, undefined, env.ADMIN_EMAIL),
-            fetchFn: fetch,
-          },
-        );
-
-        if (result.success) {
-          dispatchedCount++;
-        } else if (result.shouldDelete) {
-          await env.DB.prepare(
-            'DELETE FROM push_subscriptions WHERE endpoint = ?',
-          )
-            .bind(sub.endpoint)
-            .run();
-          purgedCount++;
-          break;
-        }
+      const sendRes = await sendWebPushPayloadsToSubscriber(
+        env,
+        sub.endpoint,
+        sub.p256dh,
+        sub.auth,
+        payloadsToSend,
+      );
+      dispatchedCount += sendRes.dispatchedCount;
+      if (sendRes.purged) {
+        purgedCount++;
       }
     }
   } catch (err) {

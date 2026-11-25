@@ -61,6 +61,7 @@ import worker, {
   syncWorkerUnmatchedIgdbRetry,
   syncWorkerWatchedSeriesDiscovery,
   applyReactiveSeriesAutoTracking,
+  buildMultiLineNotificationBodies,
   dispatchDealPushNotifications,
   evaluateTrackingRulesForNewGames,
   evaluateTrackingRulesForNewToys,
@@ -164,7 +165,22 @@ describe('Worker API Logic', () => {
       VALUES ('smash', 'Smash', 'amiibo', 0);
       INSERT INTO toys (stable_id, id, name, line, series_id, sort_index)
       VALUES (1, 'link-amiibo', 'Link', 'amiibo', 'smash', 0);
-      INSERT INTO sync_state (key, value) VALUES ('boutique_seed_completed', '1');
+      INSERT INTO sync_state (key, value) VALUES
+        ('boutique_seed_completed', '1'),
+        ('boutique_store_seeded:Limited Run Games', '1'),
+        ('boutique_store_seeded:Super Rare Games', '1'),
+        ('boutique_store_seeded:iam8bit', '1'),
+        ('boutique_store_seeded:Fangamer', '1'),
+        ('boutique_store_seeded:Strictly Limited Games', '1'),
+        ('boutique_store_seeded:NIS America', '1'),
+        ('boutique_store_seeded:Aksys Games', '1'),
+        ('boutique_store_seeded:Clear River Games', '1'),
+        ('boutique_store_seeded:Serenity Forge', '1'),
+        ('boutique_store_seeded:Premium Edition Games', '1'),
+        ('boutique_store_seeded:CastleMania', '1'),
+        ('boutique_store_seeded:Silver Lining Direct', '1'),
+        ('boutique_store_seeded:First Press Games', '1'),
+        ('boutique_store_seeded:Limited Game News', '1');
     `);
 
     // Mock the Cloudflare D1 interface
@@ -1967,9 +1983,9 @@ describe('Worker API Logic', () => {
     });
 
     it('syncWorkerBoutiquePreOrders cold-start suppresses all notifications on initial baseline run and completes seeding', async () => {
-      // Clear boutique_seed_completed from sync_state
+      // Clear boutique_seed_completed and per-store seed flags from sync_state
       db.prepare(
-        `DELETE FROM sync_state WHERE key = 'boutique_seed_completed'`,
+        `DELETE FROM sync_state WHERE key = 'boutique_seed_completed' OR key LIKE 'boutique_store_seeded:%'`,
       ).run();
 
       db.prepare(
@@ -2047,6 +2063,51 @@ describe('Worker API Logic', () => {
           )
           .get();
         expect(uncatalogedSeen).toBeDefined();
+
+        // Now add a previously unseeded storefront when boutique_seed_completed = '1':
+        // first run must seed quietly, while an already-seeded store alerts normally.
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id)
+           VALUES (918, 'fresh-unseeded-game', 'Fresh Unseeded Game', 26)`,
+        ).run();
+        const storeFetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            if (typeof input === 'string' && input.includes('iam8bit.com')) {
+              return {
+                ok: true,
+                json: async () => ({
+                  products: [
+                    {
+                      id: 889902,
+                      title: 'Fresh Unseeded Game - Nintendo Switch',
+                      handle: 'fresh-unseeded-game-switch',
+                      tags: ['game', 'pre-order'],
+                      published_at: new Date().toISOString(),
+                      variants: [{ price: '34.99' }],
+                    },
+                  ],
+                }),
+              } as unknown as Response;
+            }
+            return {
+              ok: true,
+              json: async () => ({ products: [] }),
+            } as unknown as Response;
+          });
+        try {
+          const storeSeedRes = await syncWorkerBoutiquePreOrders(mockEnv);
+          expect(storeSeedRes.notifications.dispatchedCount).toBe(0);
+          expect(
+            db
+              .prepare(
+                `SELECT value FROM sync_state WHERE key = 'boutique_store_seeded:iam8bit'`,
+              )
+              .get(),
+          ).toEqual({ value: '1' });
+        } finally {
+          storeFetchSpy.mockRestore();
+        }
       } finally {
         fetchSpy.mockRestore();
         webPushSpy.mockRestore();
@@ -3659,16 +3720,21 @@ describe('Worker API Logic', () => {
 
         try {
           const result = await syncWorkerBoutiquePreOrders(mockEnv);
-          // User 1 owns all 4 -> 0 notifications; User 2 owns 0 of the 4 -> coalesced into 1 summary notification!
+          // User 1 owns all 4 -> 0 notifications; User 2 owns 0 of the 4 -> single multi-line notification listing all 4!
           expect(result.notifications.dispatchedCount).toBe(1);
           expect(webPushSpy).toHaveBeenCalledTimes(1);
+          const sentPayload = webPushSpy.mock.calls[0][1];
+          expect(sentPayload.title).toBe('📦 4 Physical Editions Announced');
+          expect(sentPayload.body).toContain('Coalesce Game 1');
+          expect(sentPayload.body).toContain('Coalesce Game 2');
+          expect(sentPayload.body).toContain('Coalesce Game 3');
+          expect(sentPayload.body).toContain('Coalesce Game 4');
+          expect(sentPayload.body).not.toContain('more!');
           expect(webPushSpy).toHaveBeenCalledWith(
             expect.objectContaining({
               endpoint: 'https://fcm.googleapis.com/fcm/send/u2',
             }),
-            expect.objectContaining({
-              title: '📦 4 Physical Editions Announced',
-            }),
+            expect.anything(),
             expect.anything(),
           );
         } finally {
@@ -4009,6 +4075,67 @@ describe('Worker API Logic', () => {
           );
           expect(res.dispatchedCount).toBe(0);
           expect(webPushSpy).not.toHaveBeenCalled();
+
+          // Multi-line deal notifications list all deals and split into 2 notifications if body > 350 chars
+          expect(
+            buildMultiLineNotificationBodies(
+              Array.from(
+                { length: 8 },
+                (_, i) =>
+                  `• Very Long Game Title Number ${i + 1}: Special Complete Edition — $19.99 (-50%, VGP)`,
+              ),
+              350,
+            ).length,
+          ).toBeGreaterThan(1);
+
+          db.prepare(
+            `DELETE FROM user_game_releases WHERE release_id = '991-1'`,
+          ).run();
+          for (let i = 1; i <= 7; i++) {
+            const gid = 992 + i;
+            db.prepare(
+              `INSERT INTO games (stable_id, id, title, platform_id) VALUES (?, ?, ?, 26)`,
+            ).run(
+              gid,
+              `long-deal-${i}`,
+              `Ultra Long Deluxe Collector Physical Game Title ${i}`,
+            );
+            db.prepare(
+              `INSERT INTO game_releases (id, game_id, region) VALUES (?, ?, 'USA')`,
+            ).run(`${gid}-1`, gid);
+            db.prepare(
+              `INSERT INTO user_game_releases (user_id, release_id, ownership_status) VALUES (1, ?, 2)`,
+            ).run(`${gid}-1`);
+            gameLookup.set(gid, {
+              id: `long-deal-${i}`,
+              title: `Ultra Long Deluxe Collector Physical Game Title ${i}`,
+              platform_id: 26,
+              ownership_status: 2,
+            });
+            bestDealByGame.set(gid, {
+              store: 'VGP' as const,
+              sku: `long-deal-${i}`,
+              name: `Ultra Long Deluxe Collector Physical Game Title ${i}`,
+              regularPrice: 59.99,
+              salePrice: 19.99,
+              onSale: true,
+              percentSavings: 67,
+              url: `https://videogamesplus.ca/products/long-deal-${i}`,
+              onlineAvailability: true,
+            });
+          }
+          const multiRes = await dispatchDealPushNotifications(
+            mockEnv,
+            gameLookup,
+            bestDealByGame,
+          );
+          expect(multiRes.dispatchedCount).toBeGreaterThan(1);
+          expect(
+            webPushSpy.mock.calls.every(
+              (c) => !String(c[1].body).includes('more!'),
+            ),
+          ).toBe(true);
+          expect(webPushSpy.mock.calls[0][1].title).toContain('(1/');
         } finally {
           webPushSpy.mockRestore();
         }
@@ -9363,13 +9490,11 @@ describe('Worker API Logic', () => {
         );
 
         expect(webPushSpy).toHaveBeenCalledTimes(1);
-        expect(webPushSpy).toHaveBeenCalledWith(
-          expect.anything(),
-          expect.objectContaining({
-            title: '✨ 4 New Watched Series Additions',
-          }),
-          expect.anything(),
-        );
+        const wsPayload = webPushSpy.mock.calls[0][1];
+        expect(wsPayload.title).toBe('✨ 4 New Watched Series Additions');
+        expect(wsPayload.body).toContain('Metroid Part 3');
+        expect(wsPayload.body).toContain('Metroid Part 6');
+        expect(wsPayload.body).not.toContain('more added');
 
         // Toys rule matching dispatches watched-series alert
         webPushSpy.mockClear();
