@@ -434,6 +434,7 @@ export function detectPhysicalReleaseStatus(options: {
   igdbGameFormat?: string | null;
   barcode?: string | null;
   serialCode?: string | null;
+  targetRegion?: string | null;
   canonicalReleases?: CanonicalRelease[];
 }): PhysicalVerificationResult {
   const {
@@ -449,6 +450,7 @@ export function detectPhysicalReleaseStatus(options: {
     igdbGameFormat,
     barcode,
     serialCode,
+    targetRegion,
     canonicalReleases = [],
   } = options;
 
@@ -470,7 +472,7 @@ export function detectPhysicalReleaseStatus(options: {
 
   // Tier 1: Canonical Match (No-Intro / Redump in D1/SQLite)
   const normTargetGameTitle = normalizeForLabelMatch(gameTitle);
-  const matchedReleases = canonicalReleases.filter((r) => {
+  const allMatchedReleases = canonicalReleases.filter((r) => {
     if (
       r.platform_id !== platformId &&
       (!parentPlatformId || r.platform_id !== parentPlatformId)
@@ -494,6 +496,11 @@ export function detectPhysicalReleaseStatus(options: {
       r.region,
     );
   });
+
+  const matchedReleases =
+    targetRegion && targetRegion.trim()
+      ? allMatchedReleases.filter((r) => regionsOverlap(r.region, targetRegion))
+      : allMatchedReleases;
 
   const matchedPhysicalReleases = matchedReleases.filter(
     (r) => r.is_verified_physical !== 0,
@@ -780,20 +787,27 @@ export function deduplicateDatReleases(
         isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
       }
     } else if (platformId === 34 || platformId === 35) {
-      const cleanSerial = serial
-        ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
-        : '';
-      const isKnownSerial = isKnownPhysicalModernDiscSerial(
-        platformId,
-        cleanSerial,
-      );
-      const isKnownPublisher = rel.publisher
-        ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
-            rel.publisher!.toLowerCase().includes(p),
-          )
-        : false;
-      if (cleanSerial || rel.publisher) {
-        isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+      // Redump optical Blu-ray dumps (.iso/.cue/.bin) represent pressed physical discs;
+      // only gate non-optical/digital package entries via the legacy serial/publisher allowlist.
+      const isOpticalDiscDump = /\.(?:iso|cue|bin)$/i.test(romName);
+      if (isOpticalDiscDump) {
+        isVerifiedPhysical = 1;
+      } else {
+        const cleanSerial = serial
+          ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
+          : '';
+        const isKnownSerial = isKnownPhysicalModernDiscSerial(
+          platformId,
+          cleanSerial,
+        );
+        const isKnownPublisher = rel.publisher
+          ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
+              rel.publisher!.toLowerCase().includes(p),
+            )
+          : false;
+        if (cleanSerial || rel.publisher) {
+          isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+        }
       }
     }
 

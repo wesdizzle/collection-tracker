@@ -395,6 +395,105 @@ describe('Canonical Releases & Physical Verification Engine', () => {
       expect(deduplicated[2].rom_name).toBe('Pure Digital PSN Indie (USA).zip');
       expect(deduplicated[2].is_verified_physical).toBe(0);
     });
+
+    it('treats PS4/PS5 Redump optical .iso disc dumps as is_verified_physical = 1 while gating non-optical packages', () => {
+      const ps4Releases = [
+        {
+          name: 'Kena - Bridge of Spirits (Europe) (CUSA-27651)',
+          serial: 'CUSA-27651',
+          roms: [
+            {
+              name: 'Kena - Bridge of Spirits (Europe).iso',
+              crc: '12345678',
+              serial: 'CUSA-27651',
+            },
+          ],
+        },
+        {
+          name: 'Digital Package Unlisted (USA) (CUSA-99998)',
+          serial: 'CUSA-99998',
+          roms: [
+            {
+              name: 'Digital Package Unlisted (USA).zip',
+              crc: '99999999',
+              serial: 'CUSA-99998',
+            },
+          ],
+        },
+      ];
+
+      const ps4Out = deduplicateDatReleases(34, ps4Releases);
+      expect(ps4Out).toHaveLength(2);
+      expect(ps4Out[0].raw_title).toBe('Kena - Bridge of Spirits');
+      expect(ps4Out[0].is_verified_physical).toBe(1);
+      expect(ps4Out[1].raw_title).toBe('Digital Package Unlisted');
+      expect(ps4Out[1].is_verified_physical).toBe(0);
+
+      const ps5Out = deduplicateDatReleases(35, [
+        {
+          name: 'The Last of Us Part II Remastered (Europe) (PPSA-15544)',
+          serial: 'PPSA-15544',
+          roms: [
+            {
+              name: 'The Last of Us Part II Remastered (Europe).iso',
+              crc: 'AABBCCDD',
+              serial: 'PPSA-15544',
+            },
+          ],
+        },
+      ]);
+      expect(ps5Out).toHaveLength(1);
+      expect(ps5Out[0].is_verified_physical).toBe(1);
+    });
+
+    it('isolates mixed-region CIAB vs physical Switch releases per targetRegion regardless of entry order', () => {
+      const ciabEu: CanonicalRelease = {
+        platform_id: 26,
+        raw_title: 'Shinobi: Art of Vengeance',
+        normalized_title: 'shinobiartvengeance',
+        region: 'Europe',
+        variants: 'Code in a Box (Download Only)',
+        rom_name: null,
+        rom_crc: null,
+        source: 'nscollectors_ciab',
+        is_verified_physical: 0,
+      };
+      const cartUsa: CanonicalRelease = {
+        platform_id: 26,
+        raw_title: 'Shinobi: Art of Vengeance',
+        normalized_title: 'shinobiartvengeance',
+        region: 'USA',
+        variants: null,
+        rom_name: null,
+        rom_crc: null,
+        source: 'nscollectors',
+        is_verified_physical: 1,
+      };
+
+      for (const order of [
+        [ciabEu, cartUsa],
+        [cartUsa, ciabEu],
+      ]) {
+        const euRes = detectPhysicalReleaseStatus({
+          platformId: 26,
+          gameTitle: 'Shinobi: Art of Vengeance',
+          targetRegion: 'Europe',
+          canonicalReleases: order,
+        });
+        expect(euRes.physical_status).toBe('digital_only');
+        expect(euRes.is_physical).toBe(false);
+
+        const usRes = detectPhysicalReleaseStatus({
+          platformId: 26,
+          gameTitle: 'Shinobi: Art of Vengeance',
+          targetRegion: 'USA',
+          canonicalReleases: order,
+        });
+        expect(usRes.physical_status).toBe('verified_physical');
+        expect(usRes.is_physical).toBe(true);
+        expect(usRes.physical_regions).toEqual(['USA']);
+      }
+    });
   });
 
   describe('Multi-Game Bundles & Physical Verification', () => {
