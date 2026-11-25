@@ -72,7 +72,6 @@ export function buildGamesListQuery(userId?: number | null): string {
            g.genres,
            g.collections,
            g.franchises,
-           g.manually_verified,
            CASE
              WHEN g.metadata_json IS NULL THEN NULL
              WHEN g.metadata_json NOT LIKE '%alternative_names%' AND g.metadata_json NOT LIKE '%game_localizations%' THEN NULL
@@ -315,7 +314,6 @@ export function buildGameDetailQuery(userId?: number | null): string {
             g.genres,
             g.collections,
             g.franchises,
-            g.manually_verified,
             g.metadata_json,
             g.barcode,
             g.bundle_parent_id,

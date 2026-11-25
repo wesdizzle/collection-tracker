@@ -1329,8 +1329,6 @@ export class CollectionService implements OnDestroy {
       source: phase1Match.source ?? overlaid.source,
       serial_code: phase1Match.serial_code ?? overlaid.serial_code,
       rom_name: phase1Match.rom_name ?? overlaid.rom_name,
-      manually_verified:
-        phase1Match.manually_verified ?? overlaid.manually_verified,
       is_source_verified:
         phase1Match.is_source_verified !== undefined
           ? Math.max(
@@ -1479,7 +1477,6 @@ export class CollectionService implements OnDestroy {
             overlaid.is_source_verified !== cachedGame.is_source_verified ||
             overlaid.canonical_release_id !== cachedGame.canonical_release_id ||
             overlaid.source !== cachedGame.source ||
-            overlaid.manually_verified !== cachedGame.manually_verified ||
             overlaid.rom_name !== cachedGame.rom_name ||
             overlaid.title !== cachedGame.title)
         ) {

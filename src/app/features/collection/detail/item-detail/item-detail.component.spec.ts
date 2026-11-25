@@ -1371,7 +1371,7 @@ describe('ItemDetailComponent', () => {
         'https://redump.org/discs/quicksearch/CUSA-00900',
       );
 
-      // Retired manually_verified flag without a canonical source renders no badge or link
+      // Game with a verified release renders canonical verification metadata even without external URLs
       vi.spyOn(collectionService, 'getGameById').mockReturnValue(
         of({
           ...mockGame,
@@ -1380,7 +1380,6 @@ describe('ItemDetailComponent', () => {
           platform_id: 49,
           platform: 'Xbox One',
           title: 'Manual Disc',
-          manually_verified: 1,
           releases: [
             {
               id: 'manual-rel',

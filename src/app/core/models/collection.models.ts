@@ -156,7 +156,6 @@ export interface Game {
   canonical_release_id?: number | null;
   serial_code?: string | null;
   is_source_verified?: number;
-  manually_verified?: number | boolean;
   source?: string | null;
   metadata_json?: string | null;
   bundle_parent_id?: number | null;

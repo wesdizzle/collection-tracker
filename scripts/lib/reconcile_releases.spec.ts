@@ -211,6 +211,7 @@ describe('reconcile_releases', () => {
       reconcileGameReleasesWithCanonical(db, {
         dryRun: false,
         platformId: 26,
+        sqlOutputPath: testSqlPath,
       });
 
       const threeHopes = db
@@ -239,6 +240,7 @@ describe('reconcile_releases', () => {
       reconcileGameReleasesWithCanonical(db, {
         dryRun: false,
         platformId: 26,
+        sqlOutputPath: testSqlPath,
       });
 
       const threeHopes = db

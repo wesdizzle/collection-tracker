@@ -975,17 +975,10 @@ export const BACKUP_CANONICAL_CHUNKS_STATE_KEY =
 export const BACKUP_GAMES_CHUNK_SIZE = 10_000;
 export const BACKUP_RELEASES_CHUNK_SIZE = 15_000;
 export const BACKUP_CANONICAL_CHUNK_SIZE = 15_000;
-export const R2_CATALOG_MANIFEST_KEY = 'catalog/manifest.json';
-export const R2_CATALOG_GAMES_CHUNK_PREFIX = 'catalog/games-chunk-';
-export const R2_CATALOG_BUILDS_PREFIX = 'catalog/builds/';
-export const R2_CATALOG_TOYS_CHUNK_KEY = 'catalog/toys-chunk-0.json';
 export const CATALOG_MANIFEST_STATE_KEY = 'catalog_manifest_v1';
 export const CATALOG_CHUNKS_DIRTY_KEY = 'catalog_chunks_dirty';
-export const CATALOG_CHUNKS_LAST_BUILT_AT_KEY = 'catalog_chunks_last_built_at';
-export const CATALOG_CHUNKS_ACTIVE_BUILDS_KEY = 'catalog_chunks_active_builds';
-export const CATALOG_CHUNKS_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-export type WorkerPlanTier = 'paid' | 'free';
 export const WORKER_PLAN_TIER_KEY = 'worker_plan_tier';
+export type WorkerPlanTier = 'paid' | 'free';
 export const WORKER_DAT_SYNC_META_PREFIX = 'dat_sync_meta:';
 export const WORKER_DAT_RETRO_CURSOR_KEY = 'worker_dat_retro_cursor';
 export const WORKER_DAT_SYNC_STATS_KEY = 'worker_dat_sync_stats';
@@ -1027,23 +1020,6 @@ export interface CatalogManifest {
   source?: 'd1-edge-cache' | 'r2-backup';
 }
 
-export function sanitizeCatalogBuildId(version: string): string {
-  return (version || '').trim().replace(/[^A-Za-z0-9_-]/g, '_');
-}
-
-export function getCatalogChunkR2Key(
-  chunkIndex: number,
-  buildVersionOrId?: string,
-): string {
-  const sanitized = buildVersionOrId
-    ? sanitizeCatalogBuildId(buildVersionOrId)
-    : '';
-  if (sanitized) {
-    return `${R2_CATALOG_BUILDS_PREFIX}${sanitized}/games-chunk-${chunkIndex}.json`;
-  }
-  return `${R2_CATALOG_GAMES_CHUNK_PREFIX}${chunkIndex}.json`;
-}
-
 let cachedCatalogManifest: {
   manifest: CatalogManifest;
   expiresAt: number;
@@ -1063,7 +1039,7 @@ let cachedCatalogDeltaGames: {
   expiresAt: number;
 } | null = null;
 
-const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, manually_verified, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, barcode, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
+const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, barcode, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
 const LITE_GAME_RELEASES_SELECT_COLS = `id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, image_url, canonical_release_id`;
 
 export async function loadMetaSnapshotForFallback(
@@ -1364,397 +1340,7 @@ export async function writeLiteBackupSnapshots(
   resetR2SnapshotCache();
 }
 
-const CATALOG_CHUNKS_STATE_KEY = 'catalog_chunks_state';
 const CATALOG_GAMES_TOTAL_ROWS_KEY = 'catalog_games_total_rows';
-
-interface CatalogChunksBuildState {
-  targetVersion: string;
-  buildId?: string;
-  chunkPrefix?: string;
-  timestamp: string;
-  nextChunk: number;
-  cursorStableId: number;
-  chunkCount: number;
-  totalRows: number;
-  gamesCount?: number;
-  maxStableId: number;
-  toysTotalRows: number;
-}
-
-/**
- * Generates pre-processed, user-agnostic build-scoped R2 catalog chunks
- * (`catalog/builds/<buildId>/games-chunk-0..N.json`, `catalog/toys-chunk-0.json`)
- * and atomically swaps `catalog/manifest.json` upon completion, retaining 1 previous build
- * as a grace buffer and pruning older builds. Uses primary-key cursor ranges without OFFSET scans.
- */
-export async function writeCatalogChunksToR2(
-  env: Env,
-  options: {
-    startChunk?: number;
-    maxChunksPerRun?: number;
-    timestampOverride?: string;
-    forceRestart?: boolean;
-  } = {},
-): Promise<CatalogManifest | null> {
-  if (!env.BACKUP_BUCKET) return null;
-
-  const chunkSize = CATALOG_GAMES_CHUNK_SIZE;
-  const maxChunksPerRun = options.maxChunksPerRun ?? Infinity;
-
-  let resumeState: CatalogChunksBuildState | null = null;
-  if (!options.forceRestart && options.startChunk === undefined) {
-    try {
-      const stateRow = await env.DB.prepare(
-        `SELECT value FROM sync_state WHERE key = ?`,
-      )
-        .bind(CATALOG_CHUNKS_STATE_KEY)
-        .first<{ value: string }>();
-      if (stateRow?.value) {
-        const parsed = JSON.parse(stateRow.value) as CatalogChunksBuildState;
-        if (
-          parsed &&
-          typeof parsed.nextChunk === 'number' &&
-          typeof parsed.cursorStableId === 'number' &&
-          typeof parsed.chunkCount === 'number' &&
-          typeof parsed.maxStableId === 'number' &&
-          parsed.cursorStableId < parsed.maxStableId &&
-          parsed.targetVersion?.endsWith(`:${CATALOG_CHUNK_SCHEMA_VERSION}`)
-        ) {
-          resumeState = parsed;
-        }
-      }
-    } catch {
-      // ignore missing or malformed cursor state
-    }
-  }
-
-  let timestamp: string;
-  let totalRows: number;
-  let gamesCount: number;
-  let maxStableId: number;
-  let chunkCount: number;
-  let startChunk: number;
-  let cursorStableId: number;
-  let toysTotalRows: number;
-  let targetVersion: string;
-  let buildId: string;
-  let chunkPrefix: string;
-
-  if (resumeState) {
-    timestamp = resumeState.timestamp;
-    totalRows = resumeState.totalRows;
-    gamesCount = resumeState.gamesCount ?? 0;
-    maxStableId = resumeState.maxStableId;
-    chunkCount = resumeState.chunkCount;
-    startChunk = resumeState.nextChunk;
-    cursorStableId = resumeState.cursorStableId;
-    toysTotalRows = resumeState.toysTotalRows;
-    targetVersion = resumeState.targetVersion;
-    buildId = resumeState.buildId || sanitizeCatalogBuildId(targetVersion);
-    chunkPrefix =
-      resumeState.chunkPrefix ||
-      `${R2_CATALOG_BUILDS_PREFIX}${buildId}/games-chunk-`;
-  } else {
-    timestamp = options.timestampOverride || new Date().toISOString();
-    const [statsRow, toyRowsResult] = await Promise.all([
-      env.DB.prepare(CATALOG_MAX_GAME_STABLE_ID_QUERY).first<{
-        max_stable_id?: number;
-      }>(),
-      env.DB.prepare(buildToysListQuery(null)).all(),
-    ]);
-
-    maxStableId = Number(statsRow?.max_stable_id ?? 0);
-    totalRows = 0;
-    gamesCount = 0;
-    chunkCount = Math.max(1, Math.ceil(maxStableId / CATALOG_GAMES_PER_CHUNK));
-    startChunk = Math.max(0, options.startChunk ?? 0);
-    if (startChunk > 0 && maxStableId > 0) {
-      const startBoundRow = await env.DB.prepare(
-        CATALOG_GAMES_CHUNK_BOUND_QUERY,
-      )
-        .bind(0, startChunk * CATALOG_GAMES_PER_CHUNK)
-        .first<{ end_stable_id?: number }>();
-      cursorStableId = Number(startBoundRow?.end_stable_id ?? 0);
-    } else {
-      cursorStableId = 0;
-    }
-
-    const toyRows =
-      (toyRowsResult.results as Array<Record<string, unknown>>) || [];
-    if (toyRows.length > 0) {
-      postProcessToyListRows(toyRows, DEFAULT_USER_HOME_REGION);
-    }
-    let maxToyStableId = 0;
-    for (const tr of toyRows) {
-      const sid = Number(tr['stable_id'] ?? 0);
-      if (sid > maxToyStableId) maxToyStableId = sid;
-    }
-    toysTotalRows = toyRows.length;
-
-    await env.BACKUP_BUCKET.put(
-      R2_CATALOG_TOYS_CHUNK_KEY,
-      JSON.stringify(toyRows),
-      {
-        httpMetadata: { contentType: 'application/json' },
-        customMetadata: {
-          rowCount: String(toysTotalRows),
-          maxStableId: String(maxToyStableId),
-          timestamp,
-        },
-      },
-    );
-    cachedCatalogToys = {
-      rows: toyRows,
-      rowCount: toysTotalRows,
-      maxStableId: maxToyStableId,
-      timestamp,
-      expiresAt: Date.now() + 60_000,
-    };
-
-    targetVersion = `${timestamp.slice(0, 10)}:${maxStableId}:${Date.parse(timestamp) || Date.now()}:${CATALOG_CHUNK_SCHEMA_VERSION}`;
-    buildId = sanitizeCatalogBuildId(targetVersion);
-    chunkPrefix = `${R2_CATALOG_BUILDS_PREFIX}${buildId}/games-chunk-`;
-    try {
-      await env.DB.prepare(
-        `INSERT INTO sync_state (key, value, updated_at)
-         VALUES (?, '0', datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = datetime('now')
-         WHERE sync_state.value != '0'`,
-      )
-        .bind(CATALOG_CHUNKS_DIRTY_KEY)
-        .run();
-    } catch {
-      // ignore if sync_state is unavailable in minimal schemas
-    }
-  }
-
-  const chunkQuery = buildCatalogGamesChunkQuery();
-  const chunkLimit = Number.isFinite(maxChunksPerRun)
-    ? Math.max(1, Math.floor(maxChunksPerRun))
-    : Number.POSITIVE_INFINITY;
-  let idx = startChunk;
-  let chunksProcessed = 0;
-
-  while (
-    chunksProcessed < chunkLimit &&
-    ((idx === 0 && maxStableId === 0) || cursorStableId < maxStableId)
-  ) {
-    let chunkRows: Array<Record<string, unknown>> = [];
-    let endStableId = 0;
-    if (maxStableId > 0) {
-      const endRow = await env.DB.prepare(CATALOG_GAMES_CHUNK_BOUND_QUERY)
-        .bind(cursorStableId, CATALOG_GAMES_PER_CHUNK)
-        .first<{ end_stable_id?: number }>();
-      endStableId = Number(endRow?.end_stable_id ?? 0);
-      if (endStableId <= cursorStableId) {
-        cursorStableId = maxStableId;
-        break;
-      }
-      const { results } = await env.DB.prepare(chunkQuery)
-        .bind(cursorStableId, endStableId)
-        .all();
-      chunkRows = (results as Array<Record<string, unknown>>) || [];
-      if (chunkRows.length > 0) {
-        postProcessGameListRows(chunkRows, DEFAULT_USER_HOME_REGION);
-      }
-    }
-
-    await env.BACKUP_BUCKET.put(
-      getCatalogChunkR2Key(idx, buildId),
-      JSON.stringify(chunkRows),
-      {
-        httpMetadata: { contentType: 'application/json' },
-        customMetadata: {
-          chunkIndex: String(idx),
-          rowCount: String(chunkRows.length),
-          version: targetVersion,
-          buildId,
-          schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
-          timestamp,
-        },
-      },
-    );
-
-    const chunkGameIds = new Set<unknown>();
-    for (const r of chunkRows) {
-      if (r['stable_id'] !== undefined && r['stable_id'] !== null) {
-        chunkGameIds.add(r['stable_id']);
-      }
-    }
-    totalRows += chunkRows.length;
-    gamesCount += chunkGameIds.size;
-    cursorStableId = maxStableId === 0 ? 0 : endStableId;
-    idx++;
-    chunksProcessed++;
-
-    if (maxStableId === 0) {
-      break;
-    }
-
-    if (cursorStableId < maxStableId) {
-      chunkCount = Math.max(
-        chunkCount,
-        idx +
-          Math.max(
-            1,
-            Math.ceil((maxStableId - cursorStableId) / CATALOG_GAMES_PER_CHUNK),
-          ),
-      );
-      const nextState: CatalogChunksBuildState = {
-        targetVersion,
-        buildId,
-        chunkPrefix,
-        timestamp,
-        nextChunk: idx,
-        cursorStableId,
-        chunkCount,
-        totalRows,
-        gamesCount,
-        maxStableId,
-        toysTotalRows,
-      };
-      try {
-        await env.DB.prepare(
-          `INSERT INTO sync_state (key, value, updated_at)
-           VALUES (?, ?, datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
-        )
-          .bind(CATALOG_CHUNKS_STATE_KEY, JSON.stringify(nextState))
-          .run();
-      } catch {
-        // ignore if sync_state is unavailable in minimal schemas
-      }
-    }
-  }
-
-  if (maxStableId > 0 && cursorStableId < maxStableId) {
-    return null;
-  }
-
-  const finalChunkCount = Math.max(1, idx);
-  const resolvedMaxStableId = Math.max(maxStableId, cursorStableId);
-  const manifest: CatalogManifest = {
-    version: targetVersion,
-    timestamp,
-    totalRows,
-    chunkSize,
-    chunkCount: finalChunkCount,
-    maxStableId: resolvedMaxStableId,
-    toysTotalRows,
-    toysChunkCount: 1,
-    schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
-    chunkPrefix,
-  };
-
-  await env.BACKUP_BUCKET.put(
-    R2_CATALOG_MANIFEST_KEY,
-    JSON.stringify(manifest),
-    {
-      httpMetadata: { contentType: 'application/json' },
-      customMetadata: {
-        version: manifest.version,
-        schemaVersion: CATALOG_CHUNK_SCHEMA_VERSION,
-        chunkPrefix,
-        totalRows: String(manifest.totalRows),
-        chunkCount: String(manifest.chunkCount),
-      },
-    },
-  );
-  let retainBuilds = [buildId];
-  try {
-    const prevBuildsRow = await env.DB.prepare(
-      `SELECT value FROM sync_state WHERE key = ?`,
-    )
-      .bind(CATALOG_CHUNKS_ACTIVE_BUILDS_KEY)
-      .first<{ value: string }>()
-      .catch(() => null);
-    if (prevBuildsRow?.value) {
-      const parsedPrev = JSON.parse(prevBuildsRow.value);
-      if (Array.isArray(parsedPrev)) {
-        for (const oldId of parsedPrev) {
-          if (typeof oldId === 'string' && oldId && oldId !== buildId) {
-            retainBuilds.push(oldId);
-            break;
-          }
-        }
-      }
-    }
-    retainBuilds = retainBuilds.slice(0, 2);
-
-    await env.DB.prepare(
-      `INSERT INTO sync_state (key, value, updated_at)
-       VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
-       WHERE sync_state.value != excluded.value`,
-    )
-      .bind(
-        CATALOG_GAMES_TOTAL_ROWS_KEY,
-        JSON.stringify({
-          totalRows,
-          gamesCount,
-          chunkCount: finalChunkCount,
-          maxStableId: resolvedMaxStableId,
-          toysTotalRows,
-        }),
-      )
-      .run();
-    await env.DB.prepare(
-      `INSERT INTO sync_state (key, value, updated_at)
-       VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
-    )
-      .bind(CATALOG_CHUNKS_ACTIVE_BUILDS_KEY, JSON.stringify(retainBuilds))
-      .run();
-    await env.DB.prepare(
-      `INSERT INTO sync_state (key, value, updated_at)
-       VALUES (?, ?, datetime('now'))
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
-    )
-      .bind(CATALOG_CHUNKS_LAST_BUILT_AT_KEY, timestamp)
-      .run();
-    await env.DB.prepare(`DELETE FROM sync_state WHERE key = ?`)
-      .bind(CATALOG_CHUNKS_STATE_KEY)
-      .run();
-  } catch {
-    // ignore cleanup error in minimal schemas
-  }
-
-  if (
-    typeof env.BACKUP_BUCKET.list === 'function' &&
-    typeof env.BACKUP_BUCKET.delete === 'function'
-  ) {
-    const retainSet = new Set(retainBuilds);
-    const keysToDelete: string[] = [];
-    let pruneCursor: string | undefined;
-    for (let page = 0; page < 10; page++) {
-      const listed = await env.BACKUP_BUCKET.list({
-        prefix: R2_CATALOG_BUILDS_PREFIX,
-        ...(pruneCursor ? { cursor: pruneCursor } : {}),
-      }).catch(() => null);
-      if (!listed?.objects) break;
-      for (const obj of listed.objects) {
-        const match = /^catalog\/builds\/([^/]+)\//.exec(obj.key);
-        if (match && !retainSet.has(match[1])) {
-          keysToDelete.push(obj.key);
-        }
-      }
-      if (listed.truncated && 'cursor' in listed && listed.cursor) {
-        pruneCursor = listed.cursor;
-      } else {
-        break;
-      }
-    }
-    for (const staleKey of keysToDelete) {
-      await env.BACKUP_BUCKET.delete(staleKey).catch(() => {});
-    }
-  }
-
-  cachedCatalogManifest = {
-    manifest,
-    expiresAt: Date.now() + 60_000,
-  };
-  return manifest;
-}
 
 export async function resolveCatalogManifest(
   env: Env,
@@ -1971,253 +1557,6 @@ export async function resolveCatalogManifest(
   } catch {
     return null;
   }
-}
-
-export async function recoverCatalogManifestFromR2Chunks(
-  bucket?: R2Bucket,
-): Promise<{ manifest: CatalogManifest; timestamp: string } | null> {
-  if (!bucket || typeof bucket.list !== 'function') {
-    return null;
-  }
-
-  type ChunkMetaEntry = {
-    rowCount?: number;
-    version?: string;
-    schemaVersion?: string;
-    timestamp?: string;
-    uploaded?: Date;
-  };
-
-  // Prefer build-scoped immutable chunk folders (`catalog/builds/<buildId>/games-chunk-<idx>.json`)
-  const buildsMap = new Map<string, Map<number, ChunkMetaEntry>>();
-  let buildsCursor: string | undefined;
-  for (let page = 0; page < 10; page++) {
-    const listOpts = {
-      prefix: R2_CATALOG_BUILDS_PREFIX,
-      include: ['customMetadata'],
-      ...(buildsCursor ? { cursor: buildsCursor } : {}),
-    } as unknown as R2ListOptions;
-    const listed = await bucket.list(listOpts).catch(() => null);
-    if (!listed?.objects) break;
-    for (const obj of listed.objects) {
-      const m = /^catalog\/builds\/([^/]+)\/games-chunk-(\d+)\.json$/.exec(
-        obj.key,
-      );
-      if (!m) continue;
-      const folder = m[1];
-      const chunkIdx = Number(m[2]);
-      if (!Number.isInteger(chunkIdx) || chunkIdx < 0) continue;
-      const custom = obj.customMetadata;
-      const parsedCount = custom?.['rowCount']
-        ? Number(custom['rowCount'])
-        : undefined;
-      let folderMap = buildsMap.get(folder);
-      if (!folderMap) {
-        folderMap = new Map();
-        buildsMap.set(folder, folderMap);
-      }
-      folderMap.set(chunkIdx, {
-        ...(parsedCount !== undefined &&
-        Number.isFinite(parsedCount) &&
-        parsedCount >= 0
-          ? { rowCount: parsedCount }
-          : {}),
-        version: custom?.['version'],
-        schemaVersion: custom?.['schemaVersion'],
-        timestamp: custom?.['timestamp'],
-        uploaded: obj.uploaded,
-      });
-    }
-    if (listed.truncated && 'cursor' in listed && listed.cursor) {
-      buildsCursor = listed.cursor;
-    } else {
-      break;
-    }
-  }
-
-  let bestBuild: {
-    folder: string;
-    contiguousCount: number;
-    totalRows: number;
-    latestTimestamp: string;
-    latestUploadedMs: number;
-    chunk0Meta: ChunkMetaEntry | undefined;
-  } | null = null;
-
-  for (const [folder, folderMap] of buildsMap.entries()) {
-    let contiguous = 0;
-    while (folderMap.has(contiguous)) contiguous++;
-    if (contiguous === 0) continue;
-    const c0 = folderMap.get(0);
-    let totalRows = 0;
-    let latestTs = c0?.timestamp || '';
-    let latestMs = 0;
-    for (let i = 0; i < contiguous; i++) {
-      const entry = folderMap.get(i);
-      if (!entry) break;
-      totalRows +=
-        entry.rowCount !== undefined ? entry.rowCount : CATALOG_GAMES_PER_CHUNK;
-      if (entry.timestamp && entry.timestamp > latestTs) {
-        latestTs = entry.timestamp;
-      }
-      if (entry.uploaded instanceof Date) {
-        const ms = entry.uploaded.getTime();
-        if (ms > latestMs) latestMs = ms;
-      }
-    }
-    if (
-      !bestBuild ||
-      contiguous > bestBuild.contiguousCount ||
-      (contiguous === bestBuild.contiguousCount &&
-        (latestTs > bestBuild.latestTimestamp ||
-          (latestTs === bestBuild.latestTimestamp &&
-            latestMs > bestBuild.latestUploadedMs)))
-    ) {
-      bestBuild = {
-        folder,
-        contiguousCount: contiguous,
-        totalRows,
-        latestTimestamp: latestTs,
-        latestUploadedMs: latestMs,
-        chunk0Meta: c0,
-      };
-    }
-  }
-
-  if (bestBuild) {
-    const timestamp =
-      bestBuild.latestTimestamp ||
-      (bestBuild.latestUploadedMs > 0
-        ? new Date(bestBuild.latestUploadedMs).toISOString()
-        : new Date().toISOString());
-    const version = bestBuild.chunk0Meta?.version || bestBuild.folder;
-    const manifest: CatalogManifest = {
-      version,
-      timestamp,
-      totalRows: bestBuild.totalRows,
-      chunkSize: CATALOG_GAMES_CHUNK_SIZE,
-      chunkCount: bestBuild.contiguousCount,
-      maxStableId: 0,
-      toysTotalRows: 0,
-      toysChunkCount: 1,
-      schemaVersion:
-        bestBuild.chunk0Meta?.schemaVersion || CATALOG_CHUNK_SCHEMA_VERSION,
-      chunkPrefix: `${R2_CATALOG_BUILDS_PREFIX}${bestBuild.folder}/games-chunk-`,
-    };
-    return { manifest, timestamp };
-  }
-
-  // Fallback: legacy unversioned `catalog/games-chunk-<idx>.json` keys
-  const chunkMetaMap = new Map<number, ChunkMetaEntry>();
-  let cursor: string | undefined;
-
-  for (let page = 0; page < 10; page++) {
-    const listOpts = {
-      prefix: R2_CATALOG_GAMES_CHUNK_PREFIX,
-      include: ['customMetadata'],
-      ...(cursor ? { cursor } : {}),
-    } as unknown as R2ListOptions;
-    const listed = await bucket.list(listOpts).catch(() => null);
-    if (!listed?.objects) {
-      break;
-    }
-    for (const obj of listed.objects) {
-      const m = /^catalog\/games-chunk-(\d+)\.json$/.exec(obj.key);
-      if (!m) continue;
-      const chunkIdx = Number(m[1]);
-      if (!Number.isInteger(chunkIdx) || chunkIdx < 0) continue;
-      const custom = obj.customMetadata;
-      const parsedCount = custom?.['rowCount']
-        ? Number(custom['rowCount'])
-        : undefined;
-      chunkMetaMap.set(chunkIdx, {
-        ...(parsedCount !== undefined &&
-        Number.isFinite(parsedCount) &&
-        parsedCount >= 0
-          ? { rowCount: parsedCount }
-          : {}),
-        version: custom?.['version'],
-        timestamp: custom?.['timestamp'],
-        uploaded: obj.uploaded,
-      });
-    }
-    if (listed.truncated && 'cursor' in listed && listed.cursor) {
-      cursor = listed.cursor;
-    } else {
-      break;
-    }
-  }
-
-  let contiguousCount = 0;
-  while (chunkMetaMap.has(contiguousCount)) {
-    contiguousCount++;
-  }
-  if (contiguousCount === 0) {
-    return null;
-  }
-
-  let chunk0Meta = chunkMetaMap.get(0);
-  if (
-    chunk0Meta &&
-    !chunk0Meta.version &&
-    !chunk0Meta.timestamp &&
-    typeof bucket.head === 'function'
-  ) {
-    const headObj = await bucket
-      .head(getCatalogChunkR2Key(0))
-      .catch(() => null);
-    if (headObj?.customMetadata) {
-      const headCount = headObj.customMetadata['rowCount']
-        ? Number(headObj.customMetadata['rowCount'])
-        : undefined;
-      chunk0Meta = {
-        ...chunk0Meta,
-        ...(headCount !== undefined &&
-        Number.isFinite(headCount) &&
-        headCount >= 0
-          ? { rowCount: headCount }
-          : {}),
-        version: headObj.customMetadata['version'],
-        timestamp: headObj.customMetadata['timestamp'],
-      };
-      chunkMetaMap.set(0, chunk0Meta);
-    }
-  }
-
-  let totalRows = 0;
-  let latestTimestamp = chunk0Meta?.timestamp || '';
-  let latestUploadedMs = 0;
-  for (let i = 0; i < contiguousCount; i++) {
-    const entry = chunkMetaMap.get(i);
-    if (!entry) break;
-    totalRows +=
-      entry.rowCount !== undefined ? entry.rowCount : CATALOG_GAMES_PER_CHUNK;
-    if (entry.timestamp && entry.timestamp > latestTimestamp) {
-      latestTimestamp = entry.timestamp;
-    }
-    if (entry.uploaded instanceof Date) {
-      const ms = entry.uploaded.getTime();
-      if (ms > latestUploadedMs) latestUploadedMs = ms;
-    }
-  }
-
-  const timestamp =
-    latestTimestamp ||
-    (latestUploadedMs > 0
-      ? new Date(latestUploadedMs).toISOString()
-      : new Date().toISOString());
-  const baseVersion = chunk0Meta?.version || timestamp.slice(0, 10);
-  const manifest: CatalogManifest = {
-    version: `${baseVersion}:r2-${contiguousCount}`,
-    timestamp,
-    totalRows,
-    chunkSize: CATALOG_GAMES_CHUNK_SIZE,
-    chunkCount: contiguousCount,
-    maxStableId: 0,
-    toysTotalRows: 0,
-    toysChunkCount: 1,
-  };
-  return { manifest, timestamp };
 }
 
 async function invalidateCatalogManifest(env: Env): Promise<void> {
@@ -2868,7 +2207,6 @@ function buildGamesListFromSnapshot(
         genres: g['genres'] ?? null,
         collections: g['collections'] ?? null,
         franchises: g['franchises'] ?? null,
-        manually_verified: g['manually_verified'] ?? 0,
         metadata_json: g['metadata_json'] ?? null,
         barcode: g['barcode'] ?? null,
         bundle_parent_id: g['bundle_parent_id'] ?? null,
@@ -3212,7 +2550,6 @@ function buildGameDetailFromSnapshot(
     genres: (g['genres'] as string | null) ?? null,
     collections: (g['collections'] as string | null) ?? null,
     franchises: (g['franchises'] as string | null) ?? null,
-    manually_verified: Number(g['manually_verified'] ?? 0),
     metadata_json: (g['metadata_json'] as string | null) ?? null,
     barcode: (g['barcode'] as string | null) ?? null,
     bundle_parent_id: (g['bundle_parent_id'] as number | null) ?? null,
@@ -4326,12 +3663,11 @@ async function insertCatalogGameWithReleases(
       await env.DB.prepare(
         `INSERT INTO games (
            stable_id, id, title, platform_id, region,
-           manually_verified,
            canonical_series, barcode, igdb_id, igdb_url, image_url, summary, genres,
            collections, franchises, metadata_json,
            retail_price, retail_regular_price, retail_discount_pct, retail_on_sale,
            retail_store, retail_url, retail_updated_at
-         ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           stableId,
@@ -5456,7 +4792,8 @@ export async function markCanonicalReleasesDirty(env: Env): Promise<void> {
 
 /**
  * Flags `catalog_chunks_dirty` in `sync_state` (diff-guarded) so the next
- * daytime or daily cron tick rebuilds build-scoped R2 catalog chunks.
+ * `resolveCatalogManifest` call recomputes D1 primary-key `chunkBounds` and
+ * bumps the manifest version token for Edge Cache and client IndexedDB invalidation.
  */
 export async function markCatalogChunksDirty(env: Env): Promise<void> {
   cachedCatalogManifest = null;
@@ -7349,21 +6686,7 @@ Disallow: /
           }
           return manifestRes;
         }
-        const recovered = await recoverCatalogManifestFromR2Chunks(
-          env.BACKUP_BUCKET,
-        );
-        if (!recovered) {
-          return buildD1QuotaExceededResponse();
-        }
-        return Response.json(
-          { ...recovered.manifest, source: 'r2-backup' },
-          {
-            headers: buildR2DegradedHeaders(recovered.timestamp, {
-              'Cache-Control': 'private, no-cache, no-store, must-revalidate',
-              [X_CATALOG_SOURCE_HEADER]: 'r2-backup',
-            }),
-          },
-        );
+        return buildD1QuotaExceededResponse();
       }
 
       const rawChunk = url.searchParams.get('chunk') ?? '0';
@@ -7490,50 +6813,6 @@ Disallow: /
             );
           }
           return d1Res;
-        } catch {
-          // Fall through to legacy R2 degraded fallback below on D1 outage
-        }
-      }
-
-      if (env.BACKUP_BUCKET) {
-        try {
-          if (versionParam !== 'latest') {
-            const versionedObj = await env.BACKUP_BUCKET.get(
-              getCatalogChunkR2Key(chunkIndex, versionParam),
-            );
-            if (versionedObj) {
-              const rawBody = versionedObj.body ?? (await versionedObj.text());
-              return new Response(rawBody, {
-                headers: buildR2DegradedHeaders(
-                  versionedObj.customMetadata?.['timestamp'] ||
-                    new Date().toISOString(),
-                  {
-                    'Content-Type': 'application/json',
-                    'Cache-Control':
-                      'private, no-cache, no-store, must-revalidate',
-                    [X_CATALOG_SOURCE_HEADER]: 'r2-backup',
-                  },
-                ),
-              });
-            }
-          }
-          const r2Obj = await env.BACKUP_BUCKET.get(
-            getCatalogChunkR2Key(chunkIndex),
-          );
-          if (r2Obj) {
-            const rawBody = r2Obj.body ?? (await r2Obj.text());
-            return new Response(rawBody, {
-              headers: buildR2DegradedHeaders(
-                r2Obj.customMetadata?.['timestamp'] || new Date().toISOString(),
-                {
-                  'Content-Type': 'application/json',
-                  'Cache-Control':
-                    'private, no-cache, no-store, must-revalidate',
-                  [X_CATALOG_SOURCE_HEADER]: 'r2-backup',
-                },
-              ),
-            });
-          }
         } catch {
           // Fall through to 503 D1 outage response
         }
@@ -19447,10 +18726,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         await env.DB.prepare(
           `INSERT INTO games (
              stable_id, id, title, platform_id, sort_index, region,
-             manually_verified, canonical_series,
+             canonical_series,
              igdb_id, igdb_url, image_url, summary, genres, collections, franchises, metadata_json,
              bundle_parent_id, bundle_disc_number
-           ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
           .bind(
             stableId,
