@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   auditSqlCost,
+  auditSqlDataInvariants,
   diffSqliteSchema,
   extractTargetTable,
   isSecondaryIndexOrigin,
@@ -195,5 +196,100 @@ describe('d1_cost_guard', () => {
     expect(diff.additiveSql.some((s) => s.includes('idx_users_oidc_sub'))).toBe(
       true,
     );
+  });
+
+  it('enforces ownership precedence, part state, and journal link invariants via auditSqlDataInvariants', () => {
+    const baselinePath = createTempPath('inv_baseline', '.db');
+    const sqlPath = createTempPath('inv_sql', '.sql');
+
+    const db = new Database(baselinePath);
+    db.exec(`
+      CREATE TABLE games (stable_id INTEGER PRIMARY KEY, id TEXT, title TEXT, platform_id INTEGER);
+      CREATE TABLE toys (stable_id INTEGER PRIMARY KEY, id TEXT, name TEXT);
+      CREATE TABLE game_releases (id TEXT PRIMARY KEY, game_id INTEGER NOT NULL REFERENCES games(stable_id) ON DELETE CASCADE);
+      CREATE TABLE user_game_releases (
+        user_id INTEGER NOT NULL,
+        release_id TEXT NOT NULL REFERENCES game_releases(id) ON DELETE CASCADE,
+        ownership_status INTEGER NOT NULL DEFAULT 0,
+        has_media INTEGER NOT NULL DEFAULT 0,
+        has_case INTEGER NOT NULL DEFAULT 0,
+        has_manual INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, release_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE journal_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        item_type TEXT NOT NULL,
+        item_id TEXT NOT NULL
+      );
+
+      INSERT INTO games (stable_id, id, title, platform_id) VALUES (10, '10', 'Owned Game', 26);
+      INSERT INTO games (stable_id, id, title, platform_id) VALUES (11, '11', 'Ghost Stub', 26);
+      INSERT INTO game_releases (id, game_id) VALUES ('10-1', 10), ('10-2', 10);
+      INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media, has_case, has_manual)
+        VALUES (1, '10-1', 1, 1, 1, 1);
+      INSERT INTO journal_entries (id, user_id, item_type, item_id) VALUES (100, 1, 'game', '10');
+    `);
+    db.close();
+
+    // 1. Static check blocks MAX(ownership_status)
+    fs.writeFileSync(
+      sqlPath,
+      `INSERT INTO user_game_releases (user_id, release_id, ownership_status) VALUES (1, '10-1', 2)
+       ON CONFLICT(user_id, release_id) DO UPDATE SET ownership_status = MAX(user_game_releases.ownership_status, excluded.ownership_status);`,
+      'utf8',
+    );
+    const maxCheck = auditSqlDataInvariants(sqlPath, baselinePath);
+    expect(maxCheck.passed).toBe(false);
+    expect(maxCheck.errors[0]).toContain('MAX(...ownership_status...)');
+
+    // 2. Blocks Owned -> Seeking downgrade
+    fs.writeFileSync(
+      sqlPath,
+      `UPDATE user_game_releases SET ownership_status = 2 WHERE user_id = 1 AND release_id = '10-1';`,
+      'utf8',
+    );
+    const lossCheck = auditSqlDataInvariants(sqlPath, baselinePath);
+    expect(lossCheck.passed).toBe(false);
+    expect(
+      lossCheck.errors.some((e) => e.includes('Ownership regression detected')),
+    ).toBe(true);
+    expect(
+      auditSqlDataInvariants(sqlPath, baselinePath, {
+        allowOwnershipLoss: true,
+      }).errors.some((e) => e.includes('Ownership regression detected')),
+    ).toBe(false);
+
+    // 3. Blocks Seeking/Unowned row with has_case = 1 or has_manual = 1
+    fs.writeFileSync(
+      sqlPath,
+      `INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_case, has_manual) VALUES (1, '10-2', 2, 1, 0);`,
+      'utf8',
+    );
+    const partsCheck = auditSqlDataInvariants(sqlPath, baselinePath);
+    expect(partsCheck.passed).toBe(false);
+    expect(partsCheck.errors[0]).toContain('has_case/has_manual = 1');
+
+    // 4. Blocks deleting a game still referenced by journal_entries
+    fs.writeFileSync(
+      sqlPath,
+      `DELETE FROM game_releases WHERE game_id = 10; DELETE FROM games WHERE stable_id = 10;`,
+      'utf8',
+    );
+    const journalCheck = auditSqlDataInvariants(sqlPath, baselinePath, {
+      allowOwnershipLoss: true,
+    });
+    expect(journalCheck.passed).toBe(false);
+    expect(journalCheck.errors[0]).toContain('Orphaned 1 journal_entries');
+
+    // 5. Allows clean ownership transfer & orphan stub delete
+    fs.writeFileSync(
+      sqlPath,
+      `DELETE FROM games WHERE stable_id = 11;`,
+      'utf8',
+    );
+    const cleanCheck = auditSqlDataInvariants(sqlPath, baselinePath);
+    expect(cleanCheck.passed).toBe(true);
+    expect(cleanCheck.errors).toEqual([]);
   });
 });

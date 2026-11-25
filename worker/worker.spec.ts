@@ -61,6 +61,7 @@ import worker, {
   syncWorkerUnmatchedIgdbRetry,
   syncWorkerWatchedSeriesDiscovery,
   applyReactiveSeriesAutoTracking,
+  dispatchDealPushNotifications,
   evaluateTrackingRulesForNewGames,
   evaluateTrackingRulesForNewToys,
   writeCatalogChunksToR2,
@@ -3944,6 +3945,72 @@ describe('Worker API Logic', () => {
         } finally {
           mockDb.prepare = basePrepare;
           fetchSpy.mockRestore();
+        }
+      });
+
+      it('suppresses deal notifications when a game has an Owned (1) release alongside a Seeking (2) sibling release', async () => {
+        db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id)
+           VALUES (991, 'mixed-owned-game', 'Mixed Owned Game', 26)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO game_releases (id, game_id, region)
+           VALUES ('991-1', 991, 'USA'), ('991-2', 991, 'Europe')`,
+        ).run();
+        db.prepare(
+          `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+           VALUES (1, '991-1', 1), (1, '991-2', 2)`,
+        ).run();
+        db.prepare(
+          `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, preferences_json, created_at, updated_at)
+           VALUES ('sub-deal-prec', 1, 'https://fcm.googleapis.com/fcm/send/prec', 'p256', 'auth', '{"enabled":true,"scope":"seeking_only","minDiscountPct":10}', datetime('now'), datetime('now'))`,
+        ).run();
+
+        const webPushSpy = vi
+          .spyOn(webPush, 'sendWebPushNotification')
+          .mockResolvedValue({
+            success: true,
+            status: 201,
+            shouldDelete: false,
+          });
+        try {
+          const gameLookup = new Map([
+            [
+              991,
+              {
+                id: 'mixed-owned-game',
+                title: 'Mixed Owned Game',
+                platform_id: 26,
+                ownership_status: 2,
+              },
+            ],
+          ]);
+          const bestDealByGame = new Map([
+            [
+              991,
+              {
+                store: 'VGP' as const,
+                sku: 'mixed-owned-game',
+                name: 'Mixed Owned Game',
+                regularPrice: 59.99,
+                salePrice: 29.99,
+                onSale: true,
+                percentSavings: 50,
+                url: 'https://videogamesplus.ca/products/mixed-owned',
+                onlineAvailability: true,
+              },
+            ],
+          ]);
+
+          const res = await dispatchDealPushNotifications(
+            mockEnv,
+            gameLookup,
+            bestDealByGame,
+          );
+          expect(res.dispatchedCount).toBe(0);
+          expect(webPushSpy).not.toHaveBeenCalled();
+        } finally {
+          webPushSpy.mockRestore();
         }
       });
 

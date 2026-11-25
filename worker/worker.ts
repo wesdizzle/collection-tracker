@@ -12314,7 +12314,14 @@ export async function dispatchDealPushNotifications(
       try {
         const subPlaceholders = subscribedUserIds.map(() => '?').join(',');
         const ugrRows = await env.DB.prepare(
-          `SELECT ugr.user_id, r.game_id as stable_id, MAX(ugr.ownership_status) as ownership_status
+          `SELECT ugr.user_id, r.game_id as stable_id,
+                  CASE
+                    WHEN MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) = 1 THEN 1
+                    WHEN MAX(CASE WHEN ugr.ownership_status = 3 THEN 1 ELSE 0 END) = 1 THEN 3
+                    WHEN MAX(CASE WHEN ugr.ownership_status = 4 THEN 1 ELSE 0 END) = 1 THEN 4
+                    WHEN MAX(CASE WHEN ugr.ownership_status = 2 THEN 1 ELSE 0 END) = 1 THEN 2
+                    ELSE 0
+                  END as ownership_status
            FROM user_game_releases ugr
            JOIN game_releases r ON r.id = ugr.release_id
            WHERE ugr.user_id IN (${subPlaceholders})
@@ -15543,7 +15550,13 @@ async function dispatchPhysicalAnnouncementNotifications(
       const subPlaceholders = subscribedUserIds.map(() => '?').join(',');
       const ugrRows = await env.DB.prepare(
         `SELECT ugr.user_id, r.game_id as stable_id,
-                MAX(ugr.ownership_status) as ownership_status,
+                CASE
+                  WHEN MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) = 1 THEN 1
+                  WHEN MAX(CASE WHEN ugr.ownership_status = 3 THEN 1 ELSE 0 END) = 1 THEN 3
+                  WHEN MAX(CASE WHEN ugr.ownership_status = 4 THEN 1 ELSE 0 END) = 1 THEN 4
+                  WHEN MAX(CASE WHEN ugr.ownership_status = 2 THEN 1 ELSE 0 END) = 1 THEN 2
+                  ELSE 0
+                END as ownership_status,
                 MAX(CASE WHEN ugr.ownership_status = 1 THEN 1 ELSE 0 END) as has_owned_physical,
                 GROUP_CONCAT(CASE WHEN ugr.ownership_status = 1 THEN COALESCE(r.variants, '') ELSE NULL END) as owned_variants
          FROM user_game_releases ugr

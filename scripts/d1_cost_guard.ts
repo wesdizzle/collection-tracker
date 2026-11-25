@@ -13,6 +13,7 @@
 
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -79,6 +80,7 @@ export interface CostGuardOptions {
   confirm?: boolean;
   executeRemote?: boolean;
   remoteDbName?: string;
+  allowOwnershipLoss?: boolean;
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -541,7 +543,191 @@ export function runCollectionStaticSchemaCostGuard(
     }
   }
 
+  const workerTsPath = path.join(rootDir, 'worker', 'worker.ts');
+  if (fs.existsSync(workerTsPath)) {
+    const workerSrc = fs.readFileSync(workerTsPath, 'utf8');
+    if (/MAX\s*\(\s*(?:ugr\.)?ownership_status\s*\)/i.test(workerSrc)) {
+      result.passed = false;
+      result.errors.push(
+        'worker/worker.ts uses MAX(ownership_status), which ranks Seeking (2) above Owned (1). Use precedence CASE (1 > 3 > 4 > 2 > 0).',
+      );
+    }
+  }
+
   return result;
+}
+
+export interface SqlDataInvariantResult {
+  passed: boolean;
+  errors: string[];
+}
+
+/**
+ * Validates ownership, case/manual part, and polymorphic journal invariants
+ * before running any SQL file against remote D1.
+ */
+export function auditSqlDataInvariants(
+  sqlFilePath: string,
+  baselineDbPath = REMOTE_BASELINE_DB_PATH,
+  options?: { allowOwnershipLoss?: boolean },
+): SqlDataInvariantResult {
+  const errors: string[] = [];
+  const rawSql = fs.readFileSync(sqlFilePath, 'utf8');
+  const statements = splitSqlStatements(rawSql)
+    .map((s) => stripLeadingSqlComments(s).trim())
+    .filter(Boolean);
+
+  for (let i = 0; i < statements.length; i++) {
+    if (/MAX\s*\([^)]*ownership_status/i.test(statements[i])) {
+      errors.push(
+        `Statement #${i + 1} uses MAX(...ownership_status...), which corrupts ownership precedence (Owned=1 < Seeking=2 < Ordered=3 < PrioritySeeking=4).`,
+      );
+    }
+  }
+
+  if (errors.length > 0 || !baselineDbPath || !fs.existsSync(baselineDbPath)) {
+    return { passed: errors.length === 0, errors };
+  }
+
+  const tmpDbPath = path.join(
+    os.tmpdir(),
+    `d1_cost_guard_inv_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}.db`,
+  );
+  fs.copyFileSync(baselineDbPath, tmpDbPath);
+  const db = new Database(tmpDbPath);
+  try {
+    db.pragma('foreign_keys = ON');
+    const tableNames = new Set(
+      (
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+          .all() as Array<{ name: string }>
+      ).map((r) => r.name),
+    );
+
+    const checkOwnership =
+      tableNames.has('user_game_releases') &&
+      tableNames.has('game_releases') &&
+      tableNames.has('games');
+    const checkJournals =
+      tableNames.has('journal_entries') &&
+      tableNames.has('games') &&
+      tableNames.has('toys');
+
+    const getOwnedKeys = (): Set<string> =>
+      new Set(
+        (
+          db
+            .prepare(
+              `SELECT DISTINCT ugr.user_id || ':' || r.game_id AS k
+               FROM user_game_releases ugr
+               JOIN game_releases r ON r.id = ugr.release_id
+               WHERE ugr.ownership_status = 1`,
+            )
+            .all() as Array<{ k: string }>
+        ).map((r) => r.k),
+      );
+
+    const getInvalidPartKeys = (): Set<string> =>
+      new Set(
+        (
+          db
+            .prepare(
+              `SELECT user_id || ':' || release_id AS k
+               FROM user_game_releases
+               WHERE ownership_status IN (0, 2)
+                 AND (has_case = 1 OR has_manual = 1)`,
+            )
+            .all() as Array<{ k: string }>
+        ).map((r) => r.k),
+      );
+
+    const getOrphanJournalIds = (): Set<number> =>
+      new Set(
+        (
+          db
+            .prepare(
+              `SELECT id
+               FROM journal_entries
+               WHERE (item_type = 'game' AND item_id NOT IN (
+                 SELECT CAST(stable_id AS TEXT) FROM games
+                 UNION
+                 SELECT id FROM games WHERE id IS NOT NULL
+               ))
+               OR (item_type = 'toy' AND item_id NOT IN (
+                 SELECT CAST(stable_id AS TEXT) FROM toys
+                 UNION
+                 SELECT id FROM toys WHERE id IS NOT NULL
+               ))`,
+            )
+            .all() as Array<{ id: number }>
+        ).map((r) => r.id),
+      );
+
+    const ownedBefore = checkOwnership ? getOwnedKeys() : new Set<string>();
+    const invalidPartsBefore = checkOwnership
+      ? getInvalidPartKeys()
+      : new Set<string>();
+    const orphanJournalsBefore = checkJournals
+      ? getOrphanJournalIds()
+      : new Set<number>();
+
+    const tx = db.transaction(() => {
+      for (const stmt of statements) {
+        db.exec(stmt);
+      }
+    });
+    tx();
+
+    if (checkOwnership) {
+      if (!options?.allowOwnershipLoss) {
+        const ownedAfter = getOwnedKeys();
+        const lostOwned = Array.from(ownedBefore).filter(
+          (k) => !ownedAfter.has(k),
+        );
+        if (lostOwned.length > 0) {
+          errors.push(
+            `Ownership regression detected for ${lostOwned.length} owned game(s): ${lostOwned.slice(0, 10).join(', ')} (pass --allow-ownership-loss to override).`,
+          );
+        }
+      }
+
+      const invalidPartsAfter = getInvalidPartKeys();
+      const newInvalidParts = Array.from(invalidPartsAfter).filter(
+        (k) => !invalidPartsBefore.has(k),
+      );
+      if (newInvalidParts.length > 0) {
+        errors.push(
+          `Introduced ${newInvalidParts.length} user_game_releases row(s) with ownership_status IN (0, 2) and has_case/has_manual = 1: ${newInvalidParts.slice(0, 10).join(', ')}.`,
+        );
+      }
+    }
+
+    if (checkJournals) {
+      const orphanJournalsAfter = getOrphanJournalIds();
+      const newOrphanJournals = Array.from(orphanJournalsAfter).filter(
+        (id) => !orphanJournalsBefore.has(id),
+      );
+      if (newOrphanJournals.length > 0) {
+        errors.push(
+          `Orphaned ${newOrphanJournals.length} journal_entries row(s): IDs ${newOrphanJournals.slice(0, 10).join(', ')}.`,
+        );
+      }
+    }
+  } finally {
+    try {
+      db.close();
+    } catch {
+      // Ignore close error
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      if (fs.existsSync(`${tmpDbPath}${suffix}`)) {
+        fs.unlinkSync(`${tmpDbPath}${suffix}`);
+      }
+    }
+  }
+
+  return { passed: errors.length === 0, errors };
 }
 
 export function auditSqlCost(
@@ -556,6 +742,15 @@ export function auditSqlCost(
 }
 
 export function runWithD1CostGuard(options: CostGuardOptions): CostGuardReport {
+  const baselineDbPath = options.baselineDbPath || REMOTE_BASELINE_DB_PATH;
+  const inv = auditSqlDataInvariants(options.sqlFilePath, baselineDbPath, {
+    allowOwnershipLoss: options.allowOwnershipLoss,
+  });
+  if (!inv.passed) {
+    throw new Error(
+      `[CostGuard] Data invariant check failed:\n - ${inv.errors.join('\n - ')}`,
+    );
+  }
   const executeRemote = Boolean(
     options.executeRemote || (options.confirm && !options.isDryRun),
   );
@@ -565,7 +760,7 @@ export function runWithD1CostGuard(options: CostGuardOptions): CostGuardReport {
     executeRemote,
     remoteDbName: options.remoteDbName || 'collection-db',
     rootDir,
-    baselineDbPath: options.baselineDbPath || REMOTE_BASELINE_DB_PATH,
+    baselineDbPath,
     migrationsLogPath: REMOTE_MIGRATIONS_LOG_PATH,
     protectedTables: PROTECTED_TABLES,
     patchWranglerConfig: <T>(fn: () => T): T => {
@@ -604,6 +799,7 @@ function runCli(): void {
   let confirm = false;
   let isDryRun = true;
   let diffMode = false;
+  let allowOwnershipLoss = false;
 
   for (const arg of args) {
     if (arg.startsWith('--file=')) {
@@ -618,6 +814,8 @@ function runCli(): void {
       confirm = false;
     } else if (arg === '--diff') {
       diffMode = true;
+    } else if (arg === '--allow-ownership-loss') {
+      allowOwnershipLoss = true;
     }
   }
 
@@ -661,7 +859,13 @@ function runCli(): void {
     return;
   }
 
-  runWithD1CostGuard({ sqlFilePath, maxWrites, confirm, isDryRun });
+  runWithD1CostGuard({
+    sqlFilePath,
+    maxWrites,
+    confirm,
+    isDryRun,
+    allowOwnershipLoss,
+  });
 }
 
 const isMainModule =
