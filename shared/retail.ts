@@ -154,6 +154,15 @@ export function resolveRetailPlatformId(
     if (/^(?:XSX|Xbox\s+Series\s+[XS](?:[|/]S)?)\b/i.test(decodedLead)) {
       return 50;
     }
+    if (/^(?:PSV|PS\s*VITA)\b/i.test(decodedLead)) {
+      return 33;
+    }
+    if (/^PS4\b/i.test(decodedLead)) {
+      return 34;
+    }
+    if (/^PS5\b/i.test(decodedLead)) {
+      return 35;
+    }
   }
 
   if (platformStr) {
@@ -250,7 +259,7 @@ export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
   let cleaned = decodeHtmlEntities(rawTitle).trim();
   cleaned = cleaned.replace(
-    /^(?:XSX\s+XB1|XB1\s+XSX|XB1|XSX)\s*(?:[-–—:]\s*|\s+)/i,
+    /^(?:XSX\s+XB1|XB1\s+XSX|XB1|XSX|PS4|PS5|PSV)\s*(?:[-–—:]\s*|\s+)/i,
     '',
   );
   cleaned = stripBoutiqueCatalogPrefix(stripLgnPlatformPipeTrailer(cleaned), {
@@ -266,13 +275,14 @@ export function cleanRetailTitle(rawTitle: string): string {
 
   cleaned = cleaned
     .replace(
-      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPIM|JP|JPN\s*Import[^)]*|Multi-Lang(?:uage)?[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard(?:\s*Edition)?|Extra\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?(?:\s*English)?\s*Import[^)]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
+      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Pre-?Owned|Used|New|Sealed|CIB|Loose|Disc\s+Only|Import|JPIM|JP|JPN\s*Import[^)]*|Multi-Lang(?:uage)?[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard(?:\s*Edition)?|Extra\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?(?:\s*English)?\s*Import[^)]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
       ' ',
     )
     .replace(
-      /\s*\[(Standard\s*Edition|Standard\/Limited\s*Ed(?:i)?tion|Import|EU\s*Import|PEGI[^\]]*|US\/ESRB|Multi-Lang(?:uage)?[^\]]*|PRE-ORDER|ESRB|Cart\s*Type\s*Not\s*Confirmed|Free\s*Shipping|Retail\s*Version|SteelBook®?\s*Edition|Canadian\s*Exclusive\s*Retailer|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?(?:\s*English)?\s*Import[^\]]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
+      /\s*\[(Standard\s*Edition|Standard\/Limited\s*Ed(?:i)?tion|Pre-?Owned|Used|New|Sealed|CIB|Loose|Disc\s+Only|Import|EU\s*Import|PEGI[^\]]*|US\/ESRB|Multi-Lang(?:uage)?[^\]]*|PRE-ORDER|ESRB|Cart\s*Type\s*Not\s*Confirmed|Free\s*Shipping|Retail\s*Version|SteelBook®?\s*Edition|Canadian\s*Exclusive\s*Retailer|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?(?:\s*English)?\s*Import[^\]]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
       ' ',
-    );
+    )
+    .replace(/\s*[-–—]\s*\((?:PS4|PS5|PSV|PSVR2?|XB1|XSX|NSW2?)\)\s*$/i, '');
 
   cleaned = stripRetailPreorderAndPlatformTrailer(cleaned);
   for (let i = 0; i < 4; i++) {
@@ -321,7 +331,7 @@ export async function fetchCadToUsdRate(
 }
 
 const NON_GAME_RETAIL_KEYWORDS =
-  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*[-–—]\s*hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
 
 /**
  * Returns true if a retailer product title/type is clearly hardware, apparel, TCG,

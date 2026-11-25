@@ -116,6 +116,24 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(isNonGameRetailTitle('Xbox One System - HW - Black')).toBe(true);
       expect(isNonGameRetailTitle('Halo Infinite - Manual Only')).toBe(true);
       expect(isNonGameRetailTitle('Gears 5 - Case Only')).toBe(true);
+      expect(
+        isNonGameRetailTitle(
+          'PS4 PlayStation 4 - System HW - Original Model - 500 GB - Black - USED',
+        ),
+      ).toBe(true);
+      expect(
+        cleanRetailTitle("7'scarlet - (PSV) PlayStation Vita [Pre-Owned]"),
+      ).toBe("7'scarlet");
+      expect(
+        cleanRetailTitle(
+          '.hack//G.U. Last Recode - (PS4) PlayStation 4 [Pre-Owned]',
+        ),
+      ).toBe('.hack//G.U. Last Recode');
+      expect(
+        cleanRetailTitle(
+          'PS4 Call of Duty - Black Ops III 3 - DLC MAY NOT BE INCLUDED',
+        ),
+      ).toBe('Call of Duty - Black Ops III 3');
     });
 
     it('should handle empty or undefined titles gracefully', () => {
@@ -144,6 +162,11 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(resolveRetailPlatformId(undefined, 'XSX XB1 Elden Ring')).toBe(49);
       expect(resolveRetailPlatformId(undefined, 'XB1 Halo 5')).toBe(49);
       expect(resolveRetailPlatformId(undefined, 'XSX Dead Space')).toBe(50);
+      expect(resolveRetailPlatformId(undefined, 'PS4 God of War')).toBe(34);
+      expect(resolveRetailPlatformId(undefined, 'PS5 Returnal')).toBe(35);
+      expect(resolveRetailPlatformId(undefined, 'PSV Persona 4 Golden')).toBe(
+        33,
+      );
       expect(
         resolveRetailPlatformId('Xbox Series X', 'Dead Space Remake'),
       ).toBe(50);

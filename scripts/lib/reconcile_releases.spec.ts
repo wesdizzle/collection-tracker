@@ -550,5 +550,61 @@ describe('reconcile_releases', () => {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     });
+
+    it('matches edition-suffixed Xbox/modern DAT rows via Strategy 5 linker keys while blocking sequel mismatches', () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'reconcile-linker-keys-'),
+      );
+      const dbPath = path.join(tmpDir, 'test.db');
+      const sqlOut = path.join(tmpDir, 'reconcile.sql');
+      const db = new Database(dbPath);
+      const schemaSql = fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      db.exec(schemaSql);
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id) VALUES
+          (4189, '4189', 'Minecraft Dungeons: Hero Edition', 49),
+          (4205, '4205', 'Pac-Man Championship Edition 2', 49),
+          (4999, '4999', 'Persona 4', 49);
+        INSERT INTO game_releases (id, game_id, region) VALUES
+          ('4189-1', 4189, 'USA'),
+          ('4205-1', 4205, 'USA'),
+          ('4999-1', 4999, 'USA');
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical) VALUES
+          (901, 49, 'Minecraft Dungeons - Hero Edition', '${normalizeTitleForMatching('Minecraft Dungeons - Hero Edition')}', 'USA, Europe', 'Minecraft Dungeons - Hero Edition (USA, Europe).iso', 'aaaa1111', 'dat', 1),
+          (902, 49, 'Pac-Man Championship Edition 2 + Arcade Game Series', '${normalizeTitleForMatching('Pac-Man Championship Edition 2 + Arcade Game Series')}', 'USA', 'Pac-Man Championship Edition 2 + Arcade Game Series (USA).iso', 'bbbb2222', 'dat', 1),
+          (903, 49, 'Persona 5', '${normalizeTitleForMatching('Persona 5')}', 'USA', 'Persona 5 (USA).iso', 'cccc3333', 'dat', 1);
+      `);
+
+      try {
+        const res = reconcileGameReleasesWithCanonical(db, {
+          sqlOutputPath: sqlOut,
+        });
+        expect(res.reconciledCount).toBe(2);
+        const rel4189 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '4189-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        const rel4205 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '4205-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        const rel4999 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '4999-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        expect(rel4189.canonical_release_id).toBe(901);
+        expect(rel4205.canonical_release_id).toBe(902);
+        expect(rel4999.canonical_release_id).toBeNull();
+      } finally {
+        db.close();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
   });
 });

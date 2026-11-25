@@ -77,7 +77,7 @@ function isHardwareOrAccessoryType(productType?: string | null): boolean {
   );
 }
 
-async function fetchShopifyXboxCollectionPages(params: {
+async function fetchShopifyCollectionPages(params: {
   store: RetailStoreName;
   baseUrl: string;
   endpoints: Array<{ urlBase: string; forcedPlatformId?: number }>;
@@ -119,6 +119,14 @@ async function fetchShopifyXboxCollectionPages(params: {
             prod.product_type,
             prod.title,
           );
+          if (
+            endpoint.forcedPlatformId &&
+            platformId &&
+            platformId !== endpoint.forcedPlatformId &&
+            !(endpoint.forcedPlatformId === 50 && platformId === 49)
+          ) {
+            continue;
+          }
           if (!platformId && endpoint.forcedPlatformId) {
             platformId = endpoint.forcedPlatformId;
           }
@@ -143,11 +151,17 @@ async function fetchShopifyXboxCollectionPages(params: {
             percentSavings: 0,
             url: itemUrl,
             platform:
-              platformId === 49
-                ? 'Xbox One'
-                : platformId === 50
-                  ? 'Xbox Series X'
-                  : prod.product_type || undefined,
+              platformId === 33
+                ? 'PlayStation Vita'
+                : platformId === 34
+                  ? 'PlayStation 4'
+                  : platformId === 35
+                    ? 'PlayStation 5'
+                    : platformId === 49
+                      ? 'Xbox One'
+                      : platformId === 50
+                        ? 'Xbox Series X'
+                        : prod.product_type || undefined,
             onlineAvailability: true,
             categoryHint: 'game',
           };
@@ -171,7 +185,7 @@ async function fetchVgpCatalogPages(
   maxPages: number,
   cadToUsdRate = DEFAULT_CAD_TO_USD_RATE,
 ): Promise<RetailDealItem[]> {
-  return fetchShopifyXboxCollectionPages({
+  return fetchShopifyCollectionPages({
     store: 'VGP',
     baseUrl: 'https://videogamesplus.ca',
     endpoints: [
@@ -186,6 +200,15 @@ async function fetchVgpCatalogPages(
           'https://videogamesplus.ca/collections/all-xbox-series-x/products.json',
         forcedPlatformId: 50,
       },
+      {
+        urlBase:
+          'https://videogamesplus.ca/collections/all-ps-vita/products.json',
+        forcedPlatformId: 33,
+      },
+      {
+        urlBase: 'https://videogamesplus.ca/collections/all-ps4/products.json',
+        forcedPlatformId: 34,
+      },
     ],
     fetchFn,
     maxPages,
@@ -193,11 +216,11 @@ async function fetchVgpCatalogPages(
   });
 }
 
-async function fetchGameOverXboxCatalogPages(
+async function fetchGameOverCatalogPages(
   fetchFn: typeof fetch,
   maxPages: number,
 ): Promise<RetailDealItem[]> {
-  return fetchShopifyXboxCollectionPages({
+  return fetchShopifyCollectionPages({
     store: 'Game Over Videogames',
     baseUrl: 'https://gameovervideogames.com',
     endpoints: [
@@ -211,17 +234,27 @@ async function fetchGameOverXboxCatalogPages(
           'https://gameovervideogames.com/collections/microsoft-xbox-series-x-s/products.json',
         forcedPlatformId: 50,
       },
+      {
+        urlBase:
+          'https://gameovervideogames.com/collections/sony-playstation-4/products.json',
+        forcedPlatformId: 34,
+      },
+      {
+        urlBase:
+          'https://gameovervideogames.com/collections/sony-playstation-5/products.json',
+        forcedPlatformId: 35,
+      },
     ],
     fetchFn,
     maxPages,
   });
 }
 
-async function fetchJnlXboxCatalogPages(
+async function fetchJnlCatalogPages(
   fetchFn: typeof fetch,
   maxPages: number,
 ): Promise<RetailDealItem[]> {
-  return fetchShopifyXboxCollectionPages({
+  return fetchShopifyCollectionPages({
     store: 'J&L Game',
     baseUrl: 'https://www.jnlgame.com',
     endpoints: [
@@ -235,13 +268,35 @@ async function fetchJnlXboxCatalogPages(
           'https://www.jnlgame.com/collections/microsoft-xbox-series-x-xbox-series-s-xsx-xss-video-games-consoles-accessories/products.json',
         forcedPlatformId: 50,
       },
+      {
+        urlBase:
+          'https://www.jnlgame.com/collections/sony-playstation-vita-ps-vita-psvita-vita-video-games-consoles-accessories/products.json',
+        forcedPlatformId: 33,
+      },
+      {
+        urlBase:
+          'https://www.jnlgame.com/collections/sony-playstation-4-ps4-video-games-consoles-accessories/products.json',
+        forcedPlatformId: 34,
+      },
+      {
+        urlBase:
+          'https://www.jnlgame.com/collections/sony-playstation-5-ps5-video-games-consoles-accessories/products.json',
+        forcedPlatformId: 35,
+      },
+      {
+        urlBase:
+          'https://www.jnlgame.com/collections/sony-playstation-vr-psvr-video-games-consoles-accessories/products.json',
+        forcedPlatformId: 34,
+      },
     ],
     fetchFn,
     maxPages,
   });
 }
 
-async function fetchPnpXboxCatalogPages(
+const PNP_ACCEPTED_PLATFORM_IDS = new Set([33, 34, 35, 49, 50]);
+
+async function fetchPnpBackCatalogPages(
   fetchFn: typeof fetch,
   maxPages: number,
   cadToUsdRate = DEFAULT_CAD_TO_USD_RATE,
@@ -250,6 +305,8 @@ async function fetchPnpXboxCatalogPages(
   const searches: Array<{ query: string; forcedPlatformId: number }> = [
     { query: 'Xbox+One', forcedPlatformId: 49 },
     { query: 'Xbox+Series+X', forcedPlatformId: 50 },
+    { query: 'PS+Vita', forcedPlatformId: 33 },
+    { query: 'PS4', forcedPlatformId: 34 },
   ];
 
   for (const search of searches) {
@@ -283,10 +340,10 @@ async function fetchPnpXboxCatalogPages(
           }
 
           let platformId = resolveRetailPlatformId(catStr, decodedName);
-          if (platformId !== 49 && platformId !== 50) {
+          if (!platformId || !PNP_ACCEPTED_PLATFORM_IDS.has(platformId)) {
             if (
               platformId === undefined &&
-              /\b(xbox\s*one|xb1|xbox\s*series|xsx)\b/i.test(
+              /\b(xbox\s*one|xb1|xbox\s*series|xsx|ps\s*vita|psv|ps4|playstation\s*4)\b/i.test(
                 `${catStr} ${decodedName}`,
               )
             ) {
@@ -321,7 +378,16 @@ async function fetchPnpXboxCatalogPages(
                 ? Math.round(((regCad - curCad) / regCad) * 100)
                 : 0,
             url: prod.permalink,
-            platform: platformId === 49 ? 'Xbox One' : 'Xbox Series X',
+            platform:
+              platformId === 33
+                ? 'PlayStation Vita'
+                : platformId === 34
+                  ? 'PlayStation 4'
+                  : platformId === 35
+                    ? 'PlayStation 5'
+                    : platformId === 49
+                      ? 'Xbox One'
+                      : 'Xbox Series X',
             onlineAvailability: true,
             categoryHint: 'game',
           };
@@ -473,9 +539,9 @@ export async function fetchRetailBackCatalogSources(
     vgpPre,
     pnpPre,
     vgpCatalog,
-    pnpXbox,
-    gameOverXbox,
-    jnlXbox,
+    pnpBack,
+    gameOverCatalog,
+    jnlCatalog,
   ] = await Promise.all([
     fetchBoutiquePreOrders(fetchFn, undefined, maxPages),
     fetchLimitedGameNewsReleases(fetchFn, {
@@ -484,9 +550,9 @@ export async function fetchRetailBackCatalogSources(
     fetchVgpNewPreOrders(fetchFn, maxPages).catch(() => []),
     fetchPnpPreOrders(fetchFn, maxPages).catch(() => []),
     fetchVgpCatalogPages(fetchFn, maxPages).catch(() => []),
-    fetchPnpXboxCatalogPages(fetchFn, maxPages).catch(() => []),
-    fetchGameOverXboxCatalogPages(fetchFn, maxPages).catch(() => []),
-    fetchJnlXboxCatalogPages(fetchFn, maxPages).catch(() => []),
+    fetchPnpBackCatalogPages(fetchFn, maxPages).catch(() => []),
+    fetchGameOverCatalogPages(fetchFn, maxPages).catch(() => []),
+    fetchJnlCatalogPages(fetchFn, maxPages).catch(() => []),
   ]);
 
   const byUrl = new Map<string, RetailDealItem>();
@@ -494,9 +560,9 @@ export async function fetchRetailBackCatalogSources(
     ...vgpPre,
     ...pnpPre,
     ...vgpCatalog,
-    ...pnpXbox,
-    ...gameOverXbox,
-    ...jnlXbox,
+    ...pnpBack,
+    ...gameOverCatalog,
+    ...jnlCatalog,
   ]) {
     const existing = byUrl.get(item.url);
     const itemPid = resolveRetailPlatformId(item.platform, item.name);

@@ -697,6 +697,50 @@ describe('Offline Canonical Source Adapters', () => {
             { status: 200 },
           );
         }
+        if (
+          url.includes(
+            'jnlgame.com/collections/sony-playstation-vita-ps-vita-psvita-vita-video-games-consoles-accessories/products.json',
+          )
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 203,
+                  title: "7'scarlet - (PSV) PlayStation Vita [Pre-Owned]",
+                  handle: '7scarlet-psv',
+                  variants: [{ price: '39.99', sku: 'JNL-203' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (
+          url.includes(
+            'gameovervideogames.com/collections/sony-playstation-4/products.json',
+          )
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 104,
+                  title: 'PS4 PlayStation 4 - System HW - Original Model',
+                  handle: 'ps4-system-hw',
+                  variants: [{ price: '199.99' }],
+                },
+                {
+                  id: 105,
+                  title: 'PS4 Bloodborne - PRE-OWNED',
+                  handle: 'ps4-bloodborne',
+                  variants: [{ price: '19.99', sku: 'GOV-105' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
         if (url.includes('limitedgamenews.com/wp-json/wp/v2')) {
           return new Response(JSON.stringify([]), { status: 200 });
         }
@@ -738,7 +782,17 @@ describe('Offline Canonical Source Adapters', () => {
             r.raw_title === 'Elden Ring',
         )?.platform_id,
       ).toBe(49);
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'Game Over Videogames' &&
+            r.raw_title === 'Bloodborne',
+        )?.platform_id,
+      ).toBe(34);
       expect(releases.some((r) => r.raw_title.includes('500GB Black'))).toBe(
+        false,
+      );
+      expect(releases.some((r) => r.raw_title.includes('Original Model'))).toBe(
         false,
       );
 
@@ -748,6 +802,11 @@ describe('Offline Canonical Source Adapters', () => {
             r.publisher === 'J&L Game' && r.raw_title.includes('Hellblade II'),
         ),
       ).toMatchObject({ platform_id: 50, region: 'Japan' });
+      expect(
+        releases.find(
+          (r) => r.publisher === 'J&L Game' && r.raw_title === "7'scarlet",
+        )?.platform_id,
+      ).toBe(33);
       expect(releases.some((r) => r.raw_title.includes('Controller'))).toBe(
         false,
       );

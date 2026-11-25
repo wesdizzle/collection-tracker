@@ -1271,6 +1271,12 @@ export async function syncCanonicalSources(
             }
           }
 
+          const ACCUMULATING_NON_DAT_SOURCES = new Set([
+            'retail_catalog',
+            'lgn',
+            'nscollectors_upcoming',
+            'serialstation',
+          ]);
           const toDelete = existingRows.filter(
             (r) => !claimedIds.has(r.id) && !upgradedIds.has(r.id),
           );
@@ -1280,6 +1286,13 @@ export async function syncCanonicalSources(
             const repointTarget =
               absorbedByHigherTier.get(obsolete.id) ||
               (recleanKey ? survivorByRecleanedKey.get(recleanKey) : undefined);
+
+            if (
+              ACCUMULATING_NON_DAT_SOURCES.has(sourceName) &&
+              !repointTarget
+            ) {
+              continue;
+            }
 
             const hasLinks = Boolean(hasLinkedReleaseStmt.get(obsolete.id));
             if (repointTarget) {

@@ -533,4 +533,66 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
     });
     preDb.close();
   });
+
+  it('preserves existing linked accumulating canonical rows (retail_catalog/lgn/nscollectors_upcoming) when absent from a partial offline fetch', async () => {
+    fs.writeFileSync(
+      path.join(sourcesDir, 'retail_backcatalog.json'),
+      JSON.stringify({
+        fetchedAt: '2026-11-25T00:00:00Z',
+        boutique: [],
+        lgn: [],
+        retail: [
+          {
+            store: 'VGP',
+            sku: 'VGP-NEW',
+            name: 'Brand New Switch Game - Nintendo Switch',
+            regularPrice: 39.99,
+            salePrice: 39.99,
+            onSale: false,
+            percentSavings: 0,
+            url: 'https://videogamesplus.ca/new-switch',
+            platform: 'Switch',
+            onlineAvailability: true,
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    db.exec(`
+      INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+      VALUES
+        (601, 26, 'Previously Synced Retail Game', 'previouslysyncedretailgame', 'USA', 'retail_catalog', 1);
+      INSERT INTO games (stable_id, id, title, platform_id)
+      VALUES
+        (4001, '4001', 'Previously Synced Retail Game', 26);
+      INSERT INTO game_releases (id, game_id, region, canonical_release_id, verified_source)
+      VALUES
+        ('4001-1', 4001, 'USA', 601, 'retail_catalog');
+    `);
+
+    const summary = await syncCanonicalSources({
+      db,
+      sources: ['retail'],
+      sourcesDir,
+      dryRun: false,
+      skipReconcile: true,
+      sqlOutputPath,
+    });
+
+    expect(summary.deletedCount).toBe(0);
+    expect(
+      db.prepare('SELECT id FROM canonical_releases WHERE id = 601').get(),
+    ).toBeDefined();
+    expect(
+      db
+        .prepare(
+          "SELECT canonical_release_id, verified_source FROM game_releases WHERE id = '4001-1'",
+        )
+        .get(),
+    ).toEqual({ canonical_release_id: 601, verified_source: 'retail_catalog' });
+    expect(fs.readFileSync(sqlOutputPath, 'utf8')).not.toContain(
+      'UPDATE game_releases SET canonical_release_id = NULL',
+    );
+  });
 });

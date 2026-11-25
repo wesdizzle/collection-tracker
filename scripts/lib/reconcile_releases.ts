@@ -14,6 +14,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { getLocalDatabase } from './db.js';
 import {
+  areCanonicalTitlesSequelCompatible,
+  buildCanonicalLinkerMatchKeys,
   normalizeTitleForMatching,
   titlesMatch,
   gameMatchesReleaseWithAlternatives,
@@ -1338,8 +1340,13 @@ export function reconcileGameReleasesWithCanonical(
     rom_crc: string | null;
   }>;
 
-  // Group DAT releases by platform_id -> normalized_title -> list
+  // Group DAT releases by platform_id -> normalized_title -> list,
+  // plus secondary index under buildCanonicalLinkerMatchKeys for Strategy 5.
   const datByPlatformNorm = new Map<
+    number,
+    Map<string, typeof allDatReleases>
+  >();
+  const datByPlatformLinkerKey = new Map<
     number,
     Map<string, typeof allDatReleases>
   >();
@@ -1354,6 +1361,24 @@ export function reconcileGameReleasesWithCanonical(
       normMap.set(targetNormKey, []);
     }
     normMap.get(targetNormKey)!.push(r);
+
+    if (!r.packin_host_normalized_title) {
+      if (!datByPlatformLinkerKey.has(r.platform_id)) {
+        datByPlatformLinkerKey.set(r.platform_id, new Map());
+      }
+      const linkerMap = datByPlatformLinkerKey.get(r.platform_id)!;
+      for (const lk of buildCanonicalLinkerMatchKeys(r.raw_title)) {
+        if (!lk) continue;
+        let arr = linkerMap.get(lk);
+        if (!arr) {
+          arr = [];
+          linkerMap.set(lk, arr);
+        }
+        if (!arr.includes(r)) {
+          arr.push(r);
+        }
+      }
+    }
   }
 
   const updates: ReconcileResult['updates'] = [];
@@ -1367,13 +1392,20 @@ export function reconcileGameReleasesWithCanonical(
 
   for (const rel of candidateReleases) {
     const normMap = datByPlatformNorm.get(rel.platform_id);
+    const linkerMap = datByPlatformLinkerKey.get(rel.platform_id);
     const parentId = parentPlatformMap.get(rel.platform_id);
     const parentNormMap = parentId
       ? datByPlatformNorm.get(parentId)
       : undefined;
+    const parentLinkerMap = parentId
+      ? datByPlatformLinkerKey.get(parentId)
+      : undefined;
 
-    // Helper to search a specific norm map
-    const searchMap = (map?: Map<string, typeof allDatReleases>) => {
+    // Helper to search a specific norm + linker map
+    const searchMap = (
+      map?: Map<string, typeof allDatReleases>,
+      lMap?: Map<string, typeof allDatReleases>,
+    ) => {
       if (!map) return undefined;
       // Strategy 1: Exact normalized title match
       const norm = normalizeTitleForMatching(rel.title);
@@ -1411,12 +1443,47 @@ export function reconcileGameReleasesWithCanonical(
         }
       }
 
+      // Strategy 5: Linker key fallback (safe sequel compatibility + shared base/add-on key)
+      if ((!cand || cand.length === 0) && lMap) {
+        const relKeys = buildCanonicalLinkerMatchKeys(rel.title);
+        const relKeysSet = new Set(relKeys);
+        const seenLinker = new Set<(typeof allDatReleases)[number]>();
+        const linkerCands: typeof allDatReleases = [];
+        for (const lk of relKeys) {
+          for (const c of lMap.get(lk) || []) {
+            if (seenLinker.has(c)) continue;
+            seenLinker.add(c);
+            if (!areCanonicalTitlesSequelCompatible(rel.title, c.raw_title)) {
+              continue;
+            }
+            const candKeys = buildCanonicalLinkerMatchKeys(c.raw_title);
+            if (
+              candKeys.some((ck) => relKeysSet.has(ck)) ||
+              isRomValidForGame(
+                { title: rel.title, platform_id: rel.platform_id },
+                {
+                  raw_title: c.raw_title,
+                  rom_name: c.rom_name,
+                  region: c.region,
+                  also_released_as: c.also_released_as,
+                },
+              )
+            ) {
+              linkerCands.push(c);
+            }
+          }
+        }
+        if (linkerCands.length > 0) {
+          cand = linkerCands;
+        }
+      }
+
       return cand;
     };
 
-    let candidates = searchMap(normMap);
+    let candidates = searchMap(normMap, linkerMap);
     if ((!candidates || candidates.length === 0) && parentNormMap) {
-      candidates = searchMap(parentNormMap);
+      candidates = searchMap(parentNormMap, parentLinkerMap);
     }
 
     if (!candidates || candidates.length === 0) continue;
