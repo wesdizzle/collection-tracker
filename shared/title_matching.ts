@@ -1059,21 +1059,20 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
   };
 
   addKey(title);
-  const cleanedTelltale = (title || '')
-    .replace(/[,:\-–—]?\s*\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi, '')
-    .trim();
-  if (cleanedTelltale && cleanedTelltale !== title) {
-    addKey(cleanedTelltale);
-  }
-  const remasterStripped = (title || '')
-    .replace(/\s*(?:[:\-–—]\s*|\s+)(?:hd\s+)?remaster(?:ed)?$/i, '')
-    .trim();
-  if (
-    remasterStripped &&
-    remasterStripped !== title &&
-    remasterStripped.length >= 2
-  ) {
-    addKey(remasterStripped);
+  const raw = title || '';
+  const conservativeStrips: RegExp[] = [
+    /[,:\-–—]?\s*\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi,
+    /\s*(?:[:\-–—]\s*|\s+)(?:hd\s+)?remaster(?:ed)?$/i,
+    /\s*\([^()]*\bcover\s+art\s*\)\s*$/i,
+    /\s*(?:\((?:game|disc|cartridge|cart)\s+only\)|(?:[:\-–—]\s*|\s+)(?:game|disc|cartridge|cart)\s+only)\s*$/i,
+    /\s*\([^()]{2,40}?\s+editions?\)\s*$/i,
+    /\s*(?:[:\-–—]\s*|\s+)trilogy\s+pack\s*$/i,
+  ];
+  for (const rx of conservativeStrips) {
+    const stripped = raw.replace(rx, '').trim();
+    if (stripped && stripped !== title && stripped.length >= 2) {
+      addKey(stripped);
+    }
   }
   const splitEd = splitTitleEditionSuffix(title);
   if (splitEd && !splitEd.suffix.startsWith('+')) {

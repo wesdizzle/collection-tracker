@@ -811,5 +811,139 @@ describe('Offline Canonical Source Adapters', () => {
         false,
       );
     });
+
+    it('merges LRG archive and iam8bit PS4/PS5/Xbox collections into retail_backcatalog while deduplicating and filtering merch', async () => {
+      const requestedUrls: string[] = [];
+      const mockFetch = async (input: string | URL | Request) => {
+        const url = String(input);
+        requestedUrls.push(url);
+        if (url.includes('limitedrungames.com/collections/all/products.json')) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 301,
+                  title: 'Limited Run #1: Breach & Clear (Vita)',
+                  handle: 'limited-run-1-breach-and-clear-vita',
+                  product_type: 'PS Vita',
+                  variants: [{ title: 'Default Title', price: '29.99' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (
+          url.includes('limitedrungames.com/collections/archive/products.json')
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 301,
+                  title: 'Limited Run #1: Breach & Clear (Vita)',
+                  handle: 'limited-run-1-breach-and-clear-vita',
+                  product_type: 'PS Vita',
+                  variants: [{ title: 'Default Title', price: '29.99' }],
+                },
+                {
+                  id: 302,
+                  title: 'Limited Run #212: The Bridge (PS4)',
+                  handle: 'limited-run-212-the-bridge-ps4',
+                  product_type: 'PS4',
+                  variants: [{ title: 'Default Title', price: '24.99' }],
+                },
+                {
+                  id: 303,
+                  title: 'LRG Trading Card Sleeve Pack',
+                  handle: 'lrg-card-sleeve-pack',
+                  product_type: 'Merch',
+                  variants: [{ title: 'Default Title', price: '9.99' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('iam8bit.com/collections/ps4-ps5/products.json')) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 401,
+                  title: 'Telling Lies (PS4 Exclusive Edition)',
+                  handle: 'telling-lies-ps4',
+                  product_type: 'PlayStation',
+                  variants: [{ title: 'Default Title', price: '29.99' }],
+                },
+                {
+                  id: 402,
+                  title: 'Disco Elysium 3xLP Vinyl Soundtrack',
+                  handle: 'disco-elysium-vinyl',
+                  product_type: 'Vinyl',
+                  variants: [{ title: 'Default Title', price: '49.99' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('limitedgamenews.com/wp-json/wp/v2')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (url.includes('pnpgamesonline.com')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify({ products: [] }), { status: 200 });
+      };
+
+      await fetchRetailBackCatalogSources(tmpDir, {
+        maxPages: 1,
+        fetchFn: mockFetch as typeof fetch,
+      });
+      const releases = loadRetailBackCatalogReleases(tmpDir);
+
+      expect(
+        requestedUrls.some((u) =>
+          u.includes('limitedrungames.com/collections/archive/products.json'),
+        ),
+      ).toBe(true);
+      expect(
+        requestedUrls.some((u) =>
+          u.includes('iam8bit.com/collections/ps4-ps5/products.json'),
+        ),
+      ).toBe(true);
+      expect(
+        requestedUrls.some((u) =>
+          u.includes('iam8bit.com/collections/xbox/products.json'),
+        ),
+      ).toBe(true);
+
+      const breachMatches = releases.filter(
+        (r) =>
+          r.publisher === 'Limited Run Games' &&
+          r.platform_id === 33 &&
+          r.raw_title === 'Breach & Clear',
+      );
+      expect(breachMatches).toHaveLength(1);
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'Limited Run Games' &&
+            r.platform_id === 34 &&
+            r.raw_title === 'The Bridge',
+        ),
+      ).toBeDefined();
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'iam8bit' &&
+            r.platform_id === 34 &&
+            r.raw_title.startsWith('Telling Lies'),
+        ),
+      ).toBeDefined();
+      expect(releases.some((r) => r.raw_title.includes('Vinyl'))).toBe(false);
+      expect(releases.some((r) => r.raw_title.includes('Sleeve'))).toBe(false);
+    });
   });
 });

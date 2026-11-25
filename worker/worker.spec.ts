@@ -61,7 +61,6 @@ import worker, {
   evaluateTrackingRulesForNewGames,
   evaluateTrackingRulesForNewToys,
 } from './worker';
-import { CATALOG_CHUNK_SCHEMA_VERSION } from '../shared/queries';
 import { normalizeTitleForMatching } from '../shared/title_matching';
 import {
   getPriceShardR2Key,

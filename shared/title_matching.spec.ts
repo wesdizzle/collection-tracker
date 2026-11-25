@@ -1274,6 +1274,41 @@ describe('Title Matching Strategies', () => {
           'Pac-Man Championship Edition 2 + Arcade Game Series',
         ),
       ).toContain('pacmanchampionship2');
+      expect(
+        buildCanonicalLinkerMatchKeys('Gradius Origins (Gradius 2 Cover Art)'),
+      ).toContain('gradiusorigins');
+      expect(
+        buildCanonicalLinkerMatchKeys('Disney Infinity 2.0 (Game Only)'),
+      ).toEqual(
+        expect.arrayContaining(
+          buildCanonicalLinkerMatchKeys('Disney Infinity: 2.0'),
+        ),
+      );
+      expect(
+        buildCanonicalLinkerMatchKeys('Skylanders - SuperChargers - Game Only'),
+      ).toContain('skylanderssuperchargers');
+      expect(
+        buildCanonicalLinkerMatchKeys(
+          'Shantae: Half-Genie Hero (Risky Beats Edition)',
+        ),
+      ).toContain('shantaehalfgeniehero');
+      expect(
+        buildCanonicalLinkerMatchKeys(
+          "Assassin's Creed Chronicles: Trilogy Pack",
+        ),
+      ).toContain('assassincreedchronicles');
+      expect(
+        areCanonicalTitlesSequelCompatible(
+          'Gradius Origins',
+          'Gradius Origins (Gradius 2 Cover Art)',
+        ),
+      ).toBe(true);
+      expect(
+        areCanonicalTitlesSequelCompatible(
+          'Persona 4',
+          'Persona 5 (Royal Edition)',
+        ),
+      ).toBe(false);
     });
   });
 });

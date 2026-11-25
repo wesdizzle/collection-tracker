@@ -15,6 +15,7 @@ import {
 } from '../../../shared/canonical_releases.js';
 import { normalizeLegacyPlatformId } from '../../../shared/igdb_platforms.js';
 import {
+  BoutiqueFeedConfig,
   BoutiquePreOrder,
   fetchBoutiquePreOrders,
   fetchLimitedGameNewsReleases,
@@ -525,16 +526,39 @@ export function parseRetailBackCatalog(
   return results;
 }
 
+const EXTRA_BOUTIQUE_BACKCATALOG_CONFIGS: BoutiqueFeedConfig[] = [
+  {
+    store: 'Limited Run Games',
+    url: 'https://limitedrungames.com/collections/archive/products.json?limit=250',
+    baseUrl: 'https://limitedrungames.com',
+    type: 'shopify',
+  },
+  {
+    store: 'iam8bit',
+    url: 'https://www.iam8bit.com/collections/ps4-ps5/products.json?limit=250',
+    baseUrl: 'https://www.iam8bit.com',
+    type: 'shopify',
+  },
+  {
+    store: 'iam8bit',
+    url: 'https://www.iam8bit.com/collections/xbox/products.json?limit=250',
+    baseUrl: 'https://www.iam8bit.com',
+    type: 'shopify',
+  },
+];
+
 export async function fetchRetailBackCatalogSources(
   sourcesDir: string,
   options?: { maxPages?: number; fetchFn?: typeof fetch },
 ): Promise<{ savedPath: string; totalParsed: number }> {
   fs.mkdirSync(sourcesDir, { recursive: true });
   const maxPages = options?.maxPages ?? 15;
+  const boutiqueArchivePages = options?.maxPages ?? 25;
   const fetchFn = options?.fetchFn ?? fetch;
 
   const [
-    boutique,
+    boutiqueMain,
+    boutiqueArchive,
     lgn,
     vgpPre,
     pnpPre,
@@ -544,6 +568,11 @@ export async function fetchRetailBackCatalogSources(
     jnlCatalog,
   ] = await Promise.all([
     fetchBoutiquePreOrders(fetchFn, undefined, maxPages),
+    fetchBoutiquePreOrders(
+      fetchFn,
+      EXTRA_BOUTIQUE_BACKCATALOG_CONFIGS,
+      boutiqueArchivePages,
+    ).catch(() => []),
     fetchLimitedGameNewsReleases(fetchFn, {
       maxPages: Math.min(maxPages, 3),
     }),
@@ -554,6 +583,15 @@ export async function fetchRetailBackCatalogSources(
     fetchGameOverCatalogPages(fetchFn, maxPages).catch(() => []),
     fetchJnlCatalogPages(fetchFn, maxPages).catch(() => []),
   ]);
+
+  const boutiqueByKey = new Map<string, BoutiquePreOrder>();
+  for (const item of [...boutiqueMain, ...boutiqueArchive]) {
+    const dedupKey = `${item.productUrl}::${item.platformId ?? ''}`;
+    if (!boutiqueByKey.has(dedupKey)) {
+      boutiqueByKey.set(dedupKey, item);
+    }
+  }
+  const boutique = Array.from(boutiqueByKey.values());
 
   const byUrl = new Map<string, RetailDealItem>();
   for (const item of [
