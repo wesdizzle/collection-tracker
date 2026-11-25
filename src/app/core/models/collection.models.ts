@@ -303,7 +303,6 @@ export interface FilterState {
     | OwnershipStatus;
   play_status?: 'all' | PlayStatus;
   has_media?: 'all' | 0 | 1;
-  physical_verified?: 'all' | 0 | 1;
   budget_label?:
     | 'all'
     | 'standard_only'

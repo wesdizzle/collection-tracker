@@ -143,7 +143,6 @@ export class CollectionListComponent
       ownership: 1,
       play_status: 'all',
       has_media: 'all',
-      physical_verified: 'all',
       platform_id: undefined,
       regions: [],
       line: '',
@@ -803,13 +802,6 @@ export class CollectionListComponent
       ) {
         const mStatus = g.has_media ? 1 : 0;
         if (f.has_media !== mStatus) return false;
-      }
-
-      // Physical Release Verified Filter
-      if (f.physical_verified !== undefined && f.physical_verified !== 'all') {
-        const isVerified =
-          (g.is_source_verified ?? (g.rom_name ? 1 : 0)) ? 1 : 0;
-        if (f.physical_verified !== isVerified) return false;
       }
 
       // Pre-release Guard: hide betas, protos, demos, and kiosk samplers unless it is an owned pack-in companion bonus disc

@@ -261,47 +261,6 @@ describe('CollectionListComponent', () => {
     expect(component.filteredGames().length).toBe(2);
   });
 
-  it('should filter games by physical release verified status', async () => {
-    const httpMock = TestBed.inject(HttpTestingController);
-    const initPromise = component.ngOnInit();
-
-    httpMock.expectOne('/api/games').flush([
-      {
-        id: '1',
-        title: 'Game 1',
-        ownership_status: 1,
-        platform: 'NES',
-        rom_name: 'Game 1.nes',
-        is_source_verified: 1,
-      },
-      {
-        id: '2',
-        title: 'Game 2',
-        ownership_status: 1,
-        platform: 'NES',
-        is_source_verified: 0,
-      },
-    ]);
-    httpMock.expectOne('/api/toys').flush([]);
-    httpMock.expectOne('/api/platforms').flush([]);
-
-    await initPromise;
-
-    // Filter by Verified (value 1)
-    component.filters.set({ ownership: 'all', physical_verified: 1 });
-    expect(component.filteredGames().length).toBe(1);
-    expect(component.filteredGames()[0].id).toBe('1');
-
-    // Filter by Unverified (value 0)
-    component.filters.set({ ownership: 'all', physical_verified: 0 });
-    expect(component.filteredGames().length).toBe(1);
-    expect(component.filteredGames()[0].id).toBe('2');
-
-    // Filter by All
-    component.filters.set({ ownership: 'all', physical_verified: 'all' });
-    expect(component.filteredGames().length).toBe(2);
-  });
-
   it('should hide bundle children from top-level list', async () => {
     const httpMock = TestBed.inject(HttpTestingController);
 

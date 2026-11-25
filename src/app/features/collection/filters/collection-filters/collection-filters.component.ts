@@ -249,8 +249,6 @@ export class CollectionFiltersComponent implements OnDestroy {
       f.has_media !== 'all'
     )
       count++;
-    if (f.physical_verified !== undefined && f.physical_verified !== 'all')
-      count++;
     if (f.budget_label && f.budget_label !== 'all') count++;
     if (f.condition && f.condition !== 'all') count++;
     if (f.release_decade && f.release_decade !== 'all') count++;
@@ -318,7 +316,6 @@ export class CollectionFiltersComponent implements OnDestroy {
       ownership: 1,
       play_status: 'all',
       has_media: 'all',
-      physical_verified: 'all',
       platform_id: undefined,
       regions: [],
       line: '',
@@ -458,13 +455,6 @@ export class CollectionFiltersComponent implements OnDestroy {
     { value: 1, label: 'Owned' },
     { value: 0, label: 'Missing' },
   ];
-
-  readonly physicalVerifiedOptions: { value: 'all' | 1 | 0; label: string }[] =
-    [
-      { value: 'all', label: 'All' },
-      { value: 1, label: 'Verified (DAT / Nintendo Revised)' },
-      { value: 0, label: 'Unverified / Modern Platform' },
-    ];
 
   readonly budgetLabelOptions: {
     value: 'all' | 'standard_only' | 'standard_and_budget' | 'budget_only';
@@ -833,12 +823,6 @@ export class CollectionFiltersComponent implements OnDestroy {
   getMediaOwnedLabel(): string {
     const val = this.filters().has_media ?? 'all';
     const opt = this.mediaOwnedOptions.find((o) => o.value === val);
-    return opt ? opt.label : 'All';
-  }
-
-  getPhysicalVerifiedLabel(): string {
-    const val = this.filters().physical_verified ?? 'all';
-    const opt = this.physicalVerifiedOptions.find((o) => o.value === val);
     return opt ? opt.label : 'All';
   }
 

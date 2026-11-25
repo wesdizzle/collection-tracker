@@ -61,16 +61,6 @@
       />
     }
 
-    <!-- Verified Source Match -->
-    <kit-select
-      label="Verified Source Match"
-      dropdownName="physical_verified"
-      triggerId="filter-physical-verified"
-      [value]="filters().physical_verified ?? 'all'"
-      [options]="physicalVerifiedOptions"
-      (valueChange)="selectOption('physical_verified', $event)"
-    />
-
     <!-- Budget Label Status -->
     <kit-select
       label="Budget Label Status"
