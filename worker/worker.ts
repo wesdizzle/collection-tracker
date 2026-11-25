@@ -14759,7 +14759,7 @@ export async function syncWorkerSerialStation(
     // Proceed in minimal schemas
   }
 
-  const maxPages = Math.max(1, options?.maxPages ?? 2);
+  const maxPages = Math.max(1, options?.maxPages ?? 5);
   const rawItems: SerialStationReleaseItem[] = [];
   let pagesFetched = 0;
   let lastSucceededOffset: number | null = null;
@@ -14779,6 +14779,7 @@ export async function syncWorkerSerialStation(
       });
       if (!res.ok) {
         fetchError = `HTTP ${res.status} ${res.statusText}`;
+        if (res.status === 429) break;
         if (page < maxPages - 1) continue;
         break;
       }

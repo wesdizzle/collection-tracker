@@ -15,7 +15,11 @@ import {
   stripRetailPreorderAndPlatformTrailer,
 } from './title_matching.js';
 
-export type RetailStoreName = 'VGP' | 'PNP Games';
+export type RetailStoreName =
+  | 'VGP'
+  | 'PNP Games'
+  | 'Game Over Videogames'
+  | 'J&L Game';
 
 export interface RetailDealItem {
   store: RetailStoreName;
@@ -137,6 +141,21 @@ export function resolveRetailPlatformId(
   platformStr?: string | null,
   rawTitle?: string | null,
 ): number | undefined {
+  if (rawTitle) {
+    const decodedLead = decodeHtmlEntities(rawTitle).trim();
+    // Game Over / retailer leading prefixes (dual Xbox One + Series X always maps to Xbox One 49)
+    if (
+      /^(?:XSX\s+XB1|XB1\s+XSX|XB1|Xbox\s+One)\b/i.test(decodedLead) ||
+      (/\b(Xbox\s*One|XB1)\b/i.test(decodedLead) &&
+        /\b(Xbox\s*Series\s*[XS]|XSX)\b/i.test(decodedLead))
+    ) {
+      return 49;
+    }
+    if (/^(?:XSX|Xbox\s+Series\s+[XS](?:[|/]S)?)\b/i.test(decodedLead)) {
+      return 50;
+    }
+  }
+
   if (platformStr) {
     const platNorm = platformStr.toLowerCase().trim();
     const direct =
@@ -219,6 +238,9 @@ export function resolveRetailPlatformId(
   return undefined;
 }
 
+const RETAIL_TRAILING_CONDITION_OR_IMPORT_RE =
+  /\s*[-–—]\s*(?:PAL(?:\s+IMPORT)?|EUR(?:OPE)?(?:\s+IMPORT)?|UK(?:\s+IMPORT)?|JPN(?:\s+IMPORT)?|ASIA(?:N)?(?:\s+IMPORT)?|DLC\s+MAY\s+NOT\s+BE\s+INCLUDED|NEW|USED|PRE-?OWNED|CIB|LOOSE|COMPLETE|SEALED|DISC\s+ONLY)\s*$/i;
+
 /**
  * Cleans a retailer product title by decoding HTML entities and removing trailing
  * platform suffixes, shipping tags, and edition noise.
@@ -226,12 +248,22 @@ export function resolveRetailPlatformId(
  */
 export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
-  let cleaned = stripBoutiqueCatalogPrefix(
-    stripLgnPlatformPipeTrailer(decodeHtmlEntities(rawTitle)),
-    { stripPreOrderPrefix: true },
+  let cleaned = decodeHtmlEntities(rawTitle).trim();
+  cleaned = cleaned.replace(
+    /^(?:XSX\s+XB1|XB1\s+XSX|XB1|XSX)\s*(?:[-–—:]\s*|\s+)/i,
+    '',
   );
+  cleaned = stripBoutiqueCatalogPrefix(stripLgnPlatformPipeTrailer(cleaned), {
+    stripPreOrderPrefix: true,
+  });
 
-  // Strip common VGP/PNP promotional suffixes, parentheticals, and boutique/import bracket tags
+  // Strip common VGP/PNP/Game Over promotional/import trailing tags cleanly
+  for (let i = 0; i < 4; i++) {
+    const next = cleaned.replace(RETAIL_TRAILING_CONDITION_OR_IMPORT_RE, '');
+    if (next === cleaned) break;
+    cleaned = next.trim();
+  }
+
   cleaned = cleaned
     .replace(
       /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Import|JPIM|JP|JPN\s*Import[^)]*|Multi-Lang(?:uage)?[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard(?:\s*Edition)?|Extra\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?(?:\s*English)?\s*Import[^)]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
@@ -242,7 +274,13 @@ export function cleanRetailTitle(rawTitle: string): string {
       ' ',
     );
 
-  return stripRetailPreorderAndPlatformTrailer(cleaned);
+  cleaned = stripRetailPreorderAndPlatformTrailer(cleaned);
+  for (let i = 0; i < 4; i++) {
+    const next = cleaned.replace(RETAIL_TRAILING_CONDITION_OR_IMPORT_RE, '');
+    if (next === cleaned) break;
+    cleaned = next.trim();
+  }
+  return cleaned;
 }
 
 /**
@@ -283,7 +321,7 @@ export async function fetchCadToUsdRate(
 }
 
 const NON_GAME_RETAIL_KEYWORDS =
-  /\b(controller|joy-con|joycon|headset|charging\s+station|carrying\s+case|travel\s+case|protective\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller)\b/i;
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*[-–—]\s*hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
 
 /**
  * Returns true if a retailer product title/type is clearly hardware, apparel, TCG,

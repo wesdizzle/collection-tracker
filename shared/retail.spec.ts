@@ -104,6 +104,18 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
           'Hunter&#215;Hunter (Multi-Lang) [Canadian Exclusive Retailer] [EU Import]',
         ),
       ).toBe('Hunter×Hunter');
+
+      expect(
+        cleanRetailTitle(
+          'XB1 Cyberpunk 2077 - PAL IMPORT - DLC MAY NOT BE INCLUDED',
+        ),
+      ).toBe('Cyberpunk 2077');
+      expect(cleanRetailTitle('XSX XB1 Hogwarts Legacy - PRE-OWNED')).toBe(
+        'Hogwarts Legacy',
+      );
+      expect(isNonGameRetailTitle('Xbox One System - HW - Black')).toBe(true);
+      expect(isNonGameRetailTitle('Halo Infinite - Manual Only')).toBe(true);
+      expect(isNonGameRetailTitle('Gears 5 - Case Only')).toBe(true);
     });
 
     it('should handle empty or undefined titles gracefully', () => {
@@ -129,6 +141,9 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
           'Hogwarts Legacy - Xbox One / Xbox Series X',
         ),
       ).toBe(49);
+      expect(resolveRetailPlatformId(undefined, 'XSX XB1 Elden Ring')).toBe(49);
+      expect(resolveRetailPlatformId(undefined, 'XB1 Halo 5')).toBe(49);
+      expect(resolveRetailPlatformId(undefined, 'XSX Dead Space')).toBe(50);
       expect(
         resolveRetailPlatformId('Xbox Series X', 'Dead Space Remake'),
       ).toBe(50);

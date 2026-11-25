@@ -589,5 +589,168 @@ describe('Offline Canonical Source Adapters', () => {
         releases.find((r) => r.raw_title === 'Dead Space')?.platform_id,
       ).toBe(50);
     });
+
+    it('fetches PNP WooCommerce, Game Over Shopify, and J&L Shopify Xbox catalogs with strict import region & hardware exclusion', async () => {
+      const mockFetch = async (input: string | URL | Request) => {
+        const url = String(input);
+        if (
+          url.includes('pnpgamesonline.com/wp-json/wc/store/v1/products') &&
+          url.includes('search=Xbox+One')
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: 1,
+                name: 'Halo &#8211; The Master Chief Collection (Xbox One)',
+                permalink: 'https://pnpgamesonline.com/product/halo-mcc-xb1/',
+                prices: {
+                  price: '2999',
+                  regular_price: '2999',
+                  currency_minor_unit: 2,
+                },
+                categories: [{ name: 'Xbox One' }],
+              },
+              {
+                id: 2,
+                name: 'Metroid Prime (Switch) - mentions Xbox in description',
+                permalink: 'https://pnpgamesonline.com/product/metroid-switch/',
+                prices: {
+                  price: '4999',
+                  regular_price: '4999',
+                  currency_minor_unit: 2,
+                },
+                categories: [{ name: 'Nintendo Switch' }],
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (
+          url.includes(
+            'gameovervideogames.com/collections/microsoft-xbox-one/products.json',
+          )
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 101,
+                  title:
+                    'XB1 Cyberpunk 2077 - PAL IMPORT - DLC MAY NOT BE INCLUDED',
+                  handle: 'xb1-cyberpunk-2077-pal',
+                  variants: [{ price: '24.99', sku: 'GOV-101' }],
+                },
+                {
+                  id: 102,
+                  title: 'Xbox One System - HW - 500GB Black',
+                  handle: 'xb1-system-hw',
+                  variants: [{ price: '199.99' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (
+          url.includes(
+            'gameovervideogames.com/collections/microsoft-xbox-series-x-s/products.json',
+          )
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 103,
+                  title: 'XSX XB1 Elden Ring',
+                  handle: 'xsx-xb1-elden-ring',
+                  variants: [{ price: '39.99', sku: 'GOV-103' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (
+          url.includes(
+            'jnlgame.com/collections/microsoft-xbox-series-x-xbox-series-s-xsx-xss-video-games-consoles-accessories/products.json',
+          )
+        ) {
+          return new Response(
+            JSON.stringify({
+              products: [
+                {
+                  id: 201,
+                  title: 'Senua&#8217;s Saga Hellblade II (JPN Import)',
+                  handle: 'hellblade-2-jpn',
+                  product_type: 'Xbox Series X',
+                  variants: [{ price: '49.99', sku: 'JNL-201' }],
+                },
+                {
+                  id: 202,
+                  title: 'Xbox Series X Wireless Controller',
+                  handle: 'xsx-controller',
+                  product_type: 'Accessories',
+                  variants: [{ price: '59.99' }],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('limitedgamenews.com/wp-json/wp/v2')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (url.includes('pnpgamesonline.com')) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify({ products: [] }), { status: 200 });
+      };
+
+      await fetchRetailBackCatalogSources(tmpDir, {
+        maxPages: 1,
+        fetchFn: mockFetch as typeof fetch,
+      });
+      const releases = loadRetailBackCatalogReleases(tmpDir);
+
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'PNP Games' &&
+            r.platform_id === 49 &&
+            r.raw_title === 'Halo - The Master Chief Collection',
+        )?.region,
+      ).toBe('USA');
+      expect(releases.some((r) => r.raw_title.includes('Metroid Prime'))).toBe(
+        false,
+      );
+
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'Game Over Videogames' &&
+            r.raw_title === 'Cyberpunk 2077',
+        ),
+      ).toMatchObject({ platform_id: 49, region: 'Europe' });
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'Game Over Videogames' &&
+            r.raw_title === 'Elden Ring',
+        )?.platform_id,
+      ).toBe(49);
+      expect(releases.some((r) => r.raw_title.includes('500GB Black'))).toBe(
+        false,
+      );
+
+      expect(
+        releases.find(
+          (r) =>
+            r.publisher === 'J&L Game' && r.raw_title.includes('Hellblade II'),
+        ),
+      ).toMatchObject({ platform_id: 50, region: 'Japan' });
+      expect(releases.some((r) => r.raw_title.includes('Controller'))).toBe(
+        false,
+      );
+    });
   });
 });

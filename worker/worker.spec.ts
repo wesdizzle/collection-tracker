@@ -11234,6 +11234,56 @@ describe('Worker API Logic', () => {
         bothFailSpy.mockRestore();
       }
     });
+
+    it('syncWorkerSerialStation defaults to 5 pages per run and aborts immediately on HTTP 429', async () => {
+      let fetchedOffsets: number[] = [];
+      const fivePageSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = new URL(String(input));
+          const off = parseInt(url.searchParams.get('offset') || '0', 10);
+          fetchedOffsets.push(off);
+          return Response.json({
+            count: 5000,
+            items: Array.from({ length: 100 }, (_, i) => ({
+              name: `PS3 Skip ${off + i}`,
+              regions: ['America'],
+              title_id: `BLUS${String(10000 + off + i)}`,
+              edition: 'Original',
+              release_type: 'PHYSICAL',
+            })),
+          });
+        });
+
+      try {
+        const res = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(res.pagesFetched).toBe(5);
+        expect(fetchedOffsets).toEqual([0, 100, 200, 300, 400]);
+        expect(res.nextOffset).toBe(500);
+      } finally {
+        fivePageSpy.mockRestore();
+      }
+
+      fetchedOffsets = [];
+      const rateLimitSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const url = new URL(String(input));
+          const off = parseInt(url.searchParams.get('offset') || '0', 10);
+          fetchedOffsets.push(off);
+          return new Response('Too Many Requests', { status: 429 });
+        });
+
+      try {
+        const rlRes = await syncWorkerSerialStation(mockEnv, { force: true });
+        expect(rlRes.error).toContain('429');
+        expect(rlRes.pagesFetched).toBe(0);
+        expect(fetchedOffsets).toEqual([500]);
+        expect(rlRes.nextOffset).toBe(500);
+      } finally {
+        rateLimitSpy.mockRestore();
+      }
+    });
   });
 
   describe('Hourly 24-Slot Cron Dispatcher, In-Worker DAT Sync & Paid/Free Tier Switch', () => {

@@ -1260,6 +1260,20 @@ describe('Title Matching Strategies', () => {
       expect(
         buildCanonicalLinkerMatchKeys('Mega Man X: Legacy Collection 1+2'),
       ).toContain('megamanxlegacycollection');
+      expect(
+        buildCanonicalLinkerMatchKeys('Persona 5 Royal: Steelbook Edition'),
+      ).toContain('persona5royal');
+      expect(
+        buildCanonicalLinkerMatchKeys('Shantae: Half-Genie Hero Edition'),
+      ).toContain('shantaehalfgenie');
+      expect(
+        buildCanonicalLinkerMatchKeys("Yoshi's Crafted Edition"),
+      ).toContain('yoshi');
+      expect(
+        buildCanonicalLinkerMatchKeys(
+          'Pac-Man Championship Edition 2 + Arcade Game Series',
+        ),
+      ).toContain('pacmanchampionship2');
     });
   });
 });
