@@ -115,15 +115,11 @@ describe('getVerificationSourceLink', () => {
     ).toBe('https://limitedgamenews.com/?s=Shantae');
   });
 
-  it('returns url: null for manual verification and null for unknown/unverified rows', () => {
+  it('returns null for retired manual sources and unknown/unverified rows', () => {
+    expect(getVerificationSourceLink({ source: 'manual' })).toBeNull();
     expect(
-      getVerificationSourceLink({ source: null, manuallyVerified: 1 }),
-    ).toMatchObject({
-      source: 'manual',
-      label: 'Manually Verified',
-      url: null,
-    });
-    expect(getVerificationSourceLink({ source: 'manual' })?.url).toBeNull();
+      getVerificationSourceLink({ source: 'manually_verified' }),
+    ).toBeNull();
     expect(getVerificationSourceLink({ source: null })).toBeNull();
     expect(getVerificationSourceLink({ source: 'unknown_source' })).toBeNull();
   });

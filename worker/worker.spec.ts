@@ -6419,12 +6419,12 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerIgdbSeriesAndCanonical passively backfills summary, image_url, genres, and igdb_url while preserving /covers/ assets and manually_verified rows', async () => {
+      it('syncWorkerIgdbSeriesAndCanonical passively backfills summary, image_url, genres, and igdb_url while preserving /covers/ assets and curated metadata', async () => {
         db.exec(`
           INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, summary, genres, manually_verified)
           VALUES
             (9601, '9601', 'Chrono Trigger', 15, 1111, NULL, NULL, NULL, 0),
-            (9602, '9602', 'PlayStation VR Demo Disc', 34, 2222, '/covers/playstation-vr-demo-disc-playstation-4.jpg', 'Curated summary', 'Demo Compilation', 1);
+            (9602, '9602', 'PlayStation VR Demo Disc', 34, 2222, '/covers/playstation-vr-demo-disc-playstation-4.jpg', 'Curated summary', 'Demo Compilation', 0);
         `);
 
         const fetchSpy = vi
@@ -6563,12 +6563,13 @@ describe('Worker API Logic', () => {
 
       it('syncWorkerUnmatchedIgdbRetry prioritizes user-tracked unmatched games, skips duplicate sibling igdb_ids, sets cooldown, scans catalog PK tail, and enforces daily write budget', async () => {
         db.exec(`
-          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, manually_verified)
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, manually_verified)
           VALUES
-            (9701, '9701', 'Chrono Trigger', 15, NULL, 0),
-            (9702, '9702', 'EarthBound Duplicate', 15, NULL, 0),
-            (9703, '9703', 'EarthBound Canonical', 15, 5555, 0),
-            (9704, '9704', 'Secret of Mana', 15, NULL, 0);
+            (9701, '9701', 'Chrono Trigger', 15, NULL, NULL, 0),
+            (9702, '9702', 'EarthBound Duplicate', 15, NULL, NULL, 0),
+            (9703, '9703', 'EarthBound Canonical', 15, 5555, NULL, 0),
+            (9704, '9704', 'Secret of Mana', 15, NULL, NULL, 0),
+            (9705, '9705', 'PlayStation VR Demo Disc Test', 34, NULL, '/covers/test.jpg', 0);
           INSERT INTO game_releases (id, game_id, region)
           VALUES
             ('9701-1', 9701, 'USA'),
@@ -6649,6 +6650,10 @@ describe('Worker API Logic', () => {
             .prepare('SELECT igdb_id FROM games WHERE stable_id = 9704')
             .get() as { igdb_id: number | null };
           expect(g9704.igdb_id).toBe(3333);
+          const g9705 = db
+            .prepare('SELECT igdb_id FROM games WHERE stable_id = 9705')
+            .get() as { igdb_id: number | null };
+          expect(g9705.igdb_id).toBeNull();
 
           // Budget exhaustion short-circuits cleanly
           const today = new Date().toISOString().slice(0, 10);

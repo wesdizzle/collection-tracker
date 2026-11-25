@@ -16392,7 +16392,7 @@ export async function syncWorkerUnmatchedIgdbRetry(
        WHERE ugr.user_id > 0
          AND ugr.ownership_status > 0
          AND g.igdb_id IS NULL
-         AND COALESCE(g.manually_verified, 0) = 0
+         AND COALESCE(g.image_url, '') NOT LIKE '/covers/%'
          AND g.stable_id > ?
        ORDER BY g.stable_id ASC
        LIMIT ?`,
@@ -16412,7 +16412,7 @@ export async function syncWorkerUnmatchedIgdbRetry(
       `SELECT stable_id, id, title, platform_id, region, image_url, summary, genres, igdb_url, collections, franchises, canonical_series, metadata_json
        FROM games
        WHERE igdb_id IS NULL
-         AND COALESCE(manually_verified, 0) = 0
+         AND COALESCE(image_url, '') NOT LIKE '/covers/%'
          AND stable_id > ?
        ORDER BY stable_id ASC
        LIMIT ?`,
@@ -16786,12 +16786,11 @@ export async function syncWorkerIgdbSeriesAndCanonical(
     image_url?: string | null;
     genres?: string | null;
     igdb_url?: string | null;
-    manually_verified?: number | null;
   }
 
   // 2. Query next incremental slice of games using primary key index
   let { results: batchResults } = await env.DB.prepare(
-    `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, metadata_json, summary, image_url, genres, igdb_url, manually_verified
+    `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, metadata_json, summary, image_url, genres, igdb_url
      FROM games
      WHERE stable_id > ?
      ORDER BY stable_id ASC
@@ -16804,7 +16803,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   if (!batchResults || batchResults.length === 0) {
     // Reached the end of the collection; wrap around to beginning
     const wrapRes = await env.DB.prepare(
-      `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, metadata_json, summary, image_url, genres, igdb_url, manually_verified
+      `SELECT stable_id, id, title, platform_id, region, igdb_id, collections, franchises, canonical_series, metadata_json, summary, image_url, genres, igdb_url
        FROM games
        WHERE stable_id > 0
        ORDER BY stable_id ASC
@@ -16832,7 +16831,7 @@ export async function syncWorkerIgdbSeriesAndCanonical(
   let trackedUpcomingGames: RollingGameRow[] = [];
   try {
     const upcomingRes = await env.DB.prepare(
-      `SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json, g.summary, g.image_url, g.genres, g.igdb_url, g.manually_verified
+      `SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.igdb_id, g.collections, g.franchises, g.canonical_series, g.metadata_json, g.summary, g.image_url, g.genres, g.igdb_url
        FROM game_releases r
        CROSS JOIN games g ON g.stable_id = r.game_id
        WHERE r.release_date >= DATE('now')
@@ -16952,19 +16951,19 @@ export async function syncWorkerIgdbSeriesAndCanonical(
       collections: nextCollections || undefined,
       franchises: nextFranchises || undefined,
     });
-    const isManuallyVerified = Number(game.manually_verified ?? 0) === 1;
     const hasLocalCover = Boolean(
+      game.image_url && game.image_url.startsWith('/covers/'),
+    );
+    const hasLocalImagePath = Boolean(
       game.image_url && game.image_url.startsWith('/'),
     );
-    const nextSummary = isManuallyVerified
+    const nextSummary = hasLocalCover
       ? (game.summary ?? fresh?.summary ?? null)
       : (fresh?.summary ?? game.summary ?? null);
-    const nextImageUrl = hasLocalCover
+    const nextImageUrl = hasLocalImagePath
       ? game.image_url!
-      : isManuallyVerified
-        ? (game.image_url ?? fresh?.imageUrl ?? null)
-        : (fresh?.imageUrl ?? game.image_url ?? null);
-    const nextGenres = isManuallyVerified
+      : (fresh?.imageUrl ?? game.image_url ?? null);
+    const nextGenres = hasLocalCover
       ? (game.genres ?? fresh?.genres ?? null)
       : (fresh?.genres ?? game.genres ?? null);
     const nextIgdbUrl = fresh?.igdbUrl ?? game.igdb_url ?? null;

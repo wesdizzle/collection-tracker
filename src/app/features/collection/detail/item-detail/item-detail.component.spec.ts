@@ -1371,7 +1371,7 @@ describe('ItemDetailComponent', () => {
         'https://redump.org/discs/quicksearch/CUSA-00900',
       );
 
-      // Manual verification renders non-link badge
+      // Retired manually_verified flag without a canonical source renders no badge or link
       vi.spyOn(collectionService, 'getGameById').mockReturnValue(
         of({
           ...mockGame,
@@ -1398,10 +1398,9 @@ describe('ItemDetailComponent', () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      const manualBadge = compiled.querySelector(
-        '[data-testid="primary-verification-badge"]',
-      ) as HTMLElement | null;
-      expect(manualBadge?.textContent).toContain('Manually Verified');
+      expect(
+        compiled.querySelector('[data-testid="primary-verification-badge"]'),
+      ).toBeNull();
       expect(
         compiled.querySelector('[data-testid="primary-verification-link"]'),
       ).toBeNull();

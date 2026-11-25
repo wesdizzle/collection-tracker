@@ -25,7 +25,6 @@ export interface VerificationLinkInput {
   title?: string | null;
   serialCode?: string | null;
   retailUrl?: string | null;
-  manuallyVerified?: number | boolean | null;
 }
 
 const OPTICAL_REDUMP_PLATFORM_IDS = new Set<number>([
@@ -54,8 +53,8 @@ function normalizeHttpUrl(raw: string | null | undefined): string | null {
 }
 
 /**
- * Resolves a verification badge label, external URL (or null for manual
- * verification), and descriptive tooltip from a release or game's verification metadata.
+ * Resolves a verification badge label, external URL, and descriptive tooltip
+ * from a release or game's verification metadata.
  */
 export function getVerificationSourceLink(
   input: VerificationLinkInput,
@@ -64,19 +63,6 @@ export function getVerificationSourceLink(
   const titleQuery = cleanQueryTerm(input.title);
   const serialQuery = (input.serialCode || '').trim();
   const safeRetailUrl = normalizeHttpUrl(input.retailUrl);
-
-  if (
-    !rawSource &&
-    (input.manuallyVerified === 1 || input.manuallyVerified === true)
-  ) {
-    return {
-      source: 'manual',
-      label: 'Manually Verified',
-      url: null,
-      tooltip:
-        'Physical release manually verified by collection administrator.',
-    };
-  }
 
   if (!rawSource) return null;
 
@@ -277,16 +263,6 @@ export function getVerificationSourceLink(
         tooltip: 'Verified via curated community physical preservation catalog',
       };
     }
-
-    case 'manual':
-    case 'manually_verified':
-      return {
-        source: 'manual',
-        label: 'Manually Verified',
-        url: null,
-        tooltip:
-          'Physical release manually verified by collection administrator.',
-      };
 
     default:
       return null;

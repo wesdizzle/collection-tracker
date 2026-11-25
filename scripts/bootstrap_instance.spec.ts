@@ -61,7 +61,7 @@ describe('bootstrapInstance & hydrateCanonicalReleasesFromSnapshotFile', () => {
     for (const row of curatedPsvr) {
       expect(row.platform_id).toBe(34);
       expect(row.image_url).toMatch(/^\/covers\/playstation-vr-demo-disc/);
-      expect(row.manually_verified).toBe(1);
+      expect(row.manually_verified).toBe(0);
     }
 
     // Re-running curated-games phase stays idempotent

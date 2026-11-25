@@ -965,18 +965,16 @@ export class ItemDetailComponent {
       title: release.title || game.title,
       serialCode: release.serial_code,
       retailUrl: game.retail_url,
-      manuallyVerified: game.manually_verified,
     });
   }
 
   public getPrimaryVerificationLink(game: Game): VerificationSourceLink | null {
-    if (game.source || game.manually_verified) {
+    if (game.source) {
       const direct = getVerificationSourceLink({
         source: game.source,
         platformId: game.platform_id,
         title: game.title,
         retailUrl: game.retail_url,
-        manuallyVerified: game.manually_verified,
       });
       if (direct) return direct;
     }

@@ -1,7 +1,10 @@
 -- ============================================================================
 -- CURATED STATIC RETAIL GAMES SEED (migrations/seed_curated_games.sql)
--- Description: Authoritative retail boxed releases that IGDB explicitly excludes
---   from its catalog (requiring bundled static cover art and curated metadata).
+-- Description: Supplies bundled static local `/covers/` artwork and curated
+--   metadata (`summary`, `genres`, `canonical_series`) for authoritative retail
+--   boxed releases excluded from IGDB. Physical verification comes exclusively
+--   from canonical Redump DAT matches in `canonical_releases` (`source = 'dat'`),
+--   not from `manually_verified`.
 --
 -- Included titles:
 --   - PlayStation VR Demo Disc (PlayStation 4 / PSVR, 2016)
@@ -10,10 +13,10 @@
 -- ============================================================================
 
 -- 1. PlayStation VR Demo Disc (2016)
-INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series, manually_verified)
+INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series)
 SELECT 'PlayStation VR Demo Disc', 34, 9001, '/covers/playstation-vr-demo-disc-playstation-4.jpg',
        'Official retail PlayStation VR headset bundle compilation featuring playable demos for launch PSVR titles including Driveclub VR, EVE: Valkyrie, Headmaster, Job Simulator, PlayStation VR Worlds, Rez Infinite, RIGS Mechanized Combat League, Thumper, and Tumble VR.',
-       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc', 1
+       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc'
 WHERE NOT EXISTS (
   SELECT 1 FROM games WHERE title = 'PlayStation VR Demo Disc' COLLATE NOCASE AND platform_id = 34
 );
@@ -24,8 +27,7 @@ SET id = COALESCE(id, CAST(stable_id AS TEXT)),
     summary = COALESCE(summary, 'Official retail PlayStation VR headset bundle compilation featuring playable demos for launch PSVR titles including Driveclub VR, EVE: Valkyrie, Headmaster, Job Simulator, PlayStation VR Worlds, Rez Infinite, RIGS Mechanized Combat League, Thumper, and Tumble VR.'),
     genres = COALESCE(genres, 'Demo Compilation, Virtual Reality'),
     region = COALESCE(region, 'USA'),
-    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc'),
-    manually_verified = 1
+    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc')
 WHERE title = 'PlayStation VR Demo Disc' COLLATE NOCASE
   AND platform_id = 34
   AND (
@@ -34,8 +36,7 @@ WHERE title = 'PlayStation VR Demo Disc' COLLATE NOCASE
     summary IS NULL OR
     genres IS NULL OR
     region IS NULL OR
-    canonical_series IS NULL OR
-    COALESCE(manually_verified, 0) != 1
+    canonical_series IS NULL
   );
 
 INSERT INTO game_releases (id, game_id, region, rom_name, rom_crc, release_date, canonical_release_id)
@@ -66,10 +67,10 @@ WHERE g.title = 'PlayStation VR Demo Disc' COLLATE NOCASE
   AND NOT EXISTS (SELECT 1 FROM game_releases r2 WHERE r2.id = CAST(g.stable_id AS TEXT) || '-3');
 
 -- 2. PlayStation VR Demo Disc 2.0 (2017)
-INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series, manually_verified)
+INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series)
 SELECT 'PlayStation VR Demo Disc 2.0', 34, 9002, '/covers/playstation-vr-demo-disc-2-playstation-4.jpg',
        'Official retail PlayStation VR headset bundle compilation featuring playable demos for Battlezone, Dino Frontier, EVE: Valkyrie - Warzone, Fantastic Contraption, Job Simulator, Moss, Raw Data, Rez Infinite, Ring Racers, Starblood Arena, The Persistence, Thumper, and Tiny Trax.',
-       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc', 1
+       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc'
 WHERE NOT EXISTS (
   SELECT 1 FROM games WHERE title = 'PlayStation VR Demo Disc 2.0' COLLATE NOCASE AND platform_id = 34
 );
@@ -80,8 +81,7 @@ SET id = COALESCE(id, CAST(stable_id AS TEXT)),
     summary = COALESCE(summary, 'Official retail PlayStation VR headset bundle compilation featuring playable demos for Battlezone, Dino Frontier, EVE: Valkyrie - Warzone, Fantastic Contraption, Job Simulator, Moss, Raw Data, Rez Infinite, Ring Racers, Starblood Arena, The Persistence, Thumper, and Tiny Trax.'),
     genres = COALESCE(genres, 'Demo Compilation, Virtual Reality'),
     region = COALESCE(region, 'USA'),
-    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc'),
-    manually_verified = 1
+    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc')
 WHERE title = 'PlayStation VR Demo Disc 2.0' COLLATE NOCASE
   AND platform_id = 34
   AND (
@@ -90,8 +90,7 @@ WHERE title = 'PlayStation VR Demo Disc 2.0' COLLATE NOCASE
     summary IS NULL OR
     genres IS NULL OR
     region IS NULL OR
-    canonical_series IS NULL OR
-    COALESCE(manually_verified, 0) != 1
+    canonical_series IS NULL
   );
 
 INSERT INTO game_releases (id, game_id, region, rom_name, rom_crc, release_date, canonical_release_id)
@@ -104,10 +103,10 @@ WHERE g.title = 'PlayStation VR Demo Disc 2.0' COLLATE NOCASE
   AND NOT EXISTS (SELECT 1 FROM game_releases r2 WHERE r2.id = CAST(g.stable_id AS TEXT) || '-1');
 
 -- 3. PlayStation VR Demo Disc 3 (2019)
-INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series, manually_verified)
+INSERT INTO games (title, platform_id, sort_index, image_url, summary, genres, region, canonical_series)
 SELECT 'PlayStation VR Demo Disc 3', 34, 9003, '/covers/playstation-vr-demo-disc-3-playstation-4.jpg',
        'Official retail PlayStation VR headset bundle compilation featuring playable demos for Astro Bot Rescue Mission, Battlezone, Headmaster, Job Simulator, Kitchen (Resident Evil 7), Moss, Superhot VR, The Persistence, and Thumper.',
-       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc', 1
+       'Demo Compilation, Virtual Reality', 'USA', 'PlayStation VR Demo Disc'
 WHERE NOT EXISTS (
   SELECT 1 FROM games WHERE title = 'PlayStation VR Demo Disc 3' COLLATE NOCASE AND platform_id = 34
 );
@@ -118,8 +117,7 @@ SET id = COALESCE(id, CAST(stable_id AS TEXT)),
     summary = COALESCE(summary, 'Official retail PlayStation VR headset bundle compilation featuring playable demos for Astro Bot Rescue Mission, Battlezone, Headmaster, Job Simulator, Kitchen (Resident Evil 7), Moss, Superhot VR, The Persistence, and Thumper.'),
     genres = COALESCE(genres, 'Demo Compilation, Virtual Reality'),
     region = COALESCE(region, 'USA'),
-    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc'),
-    manually_verified = 1
+    canonical_series = COALESCE(canonical_series, 'PlayStation VR Demo Disc')
 WHERE title = 'PlayStation VR Demo Disc 3' COLLATE NOCASE
   AND platform_id = 34
   AND (
@@ -128,8 +126,7 @@ WHERE title = 'PlayStation VR Demo Disc 3' COLLATE NOCASE
     summary IS NULL OR
     genres IS NULL OR
     region IS NULL OR
-    canonical_series IS NULL OR
-    COALESCE(manually_verified, 0) != 1
+    canonical_series IS NULL
   );
 
 INSERT INTO game_releases (id, game_id, region, rom_name, rom_crc, release_date, canonical_release_id)

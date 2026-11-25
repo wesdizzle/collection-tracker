@@ -427,12 +427,12 @@ export function runCollectionStaticSchemaCostGuard(
     },
     {
       name: 'unmatched IGDB retry Phase 1 user-tracked lookup (CROSS JOIN)',
-      sql: 'SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.image_url, g.summary, g.genres, g.igdb_url, g.collections, g.franchises, g.canonical_series, g.metadata_json FROM user_game_releases ugr CROSS JOIN game_releases r ON r.id = ugr.release_id CROSS JOIN games g ON g.stable_id = r.game_id WHERE ugr.user_id > 0 AND ugr.ownership_status > 0 AND g.igdb_id IS NULL AND COALESCE(g.manually_verified, 0) = 0 AND g.stable_id > ? ORDER BY g.stable_id ASC LIMIT 20',
+      sql: "SELECT DISTINCT g.stable_id, g.id, g.title, g.platform_id, g.region, g.image_url, g.summary, g.genres, g.igdb_url, g.collections, g.franchises, g.canonical_series, g.metadata_json FROM user_game_releases ugr CROSS JOIN game_releases r ON r.id = ugr.release_id CROSS JOIN games g ON g.stable_id = r.game_id WHERE ugr.user_id > 0 AND ugr.ownership_status > 0 AND g.igdb_id IS NULL AND COALESCE(g.image_url, '') NOT LIKE '/covers/%' AND g.stable_id > ? ORDER BY g.stable_id ASC LIMIT 20",
       params: [0],
     },
     {
       name: 'unmatched IGDB retry Phase 2 catalog tail lookup by stable_id PK',
-      sql: 'SELECT stable_id, id, title, platform_id, region, image_url, summary, genres, igdb_url, collections, franchises, canonical_series, metadata_json FROM games WHERE igdb_id IS NULL AND COALESCE(manually_verified, 0) = 0 AND stable_id > ? ORDER BY stable_id ASC LIMIT 30',
+      sql: "SELECT stable_id, id, title, platform_id, region, image_url, summary, genres, igdb_url, collections, franchises, canonical_series, metadata_json FROM games WHERE igdb_id IS NULL AND COALESCE(image_url, '') NOT LIKE '/covers/%' AND stable_id > ? ORDER BY stable_id ASC LIMIT 30",
       params: [0],
     },
     {
