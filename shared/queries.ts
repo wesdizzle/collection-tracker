@@ -35,7 +35,7 @@ import {
  * grouping happens in `groupCatalogMediaIntoReleases` on the frontend.
  */
 const VERIFIED_CANONICAL_SOURCES_SQL =
-  "'nintendo_revised', 'dat', 'nscollectors', 'nscollectors_upcoming', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog', 'community_csv'";
+  "'nintendo_revised', 'dat', 'nscollectors', 'nscollectors_upcoming', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog'";
 
 export const CATALOG_CHUNK_SCHEMA_VERSION = 'v2';
 

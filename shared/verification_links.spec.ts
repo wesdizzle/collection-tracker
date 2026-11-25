@@ -113,13 +113,6 @@ describe('getVerificationSourceLink', () => {
         title: 'Shantae',
       })?.url,
     ).toBe('https://limitedgamenews.com/?s=Shantae');
-
-    expect(
-      getVerificationSourceLink({
-        source: 'community_csv',
-        platformId: 35,
-      })?.label,
-    ).toBe('PS5DB Community Catalog');
   });
 
   it('returns url: null for manual verification and null for unknown/unverified rows', () => {

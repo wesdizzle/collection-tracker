@@ -27,10 +27,6 @@ import {
   fetchRetailBackCatalogSources,
   loadRetailBackCatalogReleases,
 } from './retail_backcatalog.js';
-import {
-  loadCommunityCsvReleases,
-  parseCommunityCsv,
-} from './community_csv.js';
 
 describe('Offline Canonical Source Adapters', () => {
   let tmpDir: string;
@@ -592,41 +588,6 @@ describe('Offline Canonical Source Adapters', () => {
       expect(
         releases.find((r) => r.raw_title === 'Dead Space')?.platform_id,
       ).toBe(50);
-    });
-  });
-
-  describe('community_csv', () => {
-    it('loads optional user CSV files from data/sources/community and returns [] when absent', () => {
-      expect(loadCommunityCsvReleases(tmpDir)).toEqual([]);
-
-      const commDir = path.join(tmpDir, 'community');
-      fs.mkdirSync(commDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(commDir, 'trueachievements_xbox.csv'),
-        'Title,Platform,Region,Barcode,Publisher\nHalo Infinite,Xbox Series X|S,USA,889842725216,Xbox Game Studios\nFable II,Xbox 360,USA,882224645966,Microsoft\n',
-        'utf8',
-      );
-
-      const direct = parseCommunityCsv(
-        'Game,System,Region\nLost Odyssey,X360,NA\n',
-      );
-      expect(direct[0]).toMatchObject({
-        platform_id: 48,
-        raw_title: 'Lost Odyssey',
-        region: 'USA',
-        source: 'community_csv',
-      });
-
-      const loaded = loadCommunityCsvReleases(tmpDir);
-      expect(loaded).toHaveLength(2);
-      expect(loaded[0]).toMatchObject({
-        platform_id: 50,
-        raw_title: 'Halo Infinite',
-        barcode: '889842725216',
-        publisher: 'Xbox Game Studios',
-        source: 'community_csv',
-      });
-      expect(loaded[1]?.platform_id).toBe(48);
     });
   });
 });

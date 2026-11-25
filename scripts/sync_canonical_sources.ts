@@ -2,15 +2,15 @@
  * CANONICAL SOURCES SYNCHRONIZATION UTILITY
  *
  * Scans canonical XML DAT files in `dats/` and offline verification sources in
- * `data/sources/` (`neogeo`, `nscollectors`, `ps5db`, `serialstation`, `retail`,
- * `community` drop-in CSVs) to populate `canonical_releases` using diff-guarded
- * comparisons against existing rows, and links matching `game_releases`.
+ * `data/sources/` (`neogeo`, `nscollectors`, `ps5db`, `serialstation`, `retail`) to
+ * populate `canonical_releases` using diff-guarded comparisons against existing rows,
+ * and links matching `game_releases`.
  *
  * USAGE:
  *   npx tsx scripts/sync_canonical_sources.ts [options]
  *
  * OPTIONS:
- *   --source=<list>        Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,community,all (default: all)
+ *   --source=<list>        Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,all (default: all)
  *   --sources-dir=<path>   Directory containing fetched source artifacts (default: data/sources)
  *   --platform=<id|name>   Sync only the specified platform (e.g. --platform=vita or --platform=19)
  *   --dry-run              Calculate source counts, per-platform diffs, and D1 quota impact without modifying data
@@ -55,7 +55,6 @@ import { loadNsCollectorsReleases } from './lib/sources/nscollectors_sync.js';
 import { loadPs5DbReleases } from './lib/sources/ps5db.js';
 import { loadSerialStationReleases } from './lib/sources/serialstation.js';
 import { loadRetailBackCatalogReleases } from './lib/sources/retail_backcatalog.js';
-import { loadCommunityCsvReleases } from './lib/sources/community_csv.js';
 
 export type SyncSourceFilter =
   | 'dats'
@@ -64,7 +63,6 @@ export type SyncSourceFilter =
   | 'ps5db'
   | 'serialstation'
   | 'retail'
-  | 'community'
   | 'all';
 
 const VALID_SYNC_SOURCES = new Set<SyncSourceFilter>([
@@ -74,7 +72,6 @@ const VALID_SYNC_SOURCES = new Set<SyncSourceFilter>([
   'ps5db',
   'serialstation',
   'retail',
-  'community',
   'all',
 ]);
 
@@ -89,7 +86,7 @@ export function parseSyncSourceFilterArg(raw?: string): SyncSourceFilter[] {
   for (const t of tokens) {
     if (!VALID_SYNC_SOURCES.has(t as SyncSourceFilter)) {
       throw new Error(
-        `Unknown sync source "${t}". Valid values: dats, neogeo, nscollectors, ps5db, serialstation, retail, community, all`,
+        `Unknown sync source "${t}". Valid values: dats, neogeo, nscollectors, ps5db, serialstation, retail, all`,
       );
     }
     if (!out.includes(t as SyncSourceFilter)) {
@@ -326,11 +323,6 @@ export async function syncCanonicalSources(
     }
     if (runAllSources || selectedSources.has('retail')) {
       nonDatReleases.push(...loadRetailBackCatalogReleases(sourcesDir));
-    }
-    if (runAllSources || selectedSources.has('community')) {
-      nonDatReleases.push(
-        ...loadCommunityCsvReleases(sourcesDir, allPlatforms),
-      );
     }
 
     const filteredNonDatReleases = nonDatReleases.filter((r) =>
@@ -1743,7 +1735,7 @@ Usage:
   npx tsx scripts/sync_canonical_sources.ts [options]
 
 Options:
-  --source=<list>       Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,community,all (default: all)
+  --source=<list>       Comma-separated sources: dats,neogeo,nscollectors,ps5db,serialstation,retail,all (default: all)
   --sources-dir=<path>  Directory containing fetched non-DAT artifacts (default: data/sources)
   --platform=<id|name>  Sync only the specified platform (e.g. --platform=vita or --platform=19)
   --dry-run             Analyze source files and calculate D1 quota impact without modifying database

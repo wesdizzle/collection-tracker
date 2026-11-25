@@ -3,7 +3,7 @@
  *
  * Maps each physical verification `source` (`redump`, `dat`, `no_intro`, `mame`,
  * `ps5db`, `serialstation`, `nscollectors`, `nintendo_revised`, `retail_catalog`,
- * `lgn`, `boutique`, `community_csv`, `manual`, etc.) to an actionable external
+ * `lgn`, `boutique`) to an actionable external
  * reference URL + tooltip for display in Game Detail views without storing
  * duplicate per-row URLs in D1.
  */
@@ -248,7 +248,6 @@ export function getVerificationSourceLink(
       };
     }
 
-    case 'community_csv':
     case 'community': {
       const pid = Number(input.platformId ?? 0);
       if (pid === 35) {

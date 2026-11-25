@@ -65,7 +65,6 @@ export interface CanonicalRelease {
     | 'neogeo_x'
     | 'lgn'
     | 'retail_catalog'
-    | 'community_csv'
     | 'igdb_physical'
     | 'publisher_whitelist'
     | 'barcode'
@@ -957,7 +956,7 @@ export function regionsOverlap(
  * Authoritative source precedence hierarchy (lower numeric rank = higher authority).
  * Tier 1 (checksum/official): dat, mame, nintendo_revised
  * Tier 2 (serial/catalog DB): serialstation
- * Tier 3 (curated community): ps5db, nscollectors, neogeo_x, community_csv
+ * Tier 3 (curated community): ps5db, nscollectors, neogeo_x
  * Tier 4 (verified retail/boutique/upcoming fallback): retail_catalog, lgn, nscollectors_upcoming
  */
 export const CANONICAL_SOURCE_PRIORITY: Record<string, number> = {
@@ -968,7 +967,6 @@ export const CANONICAL_SOURCE_PRIORITY: Record<string, number> = {
   ps5db: 50,
   nscollectors: 60,
   neogeo_x: 70,
-  community_csv: 80,
   retail_catalog: 90,
   lgn: 100,
   nscollectors_upcoming: 110,
@@ -1004,7 +1002,6 @@ export function getCanonicalSourceTier(
     case 'ps5db':
     case 'nscollectors':
     case 'neogeo_x':
-    case 'community_csv':
       return 3;
     case 'retail_catalog':
     case 'lgn':
