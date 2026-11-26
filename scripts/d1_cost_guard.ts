@@ -39,6 +39,8 @@ import {
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
   ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
   buildCatalogGamesChunkQuery,
+  buildCompatibleGamesForToyQuery,
+  buildCompatibleToysForGameQuery,
   buildGameDetailQuery,
   buildGamesListQuery,
   CATALOG_GAMES_CHUNK_BOUND_QUERY,
@@ -445,13 +447,13 @@ export function runCollectionStaticSchemaCostGuard(
     },
     {
       name: 'toy_game_compatibility lookup by game_stable_id',
-      sql: 'SELECT t.stable_id, t.id, t.name, c.can_read, c.can_write, c.description FROM toy_game_compatibility c CROSS JOIN toys t ON t.stable_id = c.toy_stable_id WHERE c.game_stable_id = ?',
-      params: [1],
+      sql: buildCompatibleToysForGameQuery(1),
+      params: [1, 1],
     },
     {
       name: 'toy_game_compatibility lookup by toy_stable_id',
-      sql: 'SELECT g.stable_id, g.id, g.title, c.can_read, c.can_write, c.description FROM toy_game_compatibility c CROSS JOIN games g ON g.stable_id = c.game_stable_id WHERE c.toy_stable_id = ?',
-      params: [1],
+      sql: buildCompatibleGamesForToyQuery(1),
+      params: [1, 1],
     },
   ];
 

@@ -18,6 +18,7 @@ import worker, {
   MAX_GAMES_LITE_SNAPSHOT_BYTES,
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
+  R2_TOY_COMPAT_LITE_KEY,
   R2_GAMES_ACTIVE_LITE_KEY,
   R2_BACKUP_CATALOG_MANIFEST_KEY,
   R2_BACKUP_CANONICAL_MANIFEST_KEY,
@@ -509,19 +510,20 @@ describe('Worker API Logic', () => {
     expect(mockBucket.storage.has('snapshots/latest.json')).toBe(true);
     expect(mockBucket.storage.has(R2_META_LITE_KEY)).toBe(true);
     expect(mockBucket.storage.has(R2_TOYS_LITE_KEY)).toBe(true);
+    expect(mockBucket.storage.has(R2_TOY_COMPAT_LITE_KEY)).toBe(true);
     expect(mockBucket.storage.has(R2_GAMES_ACTIVE_LITE_KEY)).toBe(true);
-    expect(mockBucket.storage.size).toBe(4);
+    expect(mockBucket.storage.size).toBe(5);
 
     // Repeat call with unchanged DB skips upload via head() SHA-256 metadata check
     const unchangedRes = await performScheduledBackup(mockEnv, true);
     expect(unchangedRes.skipped).toBe(true);
-    expect(mockBucket.storage.size).toBe(4);
+    expect(mockBucket.storage.size).toBe(5);
 
     // Mutate DB and run daily call -> saves dated snapshot, latest.json, and updated lite snapshots
     db.prepare('UPDATE games SET sort_index = 7 WHERE stable_id = 1').run();
     const dailyRes = await performScheduledBackup(mockEnv, true);
     expect(dailyRes.rowCount).toBeGreaterThan(0);
-    expect(mockBucket.storage.size).toBe(5); // dated snapshot + latest.json + 3 lite snapshots
+    expect(mockBucket.storage.size).toBe(6); // dated snapshot + latest.json + 4 lite snapshots
 
     const latest = mockBucket.storage.get('snapshots/latest.json');
     expect(latest).toBeDefined();
@@ -7147,6 +7149,208 @@ describe('Worker API Logic', () => {
         }
       });
 
+      it('syncWorkerAmiiboCatalog syncs ?showusage compatibility for amiibo and Skylanders hybrids and exposes them on detail APIs (D1 & R2 fallback)', async () => {
+        db.exec(`
+          INSERT OR IGNORE INTO games (stable_id, id, title, platform_id)
+          VALUES (9101, 'switch-smash-ultimate', 'Super Smash Bros. Ultimate', 26),
+                 (9102, 'wiiu-superchargers', 'Skylanders SuperChargers', 24);
+          INSERT OR IGNORE INTO game_releases (id, game_id, region)
+          VALUES ('rel-smash-ult-us', 9101, 'USA'),
+                 ('rel-sky-wiiu-us', 9102, 'USA');
+          INSERT OR IGNORE INTO toys (stable_id, id, name, line, series, type)
+          VALUES (595, 'skylanders-hammer-slam-bowser', 'Hammer Slam Bowser', 'Skylanders', 'SuperChargers', 'Figure');
+        `);
+
+        const payload = {
+          amiibo: [
+            {
+              head: '00000000',
+              tail: '00000002',
+              name: 'Mario',
+              amiiboSeries: 'Super Smash Bros.',
+              gameSeries: 'Super Mario',
+              type: 'Figure',
+              release: { na: '2014-11-21', eu: null, jp: null, au: null },
+              gamesSwitch: [
+                {
+                  gameName: 'Super Smash Bros. Ultimate',
+                  amiiboUsage: [{ Usage: 'Train Figure Player', write: true }],
+                },
+              ],
+            },
+            {
+              head: '0005ff00',
+              tail: '023a0702',
+              name: 'Hammer Slam Bowser',
+              amiiboSeries: 'Skylanders SuperChargers',
+              gameSeries: 'Super Mario',
+              type: 'Figure',
+              release: { na: '2015-09-20', eu: null, jp: null, au: null },
+              gamesWiiU: [
+                {
+                  gameName: 'Skylanders SuperChargers',
+                  amiiboUsage: [
+                    { Usage: 'Play as Bowser in amiibo mode', write: true },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+
+        const fetchSpy = vi.fn(
+          async () => new Response(JSON.stringify(payload), { status: 200 }),
+        );
+        vi.stubGlobal('fetch', fetchSpy);
+
+        try {
+          const res1 = await syncWorkerAmiiboCatalog(mockEnv);
+          expect(fetchSpy).toHaveBeenCalledWith(
+            'https://amiiboapi.org/api/amiibo/?showusage',
+            expect.any(Object),
+          );
+          expect(res1.hashMatch).toBe(false);
+          expect(res1.writesUsed).toBeGreaterThan(0);
+
+          const marioCompat = db
+            .prepare(
+              'SELECT c.can_read, c.can_write, c.description FROM toy_game_compatibility c JOIN toys t ON t.stable_id = c.toy_stable_id WHERE t.id = ? AND c.game_stable_id = 9101',
+            )
+            .get('0000000000000002') as {
+            can_read: number;
+            can_write: number;
+            description: string | null;
+          };
+          expect(marioCompat).toEqual({
+            can_read: 1,
+            can_write: 1,
+            description: 'Train Figure Player',
+          });
+
+          const bowserCompat = db
+            .prepare(
+              'SELECT can_read, can_write, description FROM toy_game_compatibility WHERE toy_stable_id = 595 AND game_stable_id = 9102',
+            )
+            .get() as {
+            can_read: number;
+            can_write: number;
+            description: string | null;
+          };
+          expect(bowserCompat).toEqual({
+            can_read: 1,
+            can_write: 1,
+            description: 'amiibo mode: Play as Bowser in amiibo mode',
+          });
+
+          const gameRes = await worker.fetch(
+            new Request('http://localhost/api/games/switch-smash-ultimate'),
+            mockEnv,
+          );
+          expect(gameRes.status).toBe(200);
+          const gameJson = (await gameRes.json()) as {
+            compatible_toys?: Array<{ id: string; can_write: number }>;
+          };
+          expect(gameJson.compatible_toys).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                id: '0000000000000002',
+                can_write: 1,
+              }),
+            ]),
+          );
+
+          const toyRes = await worker.fetch(
+            new Request(
+              'http://localhost/api/toys/skylanders-hammer-slam-bowser',
+            ),
+            mockEnv,
+          );
+          expect(toyRes.status).toBe(200);
+          const toyJson = (await toyRes.json()) as {
+            compatible_games?: Array<{
+              id: string;
+              platform_name: string;
+              description: string | null;
+            }>;
+          };
+          expect(toyJson.compatible_games).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                id: 'wiiu-superchargers',
+                platform_name: 'Wii U',
+                description: 'amiibo mode: Play as Bowser in amiibo mode',
+              }),
+            ]),
+          );
+
+          await performScheduledBackup(mockEnv, false);
+          expect(mockBucket.storage.has(R2_TOY_COMPAT_LITE_KEY)).toBe(true);
+          const toysLiteParsed = JSON.parse(
+            mockBucket.storage.get(R2_TOYS_LITE_KEY)!,
+          ) as { tables: Record<string, unknown> };
+          expect(
+            toysLiteParsed.tables['toy_game_compatibility'],
+          ).toBeUndefined();
+
+          const quotaEnv = {
+            ...mockEnv,
+            DB: {
+              ...mockEnv.DB,
+              prepare: () => {
+                throw new Error('D1 quota exceeded');
+              },
+            },
+          } as unknown as Env;
+
+          const fallbackGameRes = await worker.fetch(
+            new Request('http://localhost/api/games/switch-smash-ultimate'),
+            quotaEnv,
+          );
+          expect(fallbackGameRes.status).toBe(200);
+          const fallbackGameJson = (await fallbackGameRes.json()) as {
+            compatible_toys?: Array<{ id: string }>;
+          };
+          expect(fallbackGameJson.compatible_toys).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ id: '0000000000000002' }),
+            ]),
+          );
+
+          const fallbackToyRes = await worker.fetch(
+            new Request(
+              'http://localhost/api/toys/skylanders-hammer-slam-bowser',
+            ),
+            quotaEnv,
+          );
+          expect(fallbackToyRes.status).toBe(200);
+          const fallbackToyJson = (await fallbackToyRes.json()) as {
+            compatible_games?: Array<{ id: string }>;
+          };
+          expect(fallbackToyJson.compatible_games).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ id: 'wiiu-superchargers' }),
+            ]),
+          );
+
+          payload.amiibo[0].gamesSwitch![0].amiiboUsage[0].Usage =
+            'Train & unlock costume';
+          const res2 = await syncWorkerAmiiboCatalog(mockEnv);
+          expect(res2.hashMatch).toBe(false);
+          expect(res2.addedCount).toBe(0);
+          expect(res2.updatedCount).toBe(0);
+          expect(res2.writesUsed).toBe(3);
+
+          const updatedMarioCompat = db
+            .prepare(
+              'SELECT description FROM toy_game_compatibility c JOIN toys t ON t.stable_id = c.toy_stable_id WHERE t.id = ? AND c.game_stable_id = 9101',
+            )
+            .get('0000000000000002') as { description: string | null };
+          expect(updatedMarioCompat.description).toBe('Train & unlock costume');
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
       it('performCanonicalReleasesBackup writes chunked R2 backup across cursor ticks, skips when clean, and re-runs on drift', async () => {
         db.exec(`
           INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source)
@@ -8165,6 +8369,7 @@ describe('Worker API Logic', () => {
         );
         expect(mockBucket.storage.has(R2_META_LITE_KEY)).toBe(true);
         expect(mockBucket.storage.has(R2_TOYS_LITE_KEY)).toBe(true);
+        expect(mockBucket.storage.has(R2_TOY_COMPAT_LITE_KEY)).toBe(true);
         expect(mockBucket.storage.has(R2_GAMES_ACTIVE_LITE_KEY)).toBe(true);
       } finally {
         globalThis.Date = originalDate;

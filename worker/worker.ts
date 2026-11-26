@@ -66,6 +66,8 @@ import {
   buildBundledGamesByParentQuery,
   buildToysListQuery,
   buildToyDetailQuery,
+  buildCompatibleToysForGameQuery,
+  buildCompatibleGamesForToyQuery,
   DEFAULT_USER_HOME_REGION,
 } from '../shared/queries';
 import {
@@ -123,6 +125,13 @@ import {
   parseSerialStationRecords,
 } from '../shared/serialstation';
 import { MULTI_POSE_AMIIBO_EXPANSIONS } from '../shared/amiibo_poses';
+import {
+  AmiiboApiUsageItem,
+  ToyCompatibilityGameInput,
+  ToyCompatibilityToyInput,
+  ToyGameCompatibilityRow,
+  buildAmiiboCompatibilityEntries,
+} from '../shared/toy_compatibility';
 import {
   computeGameCanonicalSeries,
   computeGameCanonicalSeriesWithSource,
@@ -260,6 +269,7 @@ interface DbGame {
   releases?: Array<Record<string, unknown>>;
   other_releases?: Array<Record<string, unknown>>;
   bundled_games?: unknown[];
+  compatible_toys?: Array<Record<string, unknown>>;
   shared_media_releases?: SharedMediaReleaseLink[];
 }
 
@@ -963,6 +973,7 @@ const BACKUP_TABLES = [
 
 export const R2_META_LITE_KEY = 'snapshots/meta-lite.json';
 export const R2_TOYS_LITE_KEY = 'snapshots/toys-lite.json';
+export const R2_TOY_COMPAT_LITE_KEY = 'snapshots/toy-compat-lite.json';
 export const R2_GAMES_ACTIVE_LITE_KEY = 'snapshots/games-active-lite.json';
 export const R2_BACKUP_CHUNK_PREFIX = 'snapshots/chunks/';
 export const R2_BACKUP_CATALOG_MANIFEST_KEY =
@@ -1060,6 +1071,19 @@ export async function loadToysSnapshotForFallback(
 ): Promise<R2BackupSnapshot<SnapshotTables> | null> {
   const lite = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
     objectKey: R2_TOYS_LITE_KEY,
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+  if (lite) return lite;
+  return loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
+  });
+}
+
+export async function loadToyCompatSnapshotForFallback(
+  bucket?: R2Bucket,
+): Promise<R2BackupSnapshot<SnapshotTables> | null> {
+  const lite = await loadR2LatestSnapshot<SnapshotTables>(bucket, {
+    objectKey: R2_TOY_COMPAT_LITE_KEY,
     maxBytes: MAX_FALLBACK_SNAPSHOT_BYTES,
   });
   if (lite) return lite;
@@ -1311,8 +1335,17 @@ export async function writeLiteBackupSnapshots(
         toy_series,
         users,
         toys,
-        toy_game_compatibility,
         user_toys,
+      }),
+      {
+        httpMetadata: { contentType: 'application/json' },
+        customMetadata: liteCustomMetadata,
+      },
+    ),
+    env.BACKUP_BUCKET.put(
+      R2_TOY_COMPAT_LITE_KEY,
+      buildSnapshotJson({
+        toy_game_compatibility,
       }),
       {
         httpMetadata: { contentType: 'application/json' },
@@ -2810,6 +2843,186 @@ function buildToyDetailFromSnapshot(
     series_name: seriesName,
     series_index: fs?.['sort_index'] ?? null,
   };
+}
+
+function buildCompatibleToysFromSnapshots(
+  compatSnapshot: R2BackupSnapshot<SnapshotTables> | null,
+  toysSnapshot: R2BackupSnapshot<SnapshotTables> | null,
+  gameStableId: number,
+  userId: number | null,
+): Array<Record<string, unknown>> {
+  const compatRows =
+    compatSnapshot?.tables?.['toy_game_compatibility'] ||
+    toysSnapshot?.tables?.['toy_game_compatibility'] ||
+    [];
+  const matching = compatRows.filter(
+    (c) => Number(c['game_stable_id']) === gameStableId,
+  );
+  if (matching.length === 0) return [];
+
+  const toys = toysSnapshot?.tables?.['toys'] || [];
+  const toySeries = toysSnapshot?.tables?.['toy_series'] || [];
+  const userToys = toysSnapshot?.tables?.['user_toys'] || [];
+  const toyByStableId = new Map<number, Record<string, unknown>>();
+  for (const t of toys) {
+    toyByStableId.set(Number(t['stable_id']), t);
+  }
+  const seriesById = new Map<string, Record<string, unknown>>();
+  for (const s of toySeries) {
+    seriesById.set(String(s['id']), s);
+  }
+  const ownershipByToyId = new Map<string, number>();
+  if (userId) {
+    for (const ut of userToys) {
+      if (Number(ut['user_id']) === userId) {
+        ownershipByToyId.set(
+          String(ut['toy_id']),
+          Number(ut['ownership_status'] ?? 0),
+        );
+      }
+    }
+  }
+
+  return matching
+    .map((c) => {
+      const t = toyByStableId.get(Number(c['toy_stable_id']));
+      if (!t) return null;
+      const fs = t['series_id']
+        ? seriesById.get(String(t['series_id']))
+        : undefined;
+      const seriesName =
+        (t['line'] === 'Skylanders' ? null : (t['series'] as string | null)) ??
+        (fs?.['name'] as string | null) ??
+        null;
+      return {
+        stable_id: Number(t['stable_id']),
+        id: String(t['id']),
+        name: String(t['name'] || ''),
+        line: String(t['line'] || ''),
+        series_name: seriesName,
+        type: (t['type'] as string | null) ?? null,
+        image_url: (t['image_url'] as string | null) ?? null,
+        ownership_status: ownershipByToyId.get(String(t['id'])) ?? 0,
+        can_read: Number(c['can_read'] ?? 1),
+        can_write: Number(c['can_write'] ?? 0),
+        description: (c['description'] as string | null) ?? null,
+        _seriesSort:
+          fs?.['sort_index'] !== undefined && fs['sort_index'] !== null
+            ? Number(fs['sort_index'])
+            : Number.MAX_SAFE_INTEGER,
+        _toySort:
+          t['sort_index'] !== undefined && t['sort_index'] !== null
+            ? Number(t['sort_index'])
+            : Number.MAX_SAFE_INTEGER,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => {
+      if (a._seriesSort !== b._seriesSort) return a._seriesSort - b._seriesSort;
+      if (a._toySort !== b._toySort) return a._toySort - b._toySort;
+      return a.name.localeCompare(b.name);
+    })
+    .map(({ _seriesSort, _toySort, ...rest }) => rest);
+}
+
+function buildCompatibleGamesFromSnapshots(
+  compatSnapshot: R2BackupSnapshot<SnapshotTables> | null,
+  gamesSnapshot: R2BackupSnapshot<SnapshotTables> | null,
+  toyStableId: number,
+  userId: number | null,
+): Array<Record<string, unknown>> {
+  const compatRows =
+    compatSnapshot?.tables?.['toy_game_compatibility'] ||
+    gamesSnapshot?.tables?.['toy_game_compatibility'] ||
+    [];
+  const matching = compatRows.filter(
+    (c) => Number(c['toy_stable_id']) === toyStableId,
+  );
+  if (matching.length === 0) return [];
+
+  const games = gamesSnapshot?.tables?.['games'] || [];
+  const releases = gamesSnapshot?.tables?.['game_releases'] || [];
+  const platforms = gamesSnapshot?.tables?.['platforms'] || [];
+  const userGameReleases = gamesSnapshot?.tables?.['user_game_releases'] || [];
+
+  const gameByStableId = new Map<number, Record<string, unknown>>();
+  for (const g of games) {
+    gameByStableId.set(Number(g['stable_id']), g);
+  }
+  const platformById = new Map<number, Record<string, unknown>>();
+  for (const p of platforms) {
+    platformById.set(Number(p['id']), p);
+  }
+  const ownershipByGameId = new Map<number, number>();
+  if (userId) {
+    const rank = (status: number) =>
+      status === 1
+        ? 1
+        : status === 3
+          ? 2
+          : status === 4
+            ? 3
+            : status === 2
+              ? 4
+              : 5;
+    const relStatus = new Map<string, number>();
+    for (const ugr of userGameReleases) {
+      if (Number(ugr['user_id']) === userId) {
+        const s = Number(ugr['ownership_status'] ?? 0);
+        if (s > 0) relStatus.set(String(ugr['release_id']), s);
+      }
+    }
+    for (const rel of releases) {
+      const s = relStatus.get(String(rel['id'])) ?? 0;
+      if (s <= 0) continue;
+      const gid = Number(rel['game_id']);
+      const cur = ownershipByGameId.get(gid) ?? 0;
+      if (cur === 0 || rank(s) < rank(cur)) {
+        ownershipByGameId.set(gid, s);
+      }
+    }
+  }
+
+  return matching
+    .map((c) => {
+      const g = gameByStableId.get(Number(c['game_stable_id']));
+      if (!g) return null;
+      const pid = Number(g['platform_id']);
+      const p = platformById.get(pid);
+      const pp =
+        p &&
+        p['parent_platform_id'] !== undefined &&
+        p['parent_platform_id'] !== null
+          ? platformById.get(Number(p['parent_platform_id']))
+          : undefined;
+      const effPlatform = pp || p;
+      return {
+        stable_id: Number(g['stable_id']),
+        id: String(g['id']),
+        title: String(g['title'] || ''),
+        platform_id: pid,
+        platform_name: (effPlatform?.['display_name'] as string | null) ?? null,
+        image_url: (g['image_url'] as string | null) ?? null,
+        ownership_status: ownershipByGameId.get(Number(g['stable_id'])) ?? 0,
+        can_read: Number(c['can_read'] ?? 1),
+        can_write: Number(c['can_write'] ?? 0),
+        description: (c['description'] as string | null) ?? null,
+        _launchDate: String(effPlatform?.['launch_date'] || '9999-99-99'),
+        _effPlatId: Number(
+          p?.['parent_platform_id'] ?? pid ?? Number.MAX_SAFE_INTEGER,
+        ),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => {
+      if (a._launchDate !== b._launchDate) {
+        return a._launchDate.localeCompare(b._launchDate);
+      }
+      if (a._effPlatId !== b._effPlatId) return a._effPlatId - b._effPlatId;
+      if (a.platform_id !== b.platform_id) return a.platform_id - b.platform_id;
+      return a.title.localeCompare(b.title);
+    })
+    .map(({ _launchDate, _effPlatId, ...rest }) => rest);
 }
 
 function buildJournalEntriesFromSnapshot(
@@ -7473,13 +7686,24 @@ Disallow: /
           const bundledParams = userId
             ? [userId, game.stable_id]
             : [game.stable_id];
-          const { results: bundled } = await env.DB.prepare(bundledQuery)
-            .bind(...bundledParams)
-            .all();
+          const compatToysQuery = buildCompatibleToysForGameQuery(userId);
+          const compatToysParams = userId
+            ? [userId, game.stable_id]
+            : [game.stable_id];
+          const [{ results: bundled }, { results: compatibleToys }] =
+            await Promise.all([
+              env.DB.prepare(bundledQuery)
+                .bind(...bundledParams)
+                .all(),
+              env.DB.prepare(compatToysQuery)
+                .bind(...compatToysParams)
+                .all(),
+            ]);
           game.bundled_games = (bundled || []).map((row) => ({
             ...row,
             platform_id: (row as { platform_id: number }).platform_id,
           }));
+          game.compatible_toys = compatibleToys || [];
         }
 
         if (sessionUser) {
@@ -7494,7 +7718,11 @@ Disallow: /
           headers: publicCacheHeaders,
         });
       } catch {
-        const snapshot = await loadGamesSnapshotForFallback(env.BACKUP_BUCKET);
+        const [snapshot, compatSnapshot, toysSnapshot] = await Promise.all([
+          loadGamesSnapshotForFallback(env.BACKUP_BUCKET),
+          loadToyCompatSnapshotForFallback(env.BACKUP_BUCKET),
+          loadToysSnapshotForFallback(env.BACKUP_BUCKET),
+        ]);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
@@ -7507,6 +7735,14 @@ Disallow: /
         );
         if (!game) {
           return Response.json({ error: 'Not found' }, { status: 404 });
+        }
+        if (game.stable_id) {
+          game.compatible_toys = buildCompatibleToysFromSnapshots(
+            compatSnapshot,
+            toysSnapshot,
+            game.stable_id,
+            userId,
+          );
         }
         return Response.json(game, {
           headers: buildR2DegradedHeaders(snapshot.timestamp, {
@@ -7570,10 +7806,24 @@ Disallow: /
       const userId = sessionUser ? sessionUser.id : null;
       try {
         const query = buildToyDetailQuery(userId);
-        const toy = userId
-          ? await env.DB.prepare(query).bind(userId, id).first()
-          : await env.DB.prepare(query).bind(id).first();
+        const toy = (
+          userId
+            ? await env.DB.prepare(query).bind(userId, id).first()
+            : await env.DB.prepare(query).bind(id).first()
+        ) as (Record<string, unknown> & { stable_id?: number }) | null;
         if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
+        if (toy.stable_id) {
+          const compatGamesQuery = buildCompatibleGamesForToyQuery(userId);
+          const compatGamesParams = userId
+            ? [userId, toy.stable_id]
+            : [toy.stable_id];
+          const { results: compatibleGames } = await env.DB.prepare(
+            compatGamesQuery,
+          )
+            .bind(...compatGamesParams)
+            .all();
+          toy['compatible_games'] = compatibleGames || [];
+        }
         if (sessionUser) {
           return Response.json(toy, {
             headers: {
@@ -7585,12 +7835,24 @@ Disallow: /
           headers: publicCacheHeaders,
         });
       } catch {
-        const snapshot = await loadToysSnapshotForFallback(env.BACKUP_BUCKET);
+        const [snapshot, compatSnapshot, gamesSnapshot] = await Promise.all([
+          loadToysSnapshotForFallback(env.BACKUP_BUCKET),
+          loadToyCompatSnapshotForFallback(env.BACKUP_BUCKET),
+          loadGamesSnapshotForFallback(env.BACKUP_BUCKET),
+        ]);
         if (!snapshot) {
           return buildD1QuotaExceededResponse();
         }
         const toy = buildToyDetailFromSnapshot(snapshot, id, userId);
         if (!toy) return Response.json({ error: 'Not found' }, { status: 404 });
+        if (toy['stable_id']) {
+          toy['compatible_games'] = buildCompatibleGamesFromSnapshots(
+            compatSnapshot,
+            gamesSnapshot,
+            Number(toy['stable_id']),
+            userId,
+          );
+        }
         return Response.json(toy, {
           headers: buildR2DegradedHeaders(snapshot.timestamp, {
             'Cache-Control': 'private, no-cache, no-store, must-revalidate',
@@ -18994,7 +19256,7 @@ export async function syncWorkerAmiiboCatalog(
   writesUsed: number;
 }> {
   const maxWritesPerRun = options.maxWritesPerRun ?? 6000;
-  const response = await fetch('https://amiiboapi.org/api/amiibo/', {
+  const response = await fetch('https://amiiboapi.org/api/amiibo/?showusage', {
     headers: { 'User-Agent': 'CollectionTracker/1.0' },
   });
   if (!response.ok) {
@@ -19051,7 +19313,7 @@ export async function syncWorkerAmiiboCatalog(
   const encoder = new TextEncoder();
   const hashBuffer = await crypto.subtle.digest(
     'SHA-256',
-    encoder.encode('v1||' + (rawText || JSON.stringify(amiiboList))),
+    encoder.encode('v2||' + (rawText || JSON.stringify(amiiboList))),
   );
   const currentHash = Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -19392,8 +19654,111 @@ export async function syncWorkerAmiiboCatalog(
     writesUsed += matchedToyRuleRows * 2;
   }
 
+  let compatWritesUsed = 0;
+  if (!stoppedEarly) {
+    const [compatAmiiboRes, hybridToysRes, nintendoGamesRes] =
+      await Promise.all([
+        env.DB.prepare(
+          `SELECT stable_id, id, name, line, series, type, amiibo_id, metadata_json
+           FROM toys WHERE line = 'amiibo'`,
+        ).all<ToyCompatibilityToyInput>(),
+        env.DB.prepare(
+          `SELECT stable_id, id, name, line, series, type, amiibo_id, metadata_json
+           FROM toys
+           WHERE name IN ('Hammer Slam Bowser', 'Dark Hammer Slam Bowser', 'Turbo Charge Donkey Kong', 'Dark Turbo Charge Donkey Kong')`,
+        ).all<ToyCompatibilityToyInput>(),
+        env.DB.prepare(
+          `SELECT stable_id, title, platform_id
+           FROM games
+           WHERE platform_id IN (23, 24, 25, 26, 27)`,
+        ).all<ToyCompatibilityGameInput>(),
+      ]);
+
+    const compatToys: ToyCompatibilityToyInput[] = [
+      ...(compatAmiiboRes.results || []),
+      ...(hybridToysRes.results || []).filter((t) => t.line === 'Skylanders'),
+    ];
+    const desiredCompat: ToyGameCompatibilityRow[] =
+      buildAmiiboCompatibilityEntries(
+        amiiboList as AmiiboApiUsageItem[],
+        compatToys,
+        nintendoGamesRes.results || [],
+      );
+
+    if (desiredCompat.length > 0) {
+      const targetToyIds = Array.from(
+        new Set(desiredCompat.map((r) => r.toy_stable_id)),
+      );
+      const existingCompatRows = await queryChunkedByColumn(
+        env.DB,
+        `SELECT toy_stable_id, game_stable_id, can_read, can_write, description
+         FROM toy_game_compatibility WHERE toy_stable_id`,
+        targetToyIds,
+      );
+      const existingCompatMap = new Map<
+        string,
+        { can_read: number; can_write: number; description: string | null }
+      >();
+      for (const row of existingCompatRows) {
+        const key = `${Number(row['toy_stable_id'])}:${Number(row['game_stable_id'])}`;
+        existingCompatMap.set(key, {
+          can_read: Number(row['can_read'] ?? 1),
+          can_write: Number(row['can_write'] ?? 0),
+          description: (row['description'] as string | null) ?? null,
+        });
+      }
+
+      const compatStatements: D1PreparedStatement[] = [];
+      for (const row of desiredCompat) {
+        const existingCompat = existingCompatMap.get(
+          `${row.toy_stable_id}:${row.game_stable_id}`,
+        );
+        if (
+          existingCompat &&
+          existingCompat.can_read === row.can_read &&
+          existingCompat.can_write === row.can_write &&
+          existingCompat.description === row.description
+        ) {
+          continue;
+        }
+        // WITHOUT ROWID PK + 1 secondary index = 2 billable writes per changed row
+        if (writesUsed > 0 && writesUsed + 2 > maxWritesPerRun) {
+          stoppedEarly = true;
+          break;
+        }
+        compatStatements.push(
+          env.DB.prepare(
+            `INSERT INTO toy_game_compatibility (toy_stable_id, game_stable_id, can_read, can_write, description)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(toy_stable_id, game_stable_id) DO UPDATE SET
+               can_read = excluded.can_read,
+               can_write = excluded.can_write,
+               description = excluded.description
+             WHERE toy_game_compatibility.can_read IS NOT excluded.can_read
+                OR toy_game_compatibility.can_write IS NOT excluded.can_write
+                OR toy_game_compatibility.description IS NOT excluded.description`,
+          ).bind(
+            row.toy_stable_id,
+            row.game_stable_id,
+            row.can_read,
+            row.can_write,
+            row.description,
+          ),
+        );
+        writesUsed += 2;
+        compatWritesUsed += 2;
+      }
+
+      for (let i = 0; i < compatStatements.length; i += 100) {
+        await env.DB.batch(compatStatements.slice(i, i + 100));
+      }
+    }
+  }
+
   if (addedCount > 0 || updatedCount > 0) {
     await invalidateToysCatalogChunk(env);
+  }
+  if (addedCount > 0 || updatedCount > 0 || compatWritesUsed > 0) {
     await markDbDirty(env);
   }
 

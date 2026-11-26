@@ -550,6 +550,84 @@ export function buildToyDetailQuery(userId?: number | null): string {
 
 export const TOY_DETAIL_QUERY = buildToyDetailQuery(null);
 
+export function buildCompatibleToysForGameQuery(
+  userId?: number | null,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_toys ut ON ut.toy_id = t.id AND ut.user_id = ?`
+    : '';
+  const ownershipCol = userId ? 'COALESCE(ut.ownership_status, 0)' : '0';
+
+  return `
+    SELECT t.stable_id,
+           t.id,
+           t.name,
+           t.line,
+           COALESCE(CASE WHEN t.line = 'Skylanders' THEN NULL ELSE t.series END, fs.name) as series_name,
+           t.type,
+           t.image_url,
+           ${ownershipCol} as ownership_status,
+           c.can_read,
+           c.can_write,
+           c.description
+    FROM toy_game_compatibility c
+    JOIN toys t ON t.stable_id = c.toy_stable_id
+    LEFT JOIN toy_series fs ON t.series_id = fs.id
+    ${userJoin}
+    WHERE c.game_stable_id = ?
+    ORDER BY fs.sort_index IS NULL ASC,
+             fs.sort_index ASC,
+             t.sort_index IS NULL ASC,
+             t.sort_index ASC,
+             t.name ASC
+  `;
+}
+
+export function buildCompatibleGamesForToyQuery(
+  userId?: number | null,
+): string {
+  const ownershipExpr = userId
+    ? `COALESCE((
+         SELECT ugr.ownership_status
+         FROM game_releases r
+         CROSS JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?
+         WHERE r.game_id = g.stable_id
+           AND COALESCE(ugr.ownership_status, 0) > 0
+         ORDER BY CASE ugr.ownership_status
+                    WHEN 1 THEN 1
+                    WHEN 3 THEN 2
+                    WHEN 4 THEN 3
+                    WHEN 2 THEN 4
+                    ELSE 5
+                  END ASC
+         LIMIT 1
+       ), 0)`
+    : '0';
+
+  return `
+    SELECT g.stable_id,
+           g.id,
+           g.title,
+           g.platform_id,
+           COALESCE(pp.display_name, p.display_name) as platform_name,
+           g.image_url,
+           ${ownershipExpr} as ownership_status,
+           c.can_read,
+           c.can_write,
+           c.description
+    FROM toy_game_compatibility c
+    JOIN games g ON g.stable_id = c.game_stable_id
+    LEFT JOIN platforms p ON g.platform_id = p.id
+    LEFT JOIN platforms pp ON p.parent_platform_id = pp.id
+    WHERE c.toy_stable_id = ?
+    ORDER BY COALESCE(pp.launch_date, p.launch_date) IS NULL ASC,
+             COALESCE(pp.launch_date, p.launch_date) ASC,
+             COALESCE(p.parent_platform_id, p.id) ASC,
+             g.platform_id ASC,
+             g.title ASC
+  `;
+}
+
 /**
  * Common Sorters and Filters can also be added here if they share SQL syntax.
  */
