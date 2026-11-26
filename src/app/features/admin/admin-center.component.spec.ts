@@ -208,11 +208,12 @@ describe('AdminCenterComponent', () => {
     expect(el.textContent).toContain('Rolling IGDB Refresh');
     expect(el.textContent).toContain('Watched-Series Discovery');
     expect(el.textContent).toContain('Live Upstream Sources & Pre-Orders');
-    expect(el.textContent).toContain('Canonical Tailer & Edge Catalog');
+    expect(el.textContent).toContain('Catalog Ingestion Queue & Edge Cache');
     expect(el.textContent).toContain('Worker Plan Tier & Quota Guard');
     expect(el.textContent).toContain('Paid Tier ($5/mo)');
     expect(el.textContent).toContain('SKIPPED (free_tier_mode)');
-    expect(el.textContent).toContain('400 Pending');
+    expect(el.textContent).toContain('400 Queued');
+    expect(el.textContent).toContain('Staging Queue Remaining');
     expect(el.textContent).toContain('2026-11-18T05:00:00Z');
     expect(el.textContent).not.toContain('Pause Seeding');
     expect(el.textContent).not.toContain('IGDB Backfill');

@@ -19,9 +19,18 @@ describe('igdb_platforms compatibility layer', () => {
     expect(normalizeLegacyPlatformId(34)).toBe(34);
   });
 
-  it('expands outbound IGDB queries for PS4 and PS5 to include PSVR and PSVR2', () => {
+  it('expands outbound IGDB queries for PS4/PS5, Jaguar/CD, Neo Geo AES/MVS/X, and New 3DS', () => {
+    expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[6]).toEqual([62, 410]);
+    expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[9]).toEqual([80, 79]);
+    expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[12]).toEqual([377, 80, 79]);
+    expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[25]).toEqual([137, 37]);
     expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[34]).toEqual([48, 165]);
     expect(TRACKER_PLATFORM_TO_IGDB_QUERY_IDS[35]).toEqual([167, 390]);
+    expect(getIgdbQueryPlatformIds(6, 62)).toEqual([62, 410]);
+    expect(getIgdbQueryPlatformIds(9, 80)).toEqual([80, 79]);
+    expect(getIgdbQueryPlatformIds(12, 377)).toEqual([377, 80, 79]);
+    expect(getIgdbQueryPlatformIds(25, 137)).toEqual([137, 37]);
+    expect(getIgdbQueryPlatformIds(23, 37)).toEqual([37]);
     expect(getIgdbQueryPlatformIds(34)).toEqual([48, 165]);
     expect(getIgdbQueryPlatformIds(51)).toEqual([48, 165]);
     expect(getIgdbQueryPlatformIds(35)).toEqual([167, 390]);

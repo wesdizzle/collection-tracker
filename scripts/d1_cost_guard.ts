@@ -321,6 +321,15 @@ export function runCollectionStaticSchemaCostGuard(
       params: [],
     },
     {
+      name: 'canonical_releases pending queue count',
+      sql: `SELECT COUNT(*) as cnt
+            FROM canonical_releases
+            WHERE id > ?
+              AND is_verified_physical = 1
+              AND NOT (COALESCE(source, '') = 'nintendo_revised' AND (region = 'World' OR region IS NULL) AND serial_code IS NULL)`,
+      params: [0],
+    },
+    {
       name: 'canonical_releases max id bound',
       sql: 'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
       params: [],

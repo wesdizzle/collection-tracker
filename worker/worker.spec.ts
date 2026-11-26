@@ -15,7 +15,13 @@ import {
 import worker, {
   Env,
   CATALOG_CHUNKS_DIRTY_KEY,
+  DAILY_CATALOG_WRITE_BUDGET,
+  FREE_TIER_TAILER_SLICE_LIMIT,
+  FREE_TIER_TAILER_TICK_WRITE_BUDGET,
   MAX_GAMES_LITE_SNAPSHOT_BYTES,
+  PAID_TIER_CATALOG_WRITE_BUDGET,
+  PAID_TIER_TAILER_SLICE_LIMIT,
+  PAID_TIER_TAILER_TICK_WRITE_BUDGET,
   R2_META_LITE_KEY,
   R2_TOYS_LITE_KEY,
   R2_TOY_COMPAT_LITE_KEY,
@@ -28,6 +34,7 @@ import worker, {
   fetchIgdbMetadataForTitles,
   getBackupChunkR2Key,
   getBroadCatalogSeedStatus,
+  getCanonicalTailerConfig,
   isAuthorizedAdmin,
   logCronExecution,
   markCanonicalReleasesDirty,
@@ -12302,6 +12309,296 @@ describe('Worker API Logic', () => {
       expect(
         seedStatus.catalogCoverage?.igdb.modernWestern.comboLinkedCount,
       ).toBe(1);
+    });
+
+    it('matches Phase 3 Tier 2c shared-brand subtitles, Tier 2d remasters, Tier 3 edition collapse, Neo Geo slashes, and camelCase tokens', async () => {
+      // Tier 2c shared-brand trailing subtitle (blocks conflicting sequel)
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 152,
+              name: 'Star Wars: Jedi Knight II - Jedi Outcast',
+              platforms: [48],
+            },
+          ],
+          normalizeTitleForMatching('Star Wars Jedi Outcast'),
+          48,
+          { rawTitle: 'Star Wars Jedi Outcast' },
+        )?.id,
+      ).toBe(152);
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 153,
+              name: 'Star Wars: Jedi Knight - Jedi Academy',
+              platforms: [48],
+            },
+          ],
+          normalizeTitleForMatching('Star Wars Jedi Outcast'),
+          48,
+          { rawTitle: 'Star Wars Jedi Outcast' },
+        ),
+      ).toBeNull();
+
+      // Tier 2d native remaster / port game_type 8..11
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 700,
+              name: "AeternoBlade II: Director's Rewind",
+              platforms: [48],
+              game_type: 9,
+            },
+          ],
+          normalizeTitleForMatching('AeternoBlade II'),
+          48,
+          { rawTitle: 'AeternoBlade II' },
+        )?.id,
+      ).toBe(700);
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 701,
+              name: 'Cursed Castilla EX',
+              platforms: [48],
+              game_type: 10,
+            },
+          ],
+          normalizeTitleForMatching('Cursed Castilla'),
+          48,
+          { rawTitle: 'Cursed Castilla' },
+        )?.id,
+      ).toBe(701);
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 702,
+              name: 'Lollipop Chainsaw RePop',
+              platforms: [167],
+              game_type: 11,
+              category: 11,
+            },
+          ],
+          normalizeTitleForMatching('Lollipop Chainsaw'),
+          167,
+          { rawTitle: 'Lollipop Chainsaw' },
+        )?.id,
+      ).toBe(702);
+
+      // Tier 3 edition duplicate collapsing -> prefers base candidate
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 327838,
+              name: 'Like a Dragon: Pirate Yakuza in Hawaii - Deluxe Edition',
+              platforms: [48],
+            },
+            {
+              id: 317317,
+              name: 'Like a Dragon: Pirate Yakuza in Hawaii',
+              platforms: [48],
+            },
+            {
+              id: 332379,
+              name: 'Like a Dragon: Pirate Yakuza in Hawaii - Steelbook Edition',
+              platforms: [48],
+            },
+          ],
+          normalizeTitleForMatching('Like a Dragon: Pirate Yakuza'),
+          48,
+          { rawTitle: 'Like a Dragon: Pirate Yakuza' },
+        )?.id,
+      ).toBe(317317);
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 229123,
+              name: 'The Walking Dead: Saints & Sinners - Ch 2: Retribution - Payback Edition',
+              platforms: [167],
+            },
+            {
+              id: 198232,
+              name: 'The Walking Dead: Saints & Sinners - Ch 2: Retribution',
+              platforms: [390],
+            },
+          ],
+          normalizeTitleForMatching(
+            'The Walking Dead: Saints and Sinners Chapter 2',
+          ),
+          167,
+          {
+            rawTitle: 'The Walking Dead: Saints and Sinners Chapter 2',
+            companionPlatformIds: [167, 390],
+          },
+        )?.id,
+      ).toBe(198232);
+
+      // fetchIgdbMetadataForTitles Neo Geo / slash half retry + camelCase retry
+      const igdbBodies: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes('id.twitch.tv')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          const body = String(init?.body || '');
+          igdbBodies.push(body);
+          if (url.includes('/v4/multiquery')) {
+            const results: Array<{ name: string; result: unknown[] }> = [];
+            for (const m of body.matchAll(
+              /query games "(q\d+)" \{([^}]+)\}/g,
+            )) {
+              const qName = m[1];
+              const where = m[2];
+              if (where.includes('"White"') && where.includes('"Day"')) {
+                results.push({
+                  name: qName,
+                  result: [
+                    {
+                      id: 8810,
+                      name: 'White Day: A Labyrinth Named School',
+                      alternative_names: [{ name: 'White Day' }],
+                      platforms: [48],
+                    },
+                  ],
+                });
+              } else if (
+                where.includes('"Samurai"') &&
+                where.includes('"Shodown"') &&
+                !where.includes('"Spirits"')
+              ) {
+                results.push({
+                  name: qName,
+                  result: [
+                    { id: 8811, name: 'Samurai Shodown V', platforms: [79] },
+                  ],
+                });
+              } else {
+                results.push({ name: qName, result: [] });
+              }
+            }
+            return Response.json(results);
+          }
+          return Response.json([]);
+        }),
+      );
+      try {
+        const meta = await fetchIgdbMetadataForTitles(mockEnv, [
+          {
+            key: 'whiteday',
+            title: 'WhiteDay',
+            normalizedTitle: 'whiteday',
+            igdbPlatformId: 48,
+            trackerPlatformId: 34,
+          },
+          {
+            key: 'neogeo',
+            title: 'Samurai Spirits Zero / Samurai Shodown V',
+            normalizedTitle: 'samuraispiritszerosamuraishodownv',
+            igdbPlatformId: 80,
+            trackerPlatformId: 9,
+          },
+        ]);
+        expect(meta.get('whiteday')?.igdb_id).toBe(8810);
+        expect(meta.get('neogeo')?.igdb_id).toBe(8811);
+        expect(igdbBodies.some((b) => b.includes('platforms = (80,79)'))).toBe(
+          true,
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('scales Paid-tier tailer budget/slots, computes exact pendingCanonicalRows COUNT(*), and skips retail_catalog bundles', async () => {
+      expect(getCanonicalTailerConfig('paid')).toEqual({
+        dailyWriteBudget: PAID_TIER_CATALOG_WRITE_BUDGET,
+        sliceLimit: PAID_TIER_TAILER_SLICE_LIMIT,
+        tickWriteBudget: PAID_TIER_TAILER_TICK_WRITE_BUDGET,
+      });
+      expect(getCanonicalTailerConfig('free')).toEqual({
+        dailyWriteBudget: DAILY_CATALOG_WRITE_BUDGET,
+        sliceLimit: FREE_TIER_TAILER_SLICE_LIMIT,
+        tickWriteBudget: FREE_TIER_TAILER_TICK_WRITE_BUDGET,
+      });
+
+      db.exec(`
+        INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES (26, 'switch', 'Nintendo Switch', 130);
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source) VALUES
+          (100, 26, 'Telemetry Cursor Row', 'telemetrycursorrow', 'USA', 1, 'dat'),
+          (500, 26, 'Taito CE Bundle', 'taitocebundle', 'USA', 1, 'retail_catalog'),
+          (501, 26, 'Real Game - Nintendo Switch', 'realgamenintendoswitch', 'USA', 1, 'retail_catalog');
+        INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '100');
+      `);
+
+      // Sparse max ID 501 vs cursor 100 = 401 sparse delta, but actual verified rows > 100 = 2
+      const paidStatus = await getBroadCatalogSeedStatus(mockEnv);
+      expect(paidStatus.canonicalTailer.dailyWriteBudget).toBe(120000);
+      expect(paidStatus.canonicalTailer.pendingCanonicalRows).toBe(2);
+
+      // Tailer skips Taito CE Bundle (retail_catalog) and cleans Real Game - Nintendo Switch -> Real Game
+      const tailRes = await syncWorkerBroadCatalogPopulation(mockEnv);
+      expect(tailRes.ingestedGames).toBe(1);
+      expect(
+        db
+          .prepare(
+            `SELECT title FROM games WHERE platform_id = 26 AND title LIKE '%Taito%'`,
+          )
+          .get(),
+      ).toBeUndefined();
+      expect(
+        db
+          .prepare(
+            `SELECT title FROM games WHERE platform_id = 26 AND title = 'Real Game'`,
+          )
+          .get(),
+      ).toBeTruthy();
+
+      // Paid tier runs canonical_tailer on additional cron slot hours (e.g. 05 UTC) when rows are pending
+      db.exec(`
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source) VALUES
+          (502, 26, 'Second Tailer Game (USA)', 'secondtailergame', 'USA', 1, 'dat');
+      `);
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('Forbidden', { status: 403 })),
+      );
+      try {
+        await worker.scheduled(
+          {
+            cron: '0 * * * *',
+            type: 'scheduled',
+            scheduledTime: Date.parse('2026-11-24T05:00:00Z'),
+          } as unknown as ScheduledEvent,
+          mockEnv,
+          {} as ExecutionContext,
+        );
+        const cronEvents = logSpy.mock.calls
+          .map(([arg]) => arg)
+          .filter(
+            (a): a is Record<string, unknown> =>
+              typeof a === 'object' &&
+              a !== null &&
+              (a as Record<string, unknown>)['event'] === 'cron_execution',
+          );
+        expect(
+          cronEvents.some(
+            (e) =>
+              e['job_name'] === 'canonical_tailer' && e['status'] === 'SUCCESS',
+          ),
+        ).toBe(true);
+      } finally {
+        logSpy.mockRestore();
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

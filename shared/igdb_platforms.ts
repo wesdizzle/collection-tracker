@@ -28,6 +28,10 @@ export const TRACKER_PLATFORM_TO_IGDB_QUERY_IDS: Record<
   number,
   readonly number[]
 > = {
+  6: [62, 410], // Atari Jaguar + Atari Jaguar CD
+  9: [80, 79], // Neo Geo AES + Neo Geo MVS
+  12: [377, 80, 79], // Neo Geo X + Neo Geo AES/MVS
+  25: [137, 37], // New Nintendo 3DS + Nintendo 3DS
   34: [48, 165], // PS4 + PSVR
   35: [167, 390], // PS5 + PSVR2
 };
@@ -51,7 +55,8 @@ export function normalizeLegacyPlatformId(platformId: number): number {
 
 /**
  * Returns the companion IGDB platform IDs paired with `igdbPlatformId`
- * (NES/Famicom, SNES/Super Famicom, PS4/PSVR, PS5/PSVR2).
+ * (NES/Famicom, SNES/Super Famicom, Jaguar/Jaguar CD, Neo Geo AES/MVS/X,
+ * New 3DS->3DS, PS4/PSVR, PS5/PSVR2).
  */
 export function getIgdbCompanionPlatformIds(igdbPlatformId: number): number[] {
   switch (igdbPlatformId) {
@@ -63,6 +68,18 @@ export function getIgdbCompanionPlatformIds(igdbPlatformId: number): number[] {
       return [19, 58];
     case 58:
       return [58, 19];
+    case 62:
+      return [62, 410];
+    case 410:
+      return [410, 62];
+    case 80:
+      return [80, 79];
+    case 79:
+      return [79, 80];
+    case 377:
+      return [377, 80, 79];
+    case 137:
+      return [137, 37];
     case 48:
       return [48, 165];
     case 165:

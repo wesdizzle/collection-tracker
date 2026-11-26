@@ -333,19 +333,43 @@ export async function fetchCadToUsdRate(
   return DEFAULT_CAD_TO_USD_RATE;
 }
 
-const NON_GAME_RETAIL_KEYWORDS =
-  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only|series\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack|preorder\s+mega\s+pack|collector\s+mega\s+bundle|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?\s+bundle|indie\s+(?:action\s+rpg|adventure)\s+(?:le\s+)?bundle|taito\s+ce\s+bundle|super\s+meta\s+x?le\s+bundle|cotton\s+(?:100%\s+legacy|16-bit|modern|complete\s+collector'?s?)\s+.*bundle|digital\s+eclipse\s+presents:\s*.*\bcomplete\s+bundle|toaplan\s+arcade\s+collection\s+volume\s+1\s+and\s+2\s+complete\s+bundle|snow\s+bros:\s*the\s+ultimate\s+bundle|wonder\s+boy\s+ultra\s+collector'?s?\s+bundle|irem\s+collection\s+volume\s+1\s*-\s*5\s+bundle)\b)/i;
+const RETAIL_HARDWARE_AND_ACCESSORY_RE =
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console(?!\s+edition\b)|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
+
+const STOREFRONT_MULTI_BOX_BUNDLE_RE =
+  /(?:\bseries\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack\b|\bpreorder\s+mega\s+pack\b|\b(?:collector(?:'s)?|ultimate|mega|ultra\s+collector(?:'s)?|super\s+meta(?:\s+x?le)?|taito\s+ce|indie\s+(?:action\s+rpg|adventure)(?:\s+le)?|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?)\s+(?:bundle|pack)\b|\b(?:collection|volume\s+\d+\s*(?:[-–—]|&|and)\s*(?:volume\s+)?\d+)\b.*\b(?:complete\s+)?bundle\b|\bcomplete\s+bundle\b)/i;
+
+const HARDWARE_PRODUCT_TYPE_RE =
+  /\b(?:hardware|consoles?|controllers?|headsets?|accessories|apparel|merch(?:andise)?|soundtracks?|vinyl)\b/i;
+
+/**
+ * Returns true if a storefront title or product_type represents non-game
+ * hardware/merchandise or a storefront multi-box bundle rather than a single
+ * retail release or single physical game cart/disc.
+ */
+export function isStorefrontNonGameOrMultiBoxBundle(
+  title: string,
+  productType?: string | null,
+): boolean {
+  const cleanTitle = decodeHtmlEntities(title || '');
+  const cleanType = decodeHtmlEntities(productType || '');
+  if (HARDWARE_PRODUCT_TYPE_RE.test(cleanType)) return true;
+  if (RETAIL_HARDWARE_AND_ACCESSORY_RE.test(`${cleanTitle} ${cleanType}`)) {
+    return true;
+  }
+  return STOREFRONT_MULTI_BOX_BUNDLE_RE.test(cleanTitle);
+}
 
 /**
  * Returns true if a retailer product title/type is clearly hardware, apparel, TCG,
- * audio, book, or accessory merchandise rather than a physical game release.
+ * audio, book, accessory merchandise, or a storefront multi-box bundle rather than
+ * a physical game release.
  */
 export function isNonGameRetailTitle(
   title: string,
   productType?: string | null,
 ): boolean {
-  const combined = decodeHtmlEntities(`${title || ''} ${productType || ''}`);
-  return NON_GAME_RETAIL_KEYWORDS.test(combined);
+  return isStorefrontNonGameOrMultiBoxBundle(title, productType);
 }
 
 const MONTH_NAME_MAP: Record<string, string> = {

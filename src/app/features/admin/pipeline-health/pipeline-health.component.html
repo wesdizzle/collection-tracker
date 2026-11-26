@@ -127,9 +127,9 @@
         </div>
       </kit-section-card>
 
-      <!-- Card 4: Canonical Tailer & Edge Catalog -->
+      <!-- Card 4: Catalog Ingestion Queue & Edge Cache -->
       <kit-section-card
-        title="Canonical Tailer &amp; Edge Catalog"
+        title="Catalog Ingestion Queue &amp; Edge Cache"
         [compact]="true"
       >
         <span
@@ -140,12 +140,16 @@
         >
           {{
             s.canonicalTailer.pendingCanonicalRows > 0
-              ? s.canonicalTailer.pendingCanonicalRows + ' Pending'
+              ? s.canonicalTailer.pendingCanonicalRows + ' Queued'
               : 'Caught Up'
           }}
         </span>
 
         <div class="pipeline-card-body">
+          <p class="pipeline-sub">
+            Streams newly verified releases from the staging catalog into live
+            games &amp; releases on an automated schedule (8x/day on Paid tier).
+          </p>
           <kit-stat-bar-list
             [items]="budgetBarItems()"
             [compact]="true"
@@ -165,7 +169,7 @@
               [disabled]="actionBusy()"
               (click)="runSeedBatch.emit()"
             >
-              Run Tailer Batch
+              Process Next Queue Batch
             </button>
             <button
               type="button"

@@ -74,7 +74,7 @@ export class PipelineHealthComponent {
     return [
       {
         id: 'budget-usage',
-        label: 'Writes Used Today',
+        label: 'Daily Ingestion Write Budget',
         value: tailer.writesUsedToday,
         max: budget,
         displayValue: `${tailer.writesUsedToday} / ${tailer.dailyWriteBudget}`,
@@ -103,11 +103,16 @@ export class PipelineHealthComponent {
     const delivery = s.catalogDelivery;
     return [
       {
-        label: 'Canonical Cursor',
-        value: `${s.canonicalTailer.cursor} / ${s.canonicalTailer.canonicalMaxId}`,
+        label: 'Staging Queue Remaining',
+        value: String(s.canonicalTailer.pendingCanonicalRows),
       },
       {
-        label: 'Games Ingested Today',
+        label: 'Staging High-Water Mark (ID)',
+        value: `${s.canonicalTailer.cursor} / ${s.canonicalTailer.canonicalMaxId}`,
+        tone: 'muted',
+      },
+      {
+        label: 'New Games Added Today',
         value: String(s.canonicalTailer.gamesIngestedToday),
       },
       {
@@ -129,7 +134,7 @@ export class PipelineHealthComponent {
         tone: 'muted',
       },
       {
-        label: 'Last Tailer Run',
+        label: 'Last Queue Run',
         value: s.canonicalTailer.lastUpdatedAt || 'Pending',
         tone: 'muted',
       },

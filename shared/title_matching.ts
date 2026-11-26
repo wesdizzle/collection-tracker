@@ -769,9 +769,12 @@ function cleanRawRegionCodes(str: string): string {
     .trim();
 }
 
+const BOUTIQUE_CATALOG_PREFIX_RE =
+  /^(?:LRG|SRG|SLG|RAG|FPG|PEG|Strictly Limited(?:\s+Games)?|Limited Run(?:\s+Games)?|Super Rare(?:\s+Games)?|Red Art(?:\s+Games)?|Special Reserve(?:\s+Games)?|Premium Edition(?:\s+Games)?(?:\s+Series\s+\d+)?)\s*#?\s*\d+(?:\s*(?:&|and|\/|-)\s*#?\s*\d+)?\s*[:-]?\s*/i;
+
 /**
  * Strips leading boutique store catalog prefixes (e.g. "LRG #500: ",
- * "Limited Run #273: ", "Limited Run #336 & #337: ").
+ * "Limited Run #273: ", "SRG #120: ", "Limited Run #336 & #337: ").
  */
 export function stripBoutiqueCatalogPrefix(
   title: string,
@@ -783,10 +786,8 @@ export function stripBoutiqueCatalogPrefix(
     out = out.replace(/^\[?\s*pre-?order\s*\]?\s*[:-]?\s*/i, '');
   }
   return out
-    .replace(
-      /^(?:LRG|SRG|SLG|Strictly Limited(?:\s+Games)?|Limited Run(?:\s+Games)?)\s*#?\s*\d+(?:\s*(?:&|and|\/|-)\s*#?\s*\d+)?\s*[:-]?\s*/i,
-      '',
-    )
+    .replace(/^BACKERS\s*[-:]\s*DE#\d+\s*[-:]?\s*/i, '')
+    .replace(BOUTIQUE_CATALOG_PREFIX_RE, '')
     .trim();
 }
 
@@ -839,11 +840,20 @@ export function stripMerchAddonSuffix(title: string): string {
  * Moves a trailing inverted English article (", The", ", A", ", An") to the front
  * so downstream edition extraction and IGDB lookup see natural word order.
  */
+const INVERTED_ARTICLE_RE =
+  /^(.{3,}?),\s+(The|A|An|Le|La|Les|L'|El|Los|Las|Un|Una|Der|Die|Das|Ein|Eine|Il|Lo|Gli)\s*$/i;
+
+/**
+ * Moves a trailing inverted catalog article (", The", ", A", ", An", ", Le", ", La",
+ * ", El", ", Der", etc.) to the front so edition extraction and IGDB lookup see natural word order.
+ */
 export function normalizeInvertedArticle(title: string): string {
   const trimmed = (title || '').trim();
-  const match = trimmed.match(/^(.{3,}?),\s+(The|A|An)\s*$/i);
+  const match = trimmed.match(INVERTED_ARTICLE_RE);
   if (!match) return trimmed;
-  return `${match[2]} ${match[1].trim()}`;
+  const stem = match[1].trim();
+  const article = match[2];
+  return article.endsWith("'") ? `${article}${stem}` : `${article} ${stem}`;
 }
 
 /**
@@ -890,6 +900,91 @@ export function stripRetailPreorderAndPlatformTrailer(title: string): string {
  * Strips common edition suffixes, subtitles, and DLC add-on phrases from titles
  * so base releases can match their canonical cartridge dumps.
  */
+const SHARED_EDITION_QUALIFIERS: readonly string[] = [
+  'crewmate',
+  'definitive',
+  'deluxe',
+  'ultra\\s+deluxe',
+  'ultimate',
+  'complete',
+  'standard',
+  'special',
+  'steelbook',
+  "collector'?s?",
+  'anniversary',
+  '\\d+(?:st|nd|rd|th)\\s+anniversary',
+  'remastered',
+  'legacy',
+  'hd',
+  'plus',
+  'plortable',
+  'archaeologist',
+  'hero',
+  'crafted',
+  'ancestral',
+  'the\\s+radical\\s+dreamers',
+  'gourmet',
+  'enhanced',
+  'nintendo\\s+switch(?:\\s*2)?',
+  '(?<!Nintendo\\s)Switch\\s*2',
+  'xbox\\s*one',
+  'deathinitive',
+  'warmastered',
+  'return\\s+to\\s+castlevania',
+  'owltimate',
+  'fully\\s+yoked',
+  'tv',
+  "the\\s+prince'?s?",
+  'year\\s+(?:one|1)',
+  "prisoner'?s?",
+  'sunset',
+  'trapezoid',
+  'day\\s+(?:one|1)',
+  'launch',
+  'premium',
+  'limited',
+  'iam8bit\\s+exclusive',
+  'playstation\\s+hits',
+  'nintendo\\s+hits',
+  "player'?s?\\s+choice",
+  'greatest\\s+hits',
+  'platinum\\s+hits',
+  'nes',
+];
+
+const EXTRA_SPACE_EDITION_QUALIFIERS: readonly string[] = [
+  ...SHARED_EDITION_QUALIFIERS,
+  'retail',
+  'royal',
+  'next\\s+level',
+  'gold',
+  'platinum',
+  'silver',
+  'goty',
+  'game\\s+of\\s+the\\s+year',
+  'expanded',
+  "director'?s?",
+];
+
+const SHARED_EDITION_GROUP = `(?:${SHARED_EDITION_QUALIFIERS.join('|')})`;
+const EXTRA_SPACE_EDITION_GROUP = `(?:${EXTRA_SPACE_EDITION_QUALIFIERS.join('|')})`;
+
+const DELIMITED_EDITION_STRIP_RE = new RegExp(
+  `\\s*(?::|[-–—])\\s*${SHARED_EDITION_GROUP}\\s*editions?`,
+  'gi',
+);
+const SPACE_EDITION_STRIP_RE = new RegExp(
+  `\\s+${SHARED_EDITION_GROUP}\\s+editions?`,
+  'gi',
+);
+const WRAPPER_EDITION_STRIP_RE = new RegExp(
+  `\\s*(?:[:\\-–—|]\\s*)?${EXTRA_SPACE_EDITION_GROUP}\\s+editions?$`,
+  'i',
+);
+
+const NON_ENGLISH_EDITION_RE =
+  /\b(?:goldene|silberne|kristall|rote|blaue|gelbe|smaragd|rubin|saphir|feuerrote|blattgr(?:u|ü)ne|speciale|edici[oó]n|edizione|ausgabe|auflage)\b/i;
+
 export function stripEditionSuffix(title: string): string {
   const norm = (title || '')
     .replace(/[\u2018\u2019\u201B\u2032`]/g, "'")
@@ -898,18 +993,8 @@ export function stripEditionSuffix(title: string): string {
       '',
     );
   return norm
-    .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*editions?/gi,
-      '',
-    )
-    .replace(
-      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*editions?/gi,
-      '',
-    )
-    .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|gourmet|enhanced|deathinitive|warmastered|owltimate|fully yoked|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one)\s+editions?/gi,
-      '',
-    )
+    .replace(DELIMITED_EDITION_STRIP_RE, '')
+    .replace(SPACE_EDITION_STRIP_RE, '')
     .replace(
       /\s*(?:[,:\-–—]\s*)?\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi,
       '',
@@ -931,10 +1016,33 @@ const SHEET_TYPO_FIXES: Array<[RegExp, string]> = [
   [/\bgamemaster'?s\s+legacy\b/gi, "gamesmaster's legacy"],
   [/\bstrangers\s+wrath\b/gi, "stranger's wrath"],
   [/\bdirectors\s+cut\b/gi, "director's cut"],
+  [/\bsmartrer\b/gi, 'smarter'],
+  [/\bseriex\b/gi, 'series'],
+  [/\bedtion\b/gi, 'edition'],
+  [/\bachemist\b/gi, 'alchemist'],
+  [/\bamasterasu\b/gi, 'amaterasu'],
+  [/\bbridandine\b/gi, 'brigandine'],
+  [/\bclive\s+baker'?s\b/gi, "clive barker's"],
+  [/\blife\s+of\s+p\s*:/gi, 'lies of p:'],
+  [/\borien\s+express\b/gi, 'orient express'],
+  [/\baxle\s+city\b/gi, 'axel city'],
+  [/\bakeaka\s+neogeo\b/gi, 'aca neogeo'],
+  [/\btales\s+of\s+iron\b/gi, 'tails of iron'],
+  [/\badventure\s+of\s+krypto\b/gi, 'adventures of krypto'],
   [
     /\blike\s+a\s+dragon\s+the\s+man\s+who\s+erased\s+his\s+name\b/gi,
     'like a dragon gaiden: the man who erased his name',
   ],
+];
+
+const DAT_PUBLISHER_PREFIX_RULES: readonly RegExp[] = [
+  /^(?:famicom\s+mini(?:\s+series)?\s*\d*\s*[:-]\s*)/i,
+  /^(?:classic\s+nes\s+series\s*[:-]\s*)/i,
+  /^(?:simple\s+(?:1500|2000|2500|ds)\s+series(?:\s+vol\.?\s*\d+)?(?:\s+the\s+[^:-]+)?\s*[:-]\s*)/i,
+  /^(?:superlite\s+(?:1500|2000)(?:\s+series)?\s*[:-]\s*)/i,
+  /^(?:road\s*&\s*track\s+presents\s*[:-]\s*)/i,
+  /^(?:hudson\s+selection\s+vol\.?\s*\d+\s*[:-]\s*)/i,
+  /^(?:(?:konami|playstation)\s+the\s+best|psone\s+books|ea\s+best\s+selections|major\s+wave\s+series|value\s+1500)\s*[:-]\s*/i,
 ];
 
 /**
@@ -952,22 +1060,21 @@ export function cleanTitleForIgdbLookup(rawTitle: string): string {
   out = stripLgnPlatformPipeTrailer(out);
   out = stripRetailPreorderAndPlatformTrailer(out);
 
-  // Strip known retro/budget reissue series prefixes
-  out = out
-    .replace(/^(?:famicom\s+mini(?:\s+series)?\s*\d*\s*[:-]\s*)/i, '')
-    .replace(/^(?:classic\s+nes\s+series\s*[:-]\s*)/i, '')
-    .replace(
-      /^(?:simple\s+(?:1500|2000|2500|ds)\s+series(?:\s+vol\.?\s*\d+)?(?:\s+the\s+[^:-]+)?\s*[:-]\s*)/i,
-      '',
-    )
-    .replace(/^(?:superlite\s+(?:1500|2000)(?:\s+series)?\s*[:-]\s*)/i, '')
-    .replace(/^(?:road\s*&\s*track\s+presents\s*[:-]\s*)/i, '');
+  for (const prefixRule of DAT_PUBLISHER_PREFIX_RULES) {
+    out = out.replace(prefixRule, '');
+  }
 
   for (const [rx, repl] of SHEET_TYPO_FIXES) {
     out = out.replace(rx, repl);
   }
 
-  return out.replace(/\s+/g, ' ').trim();
+  return out
+    .replace(
+      /\b(collection|trilogy|anthology)\s+(?:triple|double|twin)\s+pack\s*$/i,
+      '$1',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -998,15 +1105,21 @@ export function stripIgdbEditionWrapper(
     ) {
       current = splitEd.base;
     }
+    const structuralDelimitedEdition = current.match(
+      /^(.{3,}?)\s*(?::|\s+[-–—]\s+)\s*((?:[^\s:\-–—]+\s+){0,3}[^\s:\-–—]+\s+Editions?)$/i,
+    );
+    if (
+      structuralDelimitedEdition &&
+      !NON_ENGLISH_EDITION_RE.test(structuralDelimitedEdition[2])
+    ) {
+      current = structuralDelimitedEdition[1].trim();
+    }
     current = current
       .replace(
         /\s*\((?:retail|standard|limited|collector'?s?|deluxe|special)\s+editions?\)\s*$/i,
         '',
       )
-      .replace(
-        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Enhanced|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i,
-        '',
-      )
+      .replace(WRAPPER_EDITION_STRIP_RE, '')
       .replace(
         /\s*(?:[:\-–—|]\s*)?(?:The\s+)?(?:Final\s+Cut|Director'?s?\s+Cut|Extended\s+Cut|HD\s+Remaster(?:ed)?|Remastered|Remake|Game\s+of\s+the\s+Year|GOTY)$/i,
         '',
@@ -1186,6 +1299,7 @@ export function normalizeForIgdbMatch(title: string): string {
     .replace(/'s\b/gi, 's')
     .replace(/&/g, 'and')
     .replace(/\$/g, 's')
+    .replace(/\bchapter\b/gi, 'ch')
     .replace(/oo/g, 'o')
     .replace(/uu/g, 'u')
     .replace(/cch/g, 'tch')
@@ -1219,7 +1333,7 @@ export interface IgdbMatchVariant {
  */
 export function buildIgdbMatchVariants(
   rawTitle: string,
-  options: { allowBareSpecial?: boolean } = {},
+  options: { allowBareSpecial?: boolean; splitSlashAliases?: boolean } = {},
 ): string[] {
   return buildDetailedIgdbMatchVariants(rawTitle, options).map((v) => v.title);
 }
@@ -1230,7 +1344,7 @@ export function buildIgdbMatchVariants(
  */
 export function buildDetailedIgdbMatchVariants(
   rawTitle: string,
-  options: { allowBareSpecial?: boolean } = {},
+  options: { allowBareSpecial?: boolean; splitSlashAliases?: boolean } = {},
 ): IgdbMatchVariant[] {
   const variants: IgdbMatchVariant[] = [];
   const seen = new Set<string>();
@@ -1256,6 +1370,23 @@ export function buildDetailedIgdbMatchVariants(
   add(cleaned, false);
   for (const half of halves) {
     add(half, hasTilde);
+    if (/\bpes\s*\d{2,4}\b/i.test(half)) {
+      add(
+        half.replace(/\bpes\s*(\d{2,4})\b/gi, 'Pro Evolution Soccer $1'),
+        hasTilde,
+      );
+    } else if (/\bpro\s+evolution\s+soccer\s+\d{2,4}\b/i.test(half)) {
+      add(
+        half.replace(/\bpro\s+evolution\s+soccer\s+(\d{2,4})\b/gi, 'PES $1'),
+        hasTilde,
+      );
+    }
+    if (options.splitSlashAliases && /\s+\/\s+/.test(half)) {
+      for (const slashHalf of half.split(/\s+\/\s+/)) {
+        const s = slashHalf.trim();
+        if (s.length >= 3) add(s, true);
+      }
+    }
     const singleSplit = splitTitleEditionSuffix(half);
     if (singleSplit && !singleSplit.suffix.startsWith('+')) {
       add(singleSplit.base, hasTilde);
@@ -1287,17 +1418,16 @@ export function buildDetailedIgdbMatchVariants(
   return variants;
 }
 
-const NON_ENGLISH_EDITION_RE =
-  /\b(?:goldene|silberne|kristall|rote|blaue|gelbe|smaragd|rubin|saphir|feuerrote|blattgr(?:u|ü)ne|speciale|edici[oó]n|edizione|ausgabe|auflage)\b/i;
-
 const PLUS_ADDON_KEYWORD_RE =
   /\b(?:pass|expansion|booster|treasure|world|tv|minions|fury|story|chapter|dlc|content|island|quest|season|pack|episode|adventure)\b/i;
 
 const RETAIL_BRACKET_EDITION_RE =
   /\s*\[((?:Retro|Limited|Collector'?s?|Special|Deluxe)\s+Edition)\]\s*$/i;
 
-const SPACE_EDITION_RE =
-  /^(.{3,}?[^\s:\-–—])\s+((?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Nintendo\s+Switch(?:\s*2)?|(?<!Nintendo\s)Switch\s*2|Xbox\s*One)\s+Edition|(?:Premium|Collector'?s?|Treasure)\s+Box)$/i;
+const SPACE_EDITION_RE = new RegExp(
+  `^(.{3,}?[^\\s:\\-–—])\\s+(${EXTRA_SPACE_EDITION_GROUP}\\s+Edition|(?:Premium|Collector'?s?|Treasure)\\s+Box)$`,
+  'i',
+);
 
 const NAMED_EDITION_CUT_RE =
   /^(.{3,}?)(?:\s*[:\-–—]\s*|\s+)(Director'?s?\s+Cut|Extended\s+Cut|GOTY|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited|Remastered|HD\s+Remaster)$/i;
@@ -1511,12 +1641,12 @@ export function parseComboCartConstituentTitles(title: string): string[] {
   }
 
   const hadExplicitComboPrefix =
-    /^(?:2\s+games?\s+in\s+one!?|2\s+in\s+1(?:\s+game\s+pack)?|2\s+game\s+bundle|double\s+pack|triple\s+pack|dual\s+pack|twin\s+pack|.+?\s+bundle)\s*[-:]\s*/i.test(
+    /^(?:\d+\s*(?:games?\s+in\s+(?:1|one)|in\s+(?:1|one)(?:\s+(?:game|super)\s+pack)?|game\s+(?:bundle|pack))!?|double\s+pack|triple\s+pack|dual\s+pack|twin\s+pack|.+?\s+bundle)(?:\s*[-:]\s*|\s+)/i.test(
       raw,
     );
   const body = raw
     .replace(
-      /^(?:2\s+games?\s+in\s+one!?|2\s+in\s+1(?:\s+game\s+pack)?|2\s+game\s+bundle|double\s+pack|triple\s+pack|twin\s+pack|dual\s+pack)\s*[-:]\s*/i,
+      /^(?:\d+\s*(?:games?\s+in\s+(?:1|one)|in\s+(?:1|one)(?:\s+(?:game|super)\s+pack)?|game\s+(?:bundle|pack))!?|double\s+pack|triple\s+pack|twin\s+pack|dual\s+pack)(?:\s*[-:]\s*|\s+)/i,
       '',
     )
     .replace(/^the\s+sims\s+4\s+bundle\s*[-:]\s*/i, '')
@@ -1578,33 +1708,33 @@ export function parseComboCartConstituentTitles(title: string): string[] {
   ) {
     const slashParts = body.split(/\s*\/\s*/).map((s) => s.trim());
     if (
-      slashParts.length === 2 &&
-      slashParts[0].length >= 4 &&
-      slashParts[1].length >= 4
+      slashParts.length >= 2 &&
+      slashParts.length <= 4 &&
+      slashParts.every((s) => s.length >= 4)
     ) {
-      const firstWords = slashParts[0].split(/\s+/);
-      const secondWords = slashParts[1].split(/\s+/);
-      if (firstWords.length >= 3 && secondWords.length >= 2) {
-        // Prepend shared franchise prefix if second part shares a leading token pattern
-        // or if first part starts with well-known prefix like "Star Wars"
-        const sharedColon = slashParts[0].match(/^([^:]{3,}):\s+(.+)$/);
-        if (sharedColon && !slashParts[1].includes(':')) {
-          return normalizeSplitParts([
-            slashParts[0],
-            `${sharedColon[1].trim()}: ${slashParts[1]}`,
-          ]);
-        }
-        const brandMatch = slashParts[0].match(
-          /^(Star\s+Wars|Super\s+Mario|Mega\s+Man|Final\s+Fantasy|Resident\s+Evil|Dragon\s+Quest|Harvest\s+Moon)\s+(.+)$/i,
-        );
-        if (
-          brandMatch &&
-          !slashParts[1].toLowerCase().startsWith(brandMatch[1].toLowerCase())
-        ) {
-          return normalizeSplitParts([
-            slashParts[0],
-            `${brandMatch[1]} ${slashParts[1]}`,
-          ]);
+      if (slashParts.length === 2) {
+        const firstWords = slashParts[0].split(/\s+/);
+        const secondWords = slashParts[1].split(/\s+/);
+        if (firstWords.length >= 3 && secondWords.length >= 2) {
+          const sharedColon = slashParts[0].match(/^([^:]{3,}):\s+(.+)$/);
+          if (sharedColon && !slashParts[1].includes(':')) {
+            return normalizeSplitParts([
+              slashParts[0],
+              `${sharedColon[1].trim()}: ${slashParts[1]}`,
+            ]);
+          }
+          const brandMatch = slashParts[0].match(
+            /^(Star\s+Wars|Super\s+Mario|Mega\s+Man|Final\s+Fantasy|Resident\s+Evil|Dragon\s+Quest|Harvest\s+Moon)\s+(.+)$/i,
+          );
+          if (
+            brandMatch &&
+            !slashParts[1].toLowerCase().startsWith(brandMatch[1].toLowerCase())
+          ) {
+            return normalizeSplitParts([
+              slashParts[0],
+              `${brandMatch[1]} ${slashParts[1]}`,
+            ]);
+          }
         }
       }
       return normalizeSplitParts(slashParts);

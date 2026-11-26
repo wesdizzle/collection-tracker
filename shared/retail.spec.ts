@@ -962,6 +962,15 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(isNonGameRetailTitle('Couch Co-Op Fun Collector Bundle')).toBe(
         true,
       );
+      expect(isNonGameRetailTitle('Irem Collection Volume 1 - 5 Bundle')).toBe(
+        true,
+      );
+      expect(
+        isNonGameRetailTitle(
+          'Toaplan Arcade Collection Volume 1 and 2 Complete Bundle',
+        ),
+      ).toBe(true);
+      expect(isNonGameRetailTitle('Frostpunk: Console Edition')).toBe(false);
 
       // Single-game merch add-on bundles remain matchable for existence/retail links without spawning merch variants
       expect(

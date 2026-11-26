@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeTitleForMatching,
   normalizeForIgdbMatch,
+  normalizeInvertedArticle,
   cleanTitleForIgdbLookup,
   stripIgdbEditionWrapper,
   extractTitleSequelSignature,
@@ -1485,6 +1486,33 @@ describe('Title Matching Strategies', () => {
           "2 in 1 Game Pack - Spider-Man - Mysterio's Menace + X2 - Wolverine's Revenge",
         ),
       ).toEqual(["Spider-Man - Mysterio's Menace", "X2 - Wolverine's Revenge"]);
+      expect(
+        parseComboCartConstituentTitles(
+          '2 Games in 1! Sonic Advance + Sonic Battle',
+        ),
+      ).toEqual(['Sonic Advance', 'Sonic Battle']);
+      expect(
+        parseComboCartConstituentTitles(
+          '3 in 1 Super Pack - Game Alpha / Game Beta / Game Gamma',
+        ),
+      ).toEqual(['Game Alpha', 'Game Beta', 'Game Gamma']);
+      expect(normalizeInvertedArticle('Petit Prince, Le')).toBe(
+        'Le Petit Prince',
+      );
+      expect(cleanTitleForIgdbLookup('SRG #120: Lil Gator Game')).toBe(
+        'Lil Gator Game',
+      );
+      expect(
+        cleanTitleForIgdbLookup('BATMAN ARKHAM COLLECTION TRIPLE PACK'),
+      ).toBe('BATMAN ARKHAM COLLECTION');
+      expect(stripIgdbEditionWrapper("Death's Door: Brigadier Edition")).toBe(
+        "Death's Door",
+      );
+      expect(
+        normalizeForIgdbMatch('The Walking Dead: Saints and Sinners Chapter 2'),
+      ).toBe(
+        normalizeForIgdbMatch('The Walking Dead: Saints & Sinners - Ch 2'),
+      );
 
       // Negative guards: single titles with natural '&' or 'and'
       expect(

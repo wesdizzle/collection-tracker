@@ -142,6 +142,7 @@ import {
 import {
   fetchAllRetailDeals,
   fetchAllRetailPreOrders,
+  isStorefrontNonGameOrMultiBoxBundle,
   matchRetailGameProduct,
   matchRetailToyProduct,
   resolveRetailPlatformId,
@@ -10627,6 +10628,16 @@ export default {
         }
       }
 
+      const runCanonicalTailerJob = async () =>
+        runGatedIngestion('canonical_tailer', async () => {
+          const tailRes = await syncWorkerBroadCatalogPopulation(env);
+          return {
+            silent: Boolean(tailRes.skipped && tailRes.ingestedGames === 0),
+            summary: `Ingested ${tailRes.ingestedGames} games / ${tailRes.ingestedReleases} releases (${tailRes.writesUsed} writes, cursor ${tailRes.cursor})`,
+            details: tailRes,
+          };
+        });
+
       switch (utcHour) {
         case 1:
           await runGatedIngestion('worker_dat_sync', async () => {
@@ -10775,14 +10786,7 @@ export default {
           break;
         case 10:
         case 22:
-          await runGatedIngestion('canonical_tailer', async () => {
-            const tailRes = await syncWorkerBroadCatalogPopulation(env);
-            return {
-              silent: Boolean(tailRes.skipped && tailRes.ingestedGames === 0),
-              summary: `Ingested ${tailRes.ingestedGames} games / ${tailRes.ingestedReleases} releases (${tailRes.writesUsed} writes, cursor ${tailRes.cursor})`,
-              details: tailRes,
-            };
-          });
+          await runCanonicalTailerJob();
           break;
         case 11:
         case 23:
@@ -10831,6 +10835,20 @@ export default {
             };
           });
           break;
+      }
+
+      // Paid tier runs 6 additional canonical_tailer slices per day (8x/day total: 02,05,08,10,14,17,20,22 UTC).
+      // Free tier skips ingestion via runGatedIngestion at 10/22 UTC without emitting extra skipped logs on other hours.
+      if (
+        tier === 'paid' &&
+        (utcHour === 2 ||
+          utcHour === 5 ||
+          utcHour === 8 ||
+          utcHour === 14 ||
+          utcHour === 17 ||
+          utcHour === 20)
+      ) {
+        await runCanonicalTailerJob();
       }
     }
 
@@ -17478,6 +17496,30 @@ export async function syncWorkerIgdbSeriesAndCanonical(
 }
 
 export const DAILY_CATALOG_WRITE_BUDGET = 60000;
+export const PAID_TIER_CATALOG_WRITE_BUDGET = 120000;
+export const PAID_TIER_TAILER_SLICE_LIMIT = 400;
+export const PAID_TIER_TAILER_TICK_WRITE_BUDGET = 8000;
+export const FREE_TIER_TAILER_SLICE_LIMIT = 100;
+export const FREE_TIER_TAILER_TICK_WRITE_BUDGET = 1250;
+
+export function getCanonicalTailerConfig(planTier: WorkerPlanTier): {
+  dailyWriteBudget: number;
+  sliceLimit: number;
+  tickWriteBudget: number;
+} {
+  if (planTier === 'free') {
+    return {
+      dailyWriteBudget: DAILY_CATALOG_WRITE_BUDGET,
+      sliceLimit: FREE_TIER_TAILER_SLICE_LIMIT,
+      tickWriteBudget: FREE_TIER_TAILER_TICK_WRITE_BUDGET,
+    };
+  }
+  return {
+    dailyWriteBudget: PAID_TIER_CATALOG_WRITE_BUDGET,
+    sliceLimit: PAID_TIER_TAILER_SLICE_LIMIT,
+    tickWriteBudget: PAID_TIER_TAILER_TICK_WRITE_BUDGET,
+  };
+}
 
 export interface IgdbGameMeta {
   igdb_id: number;
@@ -17759,10 +17801,15 @@ export function selectStrictIgdbMatch(
     platformLaunchDate?: string | null;
     hasBaseCanonicalRelease?: boolean;
     rawTitle?: string;
+    companionPlatformIds?: number[];
   },
 ): IgdbSearchCandidate | null {
   if (!normalizedTitle) return null;
-  const companionIds = new Set(getIgdbCompanionPlatformIds(igdbPlatformId));
+  const companionIds = new Set(
+    options?.companionPlatformIds && options.companionPlatformIds.length > 0
+      ? options.companionPlatformIds
+      : getIgdbCompanionPlatformIds(igdbPlatformId),
+  );
   const onPlatform = (candidates || []).filter((c) =>
     extractIgdbPlatformIds(c.platforms).some((pid) => companionIds.has(pid)),
   );
@@ -17775,6 +17822,7 @@ export function selectStrictIgdbMatch(
   const variantObjs = rawTitle
     ? buildDetailedIgdbMatchVariants(rawTitle, {
         allowBareSpecial: isModernPlatform,
+        splitSlashAliases: companionIds.has(80),
       })
     : [];
   const variantMeta = variantObjs.map((v) => ({
@@ -17963,6 +18011,38 @@ export function selectStrictIgdbMatch(
   if (tier2Matches.length === 1) return tier2Matches[0];
   if (tier2Matches.length > 1) return null;
 
+  const collapseTier3EditionDuplicates = (
+    cands: IgdbSearchCandidate[],
+  ): IgdbSearchCandidate | null => {
+    if (cands.length === 1) return cands[0];
+    if (cands.length === 0) return null;
+    const byBase = new Map<string, IgdbSearchCandidate[]>();
+    for (const c of cands) {
+      const name = (c.name || '').trim();
+      const base =
+        stripIgdbEditionWrapper(name, { allowBareSpecial: true }) || name;
+      const key = normalizeForIgdbMatch(base);
+      if (!key) return null;
+      const list = byBase.get(key) || [];
+      list.push(c);
+      byBase.set(key, list);
+    }
+    if (byBase.size !== 1) return null;
+    const group = Array.from(byBase.values())[0];
+    group.sort((a, b) => {
+      const aClean = (a.name || '').trim();
+      const bClean = (b.name || '').trim();
+      const aIsBase =
+        stripIgdbEditionWrapper(aClean, { allowBareSpecial: true }) === aClean;
+      const bIsBase =
+        stripIgdbEditionWrapper(bClean, { allowBareSpecial: true }) === bClean;
+      if (aIsBase !== bIsBase) return aIsBase ? -1 : 1;
+      if (aClean.length !== bClean.length) return aClean.length - bClean.length;
+      return a.id - b.id;
+    });
+    return group[0];
+  };
+
   // Tier 2b: Unique non-DLC trailing DX / Remaster <-> Remastered wrapper on platform
   const DX_OR_REMASTER_TRAILER_RE =
     /\s*(?:[:\-–—]\s*|\s+)(?:dx|hd\s+remaster(?:ed)?|remaster(?:ed)?)$/i;
@@ -17988,7 +18068,7 @@ export function selectStrictIgdbMatch(
     if (dxMatches.length === 1) return dxMatches[0];
   }
 
-  // Tier 2c: Unique non-DLC missing series-prefix match ("Zero Time Dilemma" -> "Zero Escape: Zero Time Dilemma")
+  // Tier 2c: Unique non-DLC missing series-prefix or shared-brand trailing subtitle match
   if (tier2Matches.length === 0 && rawTitle) {
     const prefixMatches = mainlineOnPlatform.filter((c) => {
       const candNames = [
@@ -18002,16 +18082,77 @@ export function selectStrictIgdbMatch(
         if (!candSplit || candSplit.prefix.length < 3) return false;
         const suffixIgdb = normalizeForIgdbMatch(candSplit.subtitle);
         if (!suffixIgdb) return false;
-        return allEntries.some(
-          (entry) =>
-            !entry.isTildeHalf &&
-            hasDistinctiveShortTitle(entry.raw) &&
-            candSeq === entry.sequelSig &&
-            entry.igdbNorm === suffixIgdb,
+        if (
+          allEntries.some(
+            (entry) =>
+              !entry.isTildeHalf &&
+              hasDistinctiveShortTitle(entry.raw) &&
+              candSeq === entry.sequelSig &&
+              entry.igdbNorm === suffixIgdb,
+          )
+        ) {
+          return true;
+        }
+        // Shared-brand trailing subtitle ("Star Wars Jedi Outcast" -> "Star Wars: Jedi Knight II - Jedi Outcast")
+        const trailSplit = splitTrailingSubtitle(candStr);
+        if (!trailSplit) return false;
+        const brandNorm = normalizeForIgdbMatch(candSplit.prefix);
+        const lastNorm = normalizeForIgdbMatch(trailSplit.subtitle);
+        const lastWords = trailSplit.subtitle.split(/\s+/).filter(Boolean);
+        const lastSeq = extractTitleSequelSignature(trailSplit.subtitle).join(
+          ',',
         );
+        if (
+          brandNorm.length >= 6 &&
+          lastNorm.length >= 8 &&
+          lastWords.length >= 2
+        ) {
+          const combinedNorm = `${brandNorm}${lastNorm}`;
+          return allEntries.some(
+            (entry) =>
+              !entry.isTildeHalf &&
+              entry.igdbNorm === combinedNorm &&
+              entry.sequelSig === lastSeq,
+          );
+        }
+        return false;
       });
     });
     if (prefixMatches.length === 1) return prefixMatches[0];
+  }
+
+  // Tier 2d: Unique platform-native remake/remaster/expanded port (game_type/category 8..11)
+  if (tier2Matches.length === 0 && rawTitle) {
+    const REMASTER_REISSUE_SUBTITLE_RE =
+      /^(?:director'?s?\s+rewind|ex|repop|re-?loaded|remix|hyper|turbo|plus|dx|zero|kai|finale|encore|ultra|special|remaster(?:ed)?|hd)$/i;
+    const remasterMatches = mainlineOnPlatform.filter((c) => {
+      const kind = Number(c.game_type ?? c.category ?? 0);
+      if (kind < 8 || kind > 11) return false;
+      const candName = (c.name || '').trim();
+      if (!candName) return false;
+      const candSeq = extractTitleSequelSignature(candName).join(',');
+      const candTrail =
+        splitTrailingSubtitle(candName) ??
+        (() => {
+          const sp = candName.match(/^(.{4,}?)\s+([A-Za-z0-9'-]+)$/);
+          return sp ? { prefix: sp[1].trim(), subtitle: sp[2].trim() } : null;
+        })();
+      if (
+        !candTrail ||
+        !REMASTER_REISSUE_SUBTITLE_RE.test(candTrail.subtitle)
+      ) {
+        return false;
+      }
+      const baseNorm = normalizeForIgdbMatch(candTrail.prefix);
+      return allEntries.some(
+        (entry) =>
+          !entry.isTildeHalf &&
+          hasDistinctiveShortTitle(entry.raw) &&
+          candSeq === entry.sequelSig &&
+          entry.igdbNorm === baseNorm,
+      );
+    });
+    if (remasterMatches.length === 1) return remasterMatches[0];
   }
 
   // Tier 3: Unique non-DLC benign-subtitle, longer-query-prefix, or truncated-subtitle match on platform
@@ -18067,7 +18208,7 @@ export function selectStrictIgdbMatch(
   });
 
   if (tier3Matches.length === 1) return tier3Matches[0];
-  return null;
+  return collapseTier3EditionDuplicates(tier3Matches);
 }
 
 function toIgdbGameMeta(c: IgdbSearchCandidate): IgdbGameMeta {
@@ -18144,13 +18285,11 @@ export async function fetchIgdbMetadataForTitles(
     item: (typeof eligible)[number],
     candidates: IgdbSearchCandidate[],
   ): IgdbSearchCandidate | null => {
+    const resolvedPlatformIds = resolveItemPlatformIds(item);
     const effectiveIgdbPlatformId =
       item.igdbPlatformId && item.igdbPlatformId > 0
         ? item.igdbPlatformId
-        : (getIgdbQueryPlatformIds(
-            item.trackerPlatformId as number,
-            item.igdbPlatformId,
-          )[0] ?? 0);
+        : (resolvedPlatformIds[0] ?? 0);
     return selectStrictIgdbMatch(
       candidates,
       item.normalizedTitle,
@@ -18158,6 +18297,7 @@ export async function fetchIgdbMetadataForTitles(
       {
         rawTitle: item.title,
         platformLaunchDate: item.platformLaunchDate,
+        companionPlatformIds: resolvedPlatformIds,
       },
     );
   };
@@ -18248,6 +18388,44 @@ export async function fetchIgdbMetadataForTitles(
           subtitlePrefixRetries.map((e) => e.item),
           (item) =>
             buildIgdbSearchTokens(prefixByKey.get(item.key) || item.title),
+        );
+      }
+
+      // Neo Geo AES/X dual Japanese/English ` / ` dumps: retry per slash half
+      const neoGeoSlashRetries = chunk.filter(
+        (item) =>
+          !out.has(item.key) &&
+          /\s+\/\s+/.test(item.title) &&
+          resolveItemPlatformIds(item).includes(80),
+      );
+      if (neoGeoSlashRetries.length > 0) {
+        for (const halfIdx of [1, 0]) {
+          const pending = neoGeoSlashRetries.filter(
+            (item) => !out.has(item.key),
+          );
+          if (pending.length === 0) break;
+          await runChunkPass(pending, (item) => {
+            const parts = item.title
+              .split(/\s+\/\s+/)
+              .map((p) => p.trim())
+              .filter(Boolean);
+            return buildIgdbSearchTokens(parts[halfIdx] || item.title);
+          });
+        }
+      }
+
+      // Split camelCase boundary tokens on retry (e.g. "WhiteDay" -> "White Day")
+      // so compound proper nouns like "SingStar" stay intact on the primary pass.
+      const camelCaseRetries = chunk.filter(
+        (item) => !out.has(item.key) && /[a-z][A-Z]/.test(item.title),
+      );
+      if (camelCaseRetries.length > 0) {
+        await runChunkPass(camelCaseRetries, (item) =>
+          buildIgdbSearchTokens(
+            item.title
+              .replace(/([a-z])([A-Z])/g, '$1 $2')
+              .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2'),
+          ),
         );
       }
 
@@ -18829,38 +19007,49 @@ export async function getBroadCatalogSeedStatus(
 
   let canonicalMinId = 0;
   let canonicalMaxId = 0;
+  let pendingCanonicalRows = 0;
   let maxGameStableId = 0;
   let totalSeriesRules = 0;
+  const tailerConfig = getCanonicalTailerConfig(workerPlanTier);
   if (includeTableBounds) {
     try {
-      const [minRow, maxRow, gameMaxRow, seriesCountRow] = await Promise.all([
-        env.DB.prepare(
-          'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
-        ).first<{ min_id: number }>(),
-        env.DB.prepare(
-          'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
-        ).first<{ max_id: number }>(),
-        env.DB.prepare(
-          'SELECT COALESCE(MAX(stable_id), 0) as max_stable_id FROM games',
-        ).first<{ max_stable_id: number }>(),
-        env.DB.prepare(
-          `SELECT COUNT(DISTINCT TRIM(match_value)) as cnt
-           FROM user_tracking_rules
-           WHERE rule_type = 'series' AND is_ignored = 0 AND TRIM(match_value) != ''`,
-        )
-          .first<{ cnt: number }>()
-          .catch(() => ({ cnt: 0 })),
-      ]);
+      const [minRow, maxRow, pendingRow, gameMaxRow, seriesCountRow] =
+        await Promise.all([
+          env.DB.prepare(
+            'SELECT COALESCE(MIN(id), 0) as min_id FROM canonical_releases',
+          ).first<{ min_id: number }>(),
+          env.DB.prepare(
+            'SELECT COALESCE(MAX(id), 0) as max_id FROM canonical_releases',
+          ).first<{ max_id: number }>(),
+          env.DB.prepare(
+            `SELECT COUNT(*) as cnt
+             FROM canonical_releases
+             WHERE id > ?
+               AND is_verified_physical = 1
+               AND NOT (COALESCE(source, '') = 'nintendo_revised' AND (region = 'World' OR region IS NULL) AND serial_code IS NULL)`,
+          )
+            .bind(cursor)
+            .first<{ cnt: number }>(),
+          env.DB.prepare(
+            'SELECT COALESCE(MAX(stable_id), 0) as max_stable_id FROM games',
+          ).first<{ max_stable_id: number }>(),
+          env.DB.prepare(
+            `SELECT COUNT(DISTINCT TRIM(match_value)) as cnt
+             FROM user_tracking_rules
+             WHERE rule_type = 'series' AND is_ignored = 0 AND TRIM(match_value) != ''`,
+          )
+            .first<{ cnt: number }>()
+            .catch(() => ({ cnt: 0 })),
+        ]);
       canonicalMinId = Number(minRow?.min_id) || 0;
       canonicalMaxId = Number(maxRow?.max_id) || 0;
+      pendingCanonicalRows = Number(pendingRow?.cnt) || 0;
       maxGameStableId = Number(gameMaxRow?.max_stable_id) || 0;
       totalSeriesRules = Number(seriesCountRow?.cnt) || 0;
     } catch {
       // Minimal test schemas may omit canonical_releases or platforms
     }
   }
-
-  const pendingCanonicalRows = Math.max(0, canonicalMaxId - cursor);
 
   return {
     canonicalTailer: {
@@ -18869,7 +19058,7 @@ export async function getBroadCatalogSeedStatus(
       canonicalMaxId,
       pendingCanonicalRows,
       writesUsedToday,
-      dailyWriteBudget: DAILY_CATALOG_WRITE_BUDGET,
+      dailyWriteBudget: tailerConfig.dailyWriteBudget,
       gamesIngestedToday,
       releasesIngestedToday,
       lastUpdatedAt,
@@ -19412,8 +19601,9 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     includeTableBounds: false,
   });
   const tail = status.canonicalTailer;
+  const tailerConfig = getCanonicalTailerConfig(status.workerPlanTier);
 
-  if (tail.writesUsedToday >= DAILY_CATALOG_WRITE_BUDGET) {
+  if (tail.writesUsedToday >= tailerConfig.dailyWriteBudget) {
     return {
       skipped: true,
       reason: 'daily_budget_reached',
@@ -19425,22 +19615,22 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   }
 
   const tickWriteBudget = Math.min(
-    1250,
-    DAILY_CATALOG_WRITE_BUDGET - tail.writesUsedToday,
+    tailerConfig.tickWriteBudget,
+    tailerConfig.dailyWriteBudget - tail.writesUsedToday,
   );
 
   const currentCursor = tail.cursor;
 
   const sliceRes = await env.DB.prepare(
-    `SELECT id, platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code
+    `SELECT id, platform_id, raw_title, normalized_title, region, variants, also_released_as, packin_host_normalized_title, rom_name, rom_crc, serial_code, source
      FROM canonical_releases
      WHERE id > ?
        AND is_verified_physical = 1
        AND NOT (COALESCE(source, '') = 'nintendo_revised' AND (region = 'World' OR region IS NULL) AND serial_code IS NULL)
      ORDER BY id ASC
-     LIMIT 100`,
+     LIMIT ?`,
   )
-    .bind(currentCursor)
+    .bind(currentCursor, tailerConfig.sliceLimit)
     .all<{
       id: number;
       platform_id: number;
@@ -19453,6 +19643,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       rom_name: string | null;
       rom_crc: string | null;
       serial_code: string | null;
+      source: string | null;
     }>();
 
   const slice = sliceRes.results || [];
@@ -19478,10 +19669,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       hasNonPackInInSlice: boolean;
       maxSliceId: number;
       sliceCrcs: Set<string>;
+      isRetailCatalog: boolean;
     }
   >();
   // canonical_releases.is_verified_physical can be stale; re-apply the current non-retail
-  // format filter (compilation extractions, Virtual Console, Anthology dumps, ...).
+  // format filter and storefront hardware/multi-box bundle guard.
   const sliceMaxId = slice.reduce((m, r) => Math.max(m, r.id), currentCursor);
   for (const row of slice) {
     if (
@@ -19489,7 +19681,17 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     ) {
       continue;
     }
+    if (
+      row.source === 'retail_catalog' &&
+      isStorefrontNonGameOrMultiBoxBundle(row.raw_title)
+    ) {
+      continue;
+    }
     const isPackInRow = Boolean(row.packin_host_normalized_title?.trim());
+    const cleanedTitle =
+      row.source === 'retail_catalog'
+        ? cleanRetailTitle(row.raw_title) || row.raw_title
+        : row.raw_title;
     const effectiveNorm = isPackInRow
       ? row.packin_host_normalized_title!.trim()
       : row.normalized_title;
@@ -19502,15 +19704,17 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       groupsMap.set(key, {
         platform_id: row.platform_id,
         normalized_title: effectiveNorm,
-        raw_title: row.raw_title,
+        raw_title: cleanedTitle,
         hasNonPackInInSlice: !isPackInRow,
         maxSliceId: row.id,
         sliceCrcs,
+        isRetailCatalog: row.source === 'retail_catalog',
       });
     } else {
       if (!isPackInRow && !existing.hasNonPackInInSlice) {
-        existing.raw_title = row.raw_title;
+        existing.raw_title = cleanedTitle;
         existing.hasNonPackInInSlice = true;
+        existing.isRetailCatalog = row.source === 'retail_catalog';
       }
       if (row.id > existing.maxSliceId) {
         existing.maxSliceId = row.id;
@@ -19826,6 +20030,10 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
             r.raw_title,
             r.rom_name || '',
             group.platform_id,
+          ) &&
+          !(
+            r.source === 'retail_catalog' &&
+            isStorefrontNonGameOrMultiBoxBundle(r.raw_title)
           ),
       );
     if (canonicalRels.length === 0) {
@@ -20128,12 +20336,14 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           r.region === 'World' ||
           (r.region && r.region.includes('USA')),
       ) || prefPool[0];
-    const rawSourceTitle = cleanCanonicalDisplayTitle(
-      preferredRel.raw_title || group.raw_title,
-    );
+    const rawDisplaySrc =
+      preferredRel.source === 'retail_catalog'
+        ? cleanRetailTitle(preferredRel.raw_title || group.raw_title) ||
+          cleanCanonicalDisplayTitle(preferredRel.raw_title || group.raw_title)
+        : cleanCanonicalDisplayTitle(preferredRel.raw_title || group.raw_title);
     const sourceTitle =
-      extractPhysicalEditionForVariant(rawSourceTitle).baseTitle ||
-      rawSourceTitle;
+      extractPhysicalEditionForVariant(rawDisplaySrc).baseTitle ||
+      rawDisplaySrc;
     const displayTitle = resolveCanonicalDisplayTitle(
       sourceTitle,
       igdbMeta?.name,
