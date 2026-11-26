@@ -170,6 +170,9 @@ export function groupCatalogMediaIntoReleases(
         );
         existing.also_released_as = Array.from(merged).join(', ');
       }
+      if (!existing.constituent_games?.length && g.constituent_games?.length) {
+        existing.constituent_games = g.constituent_games;
+      }
     }
   }
 

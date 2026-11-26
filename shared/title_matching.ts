@@ -816,13 +816,48 @@ export function stripLgnPlatformPipeTrailer(title: string): string {
 const RETAIL_TRAILING_PLATFORM_PATTERN =
   '(?:(?:\\((?:PS[1-5]|PSV|PSVR2?|XB1|XSX|NSW2?)\\)\\s*)?(?:Sony\\s+PlayStation\\s*VR2?|PlayStation\\s*VR2|PSVR2|PlayStation\\s*VR|PSVR|Play(?:Station|sation)\\s*[12345]|PS[12345]|PlayStation\\s*Vita|PS\\s*Vita|Vita|PlayStation\\s*Portable|PSP|Nintendo\\s*Switch\\s*2?|Switch\\s*2?|NSW2?|Nintendo\\s*3DS|3DS|Nintendo\\s*DS|NDS|DS|Wii\\s*U|Nintendo\\s*Wii|Wii|Xbox\\s*Series\\s*[XS](?:\\|[XS])?|XSX|Xbox\\s*One|XB1|Xbox\\s*360|Sega\\s*Dreamcast|Dreamcast))';
 
+const RETAIL_MERCH_ADDON_SUFFIX_RE =
+  /\s*(?:\+\s*store\s+exclusive\b.*|\(\s*with\s+exclusive\b[^)]*\)|\s+(?:(?:collector['’]?s?\s+edition\s+)?plushie|special\s+book|book|yunomi\s+cup\s+(?:ce|le)|nendoroid\s+(?:ce|le))\s+bundle\b.*)$/i;
+
+/**
+ * Strips single-game storefront merchandise add-ons (e.g. "+ Store Exclusive Key Art Stand",
+ * "(With Exclusive MTG FF Promo Card)", "Plushie Bundle", "Book Bundle") without rejecting
+ * the underlying physical release so it matches and verifies the base game cleanly.
+ */
+export function stripMerchAddonSuffix(title: string): string {
+  if (!title) return '';
+  let out = title.trim();
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(RETAIL_MERCH_ADDON_SUFFIX_RE, '').trim();
+    if (next === out) break;
+    out = next;
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Moves a trailing inverted English article (", The", ", A", ", An") to the front
+ * so downstream edition extraction and IGDB lookup see natural word order.
+ */
+export function normalizeInvertedArticle(title: string): string {
+  const trimmed = (title || '').trim();
+  const match = trimmed.match(/^(.{3,}?),\s+(The|A|An)\s*$/i);
+  if (!match) return trimmed;
+  return `${match[2]} ${match[1].trim()}`;
+}
+
 /**
  * Strips trailing preorder/ship-date notices and trailing retail platform
  * suffixes (including "Sony PlayStation VR" and store typos like "Playsation 5").
  */
 export function stripRetailPreorderAndPlatformTrailer(title: string): string {
   if (!title) return '';
-  return title
+  let out = title
+    .replace(/^BACKERS\s*-\s*DE#\d+\s*:\s*/i, '')
+    .replace(/\s*\[PREMIUM\s+EDITION\s+GAMES\s+SERIES\s+\d+\]\s*/gi, ' ')
+    .replace(/\s*\[SW\d+\]\s*/gi, ' ')
+    .replace(/\s*-\s*XBOX\s+SMART\s*-\s*SERIES\s+X\s*&\s*XB1\b.*$/i, '')
+    .replace(/\s*\((?:ASIM|Multi-Lan(?:guage|ugage))\)\s*/gi, ' ')
     .replace(
       /\s*(?:[-–—]\s*)?\bPRE-?ORDER(?:\s*[-–—]\s*ESTIMATED\s+SHIP\s+DATE\b.*)?$/i,
       '',
@@ -842,7 +877,10 @@ export function stripRetailPreorderAndPlatformTrailer(title: string): string {
     .replace(
       new RegExp(`\\s*\\(${RETAIL_TRAILING_PLATFORM_PATTERN}\\)\\s*$`, 'i'),
       '',
-    )
+    );
+  out = stripMerchAddonSuffix(out);
+  out = normalizeInvertedArticle(out);
+  return out
     .replace(/\s*Standard Edition\s*$/i, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -887,6 +925,7 @@ export function stripEditionSuffix(title: string): string {
 }
 
 const SHEET_TYPO_FIXES: Array<[RegExp, string]> = [
+  [/\bdot\s+hack\b/gi, '.hack'],
   [/\btelllate\b/gi, 'telltale'],
   [/\bantbos\b/gi, 'anthos'],
   [/\bgamemaster'?s\s+legacy\b/gi, "gamesmaster's legacy"],
@@ -1075,20 +1114,27 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
     /\s*\([^()]*\bcover\s+art\s*\)\s*$/i,
     /\s*(?:\((?:game|disc|cartridge|cart)\s+only\)|(?:[:\-–—]\s*|\s+)(?:game|disc|cartridge|cart)\s+only)\s*$/i,
     /\s*\([^()]{2,40}?\s+editions?\)\s*$/i,
+    /\s*\[(?:retro|limited|collector'?s?|special|deluxe)\s+edition\]\s*$/i,
     /\s*(?:[:\-–—]\s*|\s+)trilogy\s+pack\s*$/i,
+    /^(?:2\s+games\s+in\s+one!?|2\s+in\s+1\s+game\s+pack|2\s+game\s+bundle)\s*[-:]\s*/i,
+    /\s+\b(?:premium|collector'?s?|treasure)\s+box\s*$/i,
   ];
   for (const rx of conservativeStrips) {
-    const stripped = raw.replace(rx, '').trim();
-    if (stripped && stripped !== title && stripped.length >= 2) {
+    const stripped = normalizeInvertedArticle(raw).replace(rx, '').trim();
+    if (stripped && stripped !== raw && stripped.length >= 2) {
       addKey(stripped);
     }
   }
-  const splitEd = splitTitleEditionSuffix(title);
+  const normalizedRaw = normalizeInvertedArticle(stripMerchAddonSuffix(raw));
+  if (normalizedRaw && normalizedRaw !== raw) {
+    addKey(normalizedRaw);
+  }
+  const splitEd = splitTitleEditionSuffix(normalizedRaw);
   if (splitEd && !splitEd.suffix.startsWith('+')) {
     addKey(splitEd.base);
   }
-  addKey(stripEditionSuffix(title));
-  addKey(stripIgdbEditionWrapper(title));
+  addKey(stripEditionSuffix(normalizedRaw));
+  addKey(stripIgdbEditionWrapper(normalizedRaw));
 
   return keys;
 }
@@ -1247,8 +1293,11 @@ const NON_ENGLISH_EDITION_RE =
 const PLUS_ADDON_KEYWORD_RE =
   /\b(?:pass|expansion|booster|treasure|world|tv|minions|fury|story|chapter|dlc|content|island|quest|season|pack|episode|adventure)\b/i;
 
+const RETAIL_BRACKET_EDITION_RE =
+  /\s*\[((?:Retro|Limited|Collector'?s?|Special|Deluxe)\s+Edition)\]\s*$/i;
+
 const SPACE_EDITION_RE =
-  /^(.{3,}?[^\s:\-–—])\s+((?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Nintendo\s+Switch(?:\s*2)?|(?<!Nintendo\s)Switch\s*2|Xbox\s*One)\s+Edition)$/i;
+  /^(.{3,}?[^\s:\-–—])\s+((?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Nintendo\s+Switch(?:\s*2)?|(?<!Nintendo\s)Switch\s*2|Xbox\s*One)\s+Edition|(?:Premium|Collector'?s?|Treasure)\s+Box)$/i;
 
 const NAMED_EDITION_CUT_RE =
   /^(.{3,}?)(?:\s*[:\-–—]\s*|\s+)(Director'?s?\s+Cut|Extended\s+Cut|GOTY|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited|Remastered|HD\s+Remaster)$/i;
@@ -1350,12 +1399,30 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   baseTitle: string;
   edition: string | null;
 } {
-  const trimmed = (rawTitle || '').replace(/\s+/g, ' ').trim();
-  if (!trimmed) return { baseTitle: '', edition: null };
+  const preCleaned = stripRetailPreorderAndPlatformTrailer(
+    (rawTitle || '').replace(/\s+/g, ' ').trim(),
+  );
+  if (!preCleaned) return { baseTitle: '', edition: null };
 
   // Strip trailing parenthetical retail marker such as "Sea of Stars: Sunset Edition (Retail Edition)"
-  let working = trimmed;
+  // or bracketed boutique edition marker such as "Alisa: Developer's Cut [RETRO EDITION]".
+  let working = preCleaned;
+  let bracketEdition: string | null = null;
   let parenEdition: string | null = null;
+  const bracketEdMatch = working.match(RETAIL_BRACKET_EDITION_RE);
+  if (bracketEdMatch) {
+    const candidateBase = working.slice(0, bracketEdMatch.index).trim();
+    if (
+      candidateBase.length >= 3 &&
+      !NON_ENGLISH_EDITION_RE.test(bracketEdMatch[1])
+    ) {
+      working = candidateBase;
+      bracketEdition = bracketEdMatch[1]
+        .trim()
+        .toLowerCase()
+        .replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+    }
+  }
   const parenMatch = working.match(RETAIL_PAREN_EDITION_RE);
   if (parenMatch) {
     const candidateBase = working.slice(0, parenMatch.index).trim();
@@ -1402,18 +1469,201 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   ) {
     return {
       baseTitle: split.base,
-      edition: split.suffix,
+      edition: bracketEdition
+        ? `${split.suffix}, ${bracketEdition}`
+        : split.suffix,
     };
   }
 
-  if (parenEdition) {
+  const fallbackEdition = bracketEdition || parenEdition;
+  if (fallbackEdition) {
     return {
       baseTitle: working,
-      edition: parenEdition,
+      edition: fallbackEdition,
     };
   }
 
-  return { baseTitle: trimmed, edition: null };
+  return { baseTitle: preCleaned, edition: null };
+}
+
+const SINGLE_TITLE_AMPERSAND_GUARD_RE =
+  /\b(?:ratchet\s*&\s*clank|mario\s*&\s*luigi|dungeons\s*&\s*dragons|sonic\s*&\s*knuckles|saints\s*(?:&|and)\s*sinners|krypto\s*(?:&|and)\s*ace|blood\s*&\s*truth|guns,\s*gore\s*&\s*cannoli|pocky\s*&\s*rocky|kane\s*&\s*lynch|sam\s*&\s*max|toejam\s*&\s*earl|banjo\s*(?:&|and)\s*kazooie|kameo\s*&\s*|pride\s*&\s*prejudice|law\s*&\s*order|fast\s*&\s*furious|rock\s*&\s*roll|hide\s*&\s*seek|search\s*&\s*rescue|cops\s*&\s*robbers|sword\s*&\s*shield|pen\s*&\s*paper|mount\s*&\s*blade|command\s*&\s*conquer|puzzles\s*&\s*dragons)\b/i;
+
+/**
+ * Extracts constituent single-game titles from genuine physical multi-game
+ * cartridges/discs (e.g. "Sonic Mania + Team Sonic Racing", "Yakuza Kiwami 1+2",
+ * "Star Wars Jedi Outcast/Jedi Academy", "Harvest Moon: The Lost Valley and Skytree Village").
+ *
+ * Returns `[]` unless `>= 2` clean constituent titles are confidently extracted so
+ * single titles that naturally contain `&` or `and` (e.g. "Ratchet & Clank",
+ * "Saints and Sinners", "Krypto & Ace") are never mis-split.
+ */
+export function parseComboCartConstituentTitles(title: string): string[] {
+  const raw = (title || '')
+    .replace(/\s*\([^)]*\)\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return [];
+
+  // Do not split generic Trilogy/Collection/Anthology umbrella titles lacking explicit constituent names
+  if (/\b(?:trilogy|quadrilogy|anthology)\b/i.test(raw) && !/[+/]/.test(raw)) {
+    return [];
+  }
+
+  const hadExplicitComboPrefix =
+    /^(?:2\s+games?\s+in\s+one!?|2\s+in\s+1(?:\s+game\s+pack)?|2\s+game\s+bundle|double\s+pack|triple\s+pack|dual\s+pack|twin\s+pack|.+?\s+bundle)\s*[-:]\s*/i.test(
+      raw,
+    );
+  const body = raw
+    .replace(
+      /^(?:2\s+games?\s+in\s+one!?|2\s+in\s+1(?:\s+game\s+pack)?|2\s+game\s+bundle|double\s+pack|triple\s+pack|twin\s+pack|dual\s+pack)\s*[-:]\s*/i,
+      '',
+    )
+    .replace(/^the\s+sims\s+4\s+bundle\s*[-:]\s*/i, '')
+    .replace(/\s+(?:dual|double|triple|twin)\s+pack(?:\s+edition)?\s*$/i, '')
+    .trim();
+
+  // Handle physical cartridge+expansion bundles only when NOT clearly DLC unless named
+  // Shorthand numbered pairs: "Yakuza Kiwami 1+2", "TOAPLAN Arcade Collection Volume 1 and 2"
+  const numPair = body.match(/^(.{3,}?)\s+1\s*(?:\+|\/|&|\band\b)\s*2$/i);
+  if (numPair) {
+    const base = numPair[1].replace(/[-:]\s*$/, '').trim();
+    if (base.length >= 3 && !/\bvolume$/i.test(base)) {
+      return [base, `${base} 2`];
+    }
+  }
+
+  const normalizeSplitParts = (parts: string[]): string[] => {
+    const cleaned = parts.map((p) => p.trim()).filter((p) => p.length >= 2);
+    if (cleaned.length < 2) return [];
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const part of cleaned) {
+      const k = normalizeTitleForMatching(part);
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        deduped.push(part);
+      }
+    }
+    return deduped.length >= 2 ? deduped : [];
+  };
+
+  // 1. Explicit " + " delimiter ("Sonic Mania + Team Sonic Racing")
+  if (/\s+\+\s+/.test(body)) {
+    const parts = body.split(/\s+\+\s+/);
+    // Reject Pokémon/Mario Switch "+ Booster Course Pass / Expansion Pass" DLC add-ons
+    if (
+      parts.length >= 2 &&
+      !PLUS_ADDON_KEYWORD_RE.test(parts[parts.length - 1])
+    ) {
+      // Handle leading number continuation like "Atari Recharged Collection 3 + 4"
+      if (parts.length === 2 && /^\d+$/.test(parts[1].trim())) {
+        const prefixNum = parts[0].trim().match(/^(.+?)\s+(\d+)$/);
+        if (prefixNum) {
+          return normalizeSplitParts([
+            parts[0],
+            `${prefixNum[1].trim()} ${parts[1].trim()}`,
+          ]);
+        }
+      }
+      return normalizeSplitParts(parts);
+    }
+  }
+
+  // 2. Explicit slash delimiter with shared franchise prefix support
+  // e.g. "Star Wars Jedi Outcast/Jedi Academy" -> ["Star Wars Jedi Outcast", "Star Wars Jedi Academy"]
+  if (
+    /\s*\/\s*/.test(body) &&
+    !/\b(?:1\/2|2\/2|vol\s*\d+\/\d+|x\/x-?2)\b/i.test(body)
+  ) {
+    const slashParts = body.split(/\s*\/\s*/).map((s) => s.trim());
+    if (
+      slashParts.length === 2 &&
+      slashParts[0].length >= 4 &&
+      slashParts[1].length >= 4
+    ) {
+      const firstWords = slashParts[0].split(/\s+/);
+      const secondWords = slashParts[1].split(/\s+/);
+      if (firstWords.length >= 3 && secondWords.length >= 2) {
+        // Prepend shared franchise prefix if second part shares a leading token pattern
+        // or if first part starts with well-known prefix like "Star Wars"
+        const sharedColon = slashParts[0].match(/^([^:]{3,}):\s+(.+)$/);
+        if (sharedColon && !slashParts[1].includes(':')) {
+          return normalizeSplitParts([
+            slashParts[0],
+            `${sharedColon[1].trim()}: ${slashParts[1]}`,
+          ]);
+        }
+        const brandMatch = slashParts[0].match(
+          /^(Star\s+Wars|Super\s+Mario|Mega\s+Man|Final\s+Fantasy|Resident\s+Evil|Dragon\s+Quest|Harvest\s+Moon)\s+(.+)$/i,
+        );
+        if (
+          brandMatch &&
+          !slashParts[1].toLowerCase().startsWith(brandMatch[1].toLowerCase())
+        ) {
+          return normalizeSplitParts([
+            slashParts[0],
+            `${brandMatch[1]} ${slashParts[1]}`,
+          ]);
+        }
+      }
+      return normalizeSplitParts(slashParts);
+    }
+  }
+
+  // 3. Colon-prefixed shared franchise with "and" / "&":
+  // e.g. "Harvest Moon: The Lost Valley and Skytree Village" -> ["Harvest Moon: The Lost Valley", "Harvest Moon: Skytree Village"]
+  const colonIdx = body.indexOf(':');
+  if (colonIdx > 2 && colonIdx < body.length - 6) {
+    const prefix = body.slice(0, colonIdx).trim();
+    const rest = body.slice(colonIdx + 1).trim();
+    if (!SINGLE_TITLE_AMPERSAND_GUARD_RE.test(rest)) {
+      const ampParts = rest.split(/\s+(?:&|and)\s+/i);
+      if (
+        ampParts.length === 2 &&
+        ampParts[0].split(/\s+/).length >= 2 &&
+        ampParts[1].split(/\s+/).length >= 2
+      ) {
+        return normalizeSplitParts([
+          `${prefix}: ${ampParts[0].trim()}`,
+          `${prefix}: ${ampParts[1].trim()}`,
+        ]);
+      }
+    }
+  }
+
+  // 4. Explicit Bundle/Pack wrapper with " & " or " and "
+  if (hadExplicitComboPrefix && /\s+(?:&|and)\s+/i.test(body)) {
+    const idx = body.search(/\s+(?:&|and)\s+/i);
+    if (idx > 2) {
+      const left = body.slice(0, idx).trim();
+      const right = body
+        .slice(idx)
+        .replace(/^\s*(?:&|and)\s+/i, '')
+        .trim();
+      if (left.length >= 3 && right.length >= 3) {
+        return normalizeSplitParts([left, right]);
+      }
+    }
+  }
+
+  // 5. Standalone Xbox-style dual-game `&` compilation ("Forza Motorsport & Xbox Live Arcade")
+  if (
+    !SINGLE_TITLE_AMPERSAND_GUARD_RE.test(body) &&
+    /\s+&\s+/.test(body) &&
+    !/:\s*.*\s+&\s+/.test(body)
+  ) {
+    const parts = body.split(/\s+&\s+/);
+    if (
+      parts.length === 2 &&
+      parts[0].trim().split(/\s+/).length >= 2 &&
+      parts[1].trim().split(/\s+/).length >= 2
+    ) {
+      return normalizeSplitParts(parts);
+    }
+  }
+
+  return [];
 }
 
 /**

@@ -37,9 +37,11 @@ import worker, {
   performChunkedCatalogBackup,
   performScheduledBackup,
   queryIGDBEdge,
+  recomputeCatalogCoverageStats,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
   resolveCatalogManifest,
+  resolveComboCartConstituentsFromDbOrIgdb,
   resolveWorkerPlanTier,
   selectStrictIgdbMatch,
   syncOrResolveOidcUser,
@@ -12086,6 +12088,220 @@ describe('Worker API Logic', () => {
       } finally {
         fetchSpy.mockRestore();
       }
+    });
+
+    it('matches missing series prefixes, DX suffixes, truncated long subtitles, relaxed tokens, and search fallbacks', async () => {
+      // Tier 2c: Missing series prefix ("Zero Time Dilemma" -> "Zero Escape: Zero Time Dilemma")
+      const zeroTime = selectStrictIgdbMatch(
+        [
+          {
+            id: 11549,
+            name: 'Zero Escape: Zero Time Dilemma',
+            platforms: [48],
+            category: 0,
+          },
+        ],
+        'zerotimedilemma',
+        48,
+        { rawTitle: 'Zero Time Dilemma' },
+      );
+      expect(zeroTime?.id).toBe(11549);
+
+      // Tier 2b: Trailing DX wrapper ("Defender's Quest: Valley of the Forgotten DX")
+      const defQuest = selectStrictIgdbMatch(
+        [
+          {
+            id: 90630,
+            name: "Defender's Quest: Valley of the Forgotten DX",
+            platforms: [48],
+            category: 0,
+          },
+        ],
+        'defendersquestvalleyoftheforgotten',
+        48,
+        { rawTitle: "Defender's Quest - Valley of the Forgotten" },
+      );
+      expect(defQuest?.id).toBe(90630);
+
+      // Tier 3c: Unique truncated long subtitle ("Like a Dragon: Pirate Yakuza" -> "... in Hawaii")
+      const pirateYakuza = selectStrictIgdbMatch(
+        [
+          {
+            id: 325100,
+            name: 'Like a Dragon: Pirate Yakuza in Hawaii',
+            platforms: [167],
+            category: 0,
+          },
+        ],
+        'likeadragonpirateyakuza',
+        167,
+        { rawTitle: 'Like a Dragon: Pirate Yakuza' },
+      );
+      expect(pirateYakuza?.id).toBe(325100);
+
+      // fetchIgdbMetadataForTitles: relaxed-token pass catches accents ("Café") & /v4/games search fallback catches ".hack//G.U."
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input, init) => {
+          const url = String(input);
+          if (url.includes('id.twitch.tv')) {
+            return new Response(
+              JSON.stringify({ access_token: 'tok', expires_in: 3600 }),
+              { status: 200 },
+            );
+          }
+          const bodyText = String(init?.body || '');
+          if (url.endsWith('/multiquery')) {
+            if (bodyText.includes('*"Cafe"*')) {
+              return new Response(
+                JSON.stringify([
+                  { name: 'q0', result: [] },
+                  { name: 'q1', result: [] },
+                ]),
+                { status: 200 },
+              );
+            }
+            if (
+              bodyText.includes('*"Dragons"*') &&
+              bodyText.includes('*"Little"*')
+            ) {
+              return new Response(
+                JSON.stringify([
+                  {
+                    name: 'q0',
+                    result: [
+                      {
+                        id: 99001,
+                        name: 'Little Dragons Café',
+                        platforms: [48],
+                        category: 0,
+                      },
+                    ],
+                  },
+                ]),
+                { status: 200 },
+              );
+            }
+            return new Response(JSON.stringify([{ name: 'q1', result: [] }]), {
+              status: 200,
+            });
+          }
+          if (url.endsWith('/games') && bodyText.includes('.hack')) {
+            return new Response(
+              JSON.stringify([
+                {
+                  id: 99002,
+                  name: '.hack//G.U. Last Recode',
+                  platforms: [48],
+                  category: 0,
+                },
+              ]),
+              { status: 200 },
+            );
+          }
+          return new Response(JSON.stringify([]), { status: 200 });
+        });
+
+      try {
+        const resMap = await fetchIgdbMetadataForTitles(
+          {
+            ...mockEnv,
+            TWITCH_CLIENT_ID: 'cid',
+            TWITCH_CLIENT_SECRET: 'csec',
+          } as Env,
+          [
+            {
+              key: 'cafe',
+              title: 'Little Dragons Cafe',
+              normalizedTitle: 'littledragonscafe',
+              igdbPlatformId: 48,
+            },
+            {
+              key: 'dothack',
+              title: 'Dot Hack G.U. - Last Recode',
+              normalizedTitle: 'dothackgulastrecode',
+              igdbPlatformId: 48,
+            },
+          ],
+          { paceDelayMs: 0, enableSearchFallback: true },
+        );
+        expect(resMap.get('cafe')?.igdb_id).toBe(99001);
+        expect(resMap.get('dothack')?.igdb_id).toBe(99002);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('resolves physical combo-cart constituent games into metadata_json and computes cached 6-bucket catalogCoverage stats', async () => {
+      db.prepare('DELETE FROM user_game_releases').run();
+      db.prepare('DELETE FROM game_releases').run();
+      db.prepare('DELETE FROM games').run();
+      db.prepare(
+        `INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id, launch_date) VALUES
+          (26, 'switch', 'Nintendo Switch', 130, '2017-03-03'),
+          (19, 'gba', 'Game Boy Advance', 24, '2001-03-21')`,
+      ).run();
+      const s1 = Number(
+        db
+          .prepare(
+            `INSERT INTO games (id, title, platform_id, igdb_id, igdb_url, image_url, region) VALUES ('sonic-mania', 'Sonic Mania', 26, 94873, 'https://www.igdb.com/games/sonic-mania', 'https://images.igdb.com/mania.jpg', 'USA')`,
+          )
+          .run().lastInsertRowid,
+      );
+      const s2 = Number(
+        db
+          .prepare(
+            `INSERT INTO games (id, title, platform_id, igdb_id, igdb_url, image_url, region) VALUES ('tsr', 'Team Sonic Racing', 26, 103018, 'https://www.igdb.com/games/tsr', 'https://images.igdb.com/tsr.jpg', 'USA')`,
+          )
+          .run().lastInsertRowid,
+      );
+      const comboId = Number(
+        db
+          .prepare(
+            `INSERT INTO games (id, title, platform_id, region) VALUES ('sonic-combo', 'Sonic Mania + Team Sonic Racing', 26, 'USA')`,
+          )
+          .run().lastInsertRowid,
+      );
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, release_date, verified_source) VALUES
+          ('rel-s1', ?, 'USA', '2017-08-15', 'dat'),
+          ('rel-s2', ?, 'USA', '2019-05-21', 'dat'),
+          ('rel-combo', ?, 'USA', NULL, 'nscollectors')`,
+      ).run(s1, s2, comboId);
+
+      const resolved = await resolveComboCartConstituentsFromDbOrIgdb(
+        mockEnv,
+        { stable_id: comboId, platform_id: 26, region: 'USA' },
+        { id: 26, igdbId: 130, launchDate: '2017-03-03' },
+        ['Sonic Mania', 'Team Sonic Racing'],
+      );
+      expect(resolved).toHaveLength(2);
+      expect(resolved.map((r) => r.igdb_id)).toEqual([94873, 103018]);
+
+      db.prepare(`UPDATE games SET metadata_json = ? WHERE stable_id = ?`).run(
+        JSON.stringify({ constituent_games: resolved }),
+        comboId,
+      );
+
+      // Add a PSVR curated exemption and a GBA USA unlinked game
+      db.prepare(
+        `INSERT INTO games (id, title, platform_id, image_url, region) VALUES
+          ('psvr-1', 'PlayStation VR Demo Disc', 26, '/covers/psvr1.jpg', 'USA'),
+          ('gba-miss', 'Unlinked GBA Title', 19, NULL, 'USA')`,
+      ).run();
+
+      const stats = await recomputeCatalogCoverageStats(mockEnv);
+      expect(stats.igdb.modernWestern.comboLinkedCount).toBe(1);
+      expect(stats.igdb.modernWestern.igdbLinkedCount).toBe(3);
+      expect(stats.igdb.modernWestern.exemptCuratedCount).toBe(1);
+      expect(stats.igdb.usaEnglishWestern.missingIgdbCount).toBe(1);
+
+      const seedStatus = await getBroadCatalogSeedStatus(mockEnv, {
+        includeTableBounds: false,
+      });
+      expect(
+        seedStatus.catalogCoverage?.igdb.modernWestern.comboLinkedCount,
+      ).toBe(1);
     });
   });
 });

@@ -13,6 +13,7 @@ import {
   KitStatBarListComponent,
 } from '@wesdizzle/app-kit/angular';
 import {
+  CatalogCoverageBucket,
   CatalogSeedStatus,
   MarketPricingRateLimitStatus,
 } from '../../../core/models/collection.models';
@@ -55,6 +56,7 @@ export class PipelineHealthComponent {
   readonly runNsCollectors = output<void>();
   readonly runRetailPreOrders = output<void>();
   readonly runWorkerDats = output<void>();
+  readonly recomputeCoverage = output<void>();
   readonly togglePlanTier = output<'paid' | 'free'>();
   readonly purgeMarketCache = output<void>();
 
@@ -271,5 +273,84 @@ export class PipelineHealthComponent {
       });
     }
     return items;
+  });
+
+  readonly coverageBarItems = computed<readonly KitStatBarItem[]>(() => {
+    const cov = this.status()?.catalogCoverage;
+    if (!cov) return [];
+
+    const fmtBucket = (
+      id: string,
+      label: string,
+      b: CatalogCoverageBucket,
+    ): KitStatBarItem => ({
+      id,
+      label,
+      value: b.igdbLinkedPct,
+      max: 100,
+      displayValue: `${b.igdbLinkedPct}% (${b.igdbLinkedCount}/${b.eligibleGames}${b.comboLinkedCount > 0 ? `, ${b.comboLinkedCount} combo` : ''})`,
+      tone: b.igdbLinkedPct >= 90 ? 'primary' : 'warning',
+    });
+
+    return [
+      {
+        id: 'phys-tracked',
+        label: 'Physical Verification (Tracked)',
+        value: cov.trackedVerifiedPct,
+        max: 100,
+        displayValue: `${cov.trackedVerifiedPct}% (${cov.trackedVerifiedReleases}/${cov.trackedTotalReleases})`,
+        tone: cov.trackedVerifiedPct >= 90 ? 'primary' : 'warning',
+      },
+      {
+        id: 'phys-overall',
+        label: 'Physical Verification (Overall)',
+        value: cov.verifiedPct,
+        max: 100,
+        displayValue: `${cov.verifiedPct}% (${cov.verifiedReleases}/${cov.totalReleases})`,
+        tone: cov.verifiedPct >= 90 ? 'primary' : 'warning',
+      },
+      fmtBucket('igdb-tracked', 'IGDB — Tracked', cov.igdb.tracked),
+      fmtBucket(
+        'igdb-modern-west',
+        'IGDB — Modern (Western)',
+        cov.igdb.modernWestern,
+      ),
+      fmtBucket(
+        'igdb-usa-english',
+        'IGDB — USA / English-Western',
+        cov.igdb.usaEnglishWestern,
+      ),
+      fmtBucket('igdb-modern-all', 'IGDB — Modern (All)', cov.igdb.modern),
+      fmtBucket('igdb-west-all', 'IGDB — Western (All)', cov.igdb.western),
+      fmtBucket('igdb-overall', 'IGDB — Overall Catalog', cov.igdb.overall),
+    ];
+  });
+
+  readonly coverageKvItems = computed<readonly KitKvItem[]>(() => {
+    const cov = this.status()?.catalogCoverage;
+    if (!cov) return [];
+    return [
+      {
+        label: 'Missing IGDB (Tracked / Modern West / USA-Eng / Overall)',
+        value: `${cov.igdb.tracked.missingIgdbCount} / ${cov.igdb.modernWestern.missingIgdbCount} / ${cov.igdb.usaEnglishWestern.missingIgdbCount} / ${cov.igdb.overall.missingIgdbCount}`,
+      },
+      {
+        label: 'Combo Carts Linked (Modern West / Overall)',
+        value: `${cov.igdb.modernWestern.comboLinkedCount} / ${cov.igdb.overall.comboLinkedCount}`,
+      },
+      {
+        label: 'Missing Art / Date (Modern West)',
+        value: `${cov.igdb.modernWestern.missingArtCount} / ${cov.igdb.modernWestern.missingDateCount}`,
+      },
+      {
+        label: 'Curated /covers/ Exemptions',
+        value: String(cov.igdb.overall.exemptCuratedCount),
+      },
+      {
+        label: 'Last Computed',
+        value: cov.computedAt || 'Pending',
+        tone: 'muted',
+      },
+    ];
   });
 }

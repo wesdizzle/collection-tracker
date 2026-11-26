@@ -453,25 +453,43 @@ export function parseRetailBackCatalog(
   }
 
   for (const item of snapshot.boutique || []) {
+    if (isNonGameRetailTitle(item.rawTitle || item.cleanTitle || '', null)) {
+      continue;
+    }
     const cleanedTitle = cleanRetailTitle(
       stripBoutiqueCatalogPrefix(item.cleanTitle || item.rawTitle || '', {
         stripPreOrderPrefix: true,
       }),
     );
-    const normTitle = normalizeTitleForMatching(cleanedTitle);
+    const extracted = extractPhysicalEditionForVariant(cleanedTitle);
+    const baseTitle = extracted.baseTitle || cleanedTitle;
+    const normTitle = normalizeTitleForMatching(baseTitle);
     const platformId = item.platformId
       ? normalizeLegacyPlatformId(item.platformId)
       : null;
-    if (!cleanedTitle || !normTitle || !platformId) continue;
-    if (isCanonicalNoiseTitle(cleanedTitle, platformId, item.edition)) {
+    if (!baseTitle || !normTitle || !platformId) continue;
+    if (
+      isCanonicalNoiseTitle(
+        baseTitle,
+        platformId,
+        item.edition || extracted.edition,
+      )
+    ) {
       continue;
     }
+    const rawEd = item.edition || extracted.edition || null;
+    const isMerchEd =
+      rawEd &&
+      /\b(?:plushie|book|yunomi|nendoroid)\s+bundle\b|\bpromo\s+card\b|\bstore\s+exclusive\b/i.test(
+        rawEd,
+      );
+    const variants = isMerchEd ? null : rawEd;
     addRelease({
       platform_id: platformId,
       raw_title: cleanedTitle,
       normalized_title: normTitle,
       region: item.region || 'USA',
-      variants: item.edition || null,
+      variants,
       rom_name: null,
       rom_crc: null,
       serial_code: null,
@@ -483,7 +501,9 @@ export function parseRetailBackCatalog(
   }
 
   for (const item of snapshot.retail || []) {
-    if (isStandaloneToyListing(item)) continue;
+    if (isStandaloneToyListing(item) || isNonGameRetailTitle(item.name, null)) {
+      continue;
+    }
     const rawPlatformId = resolveRetailPlatformId(item.platform, item.name);
     const platformId = rawPlatformId
       ? normalizeLegacyPlatformId(rawPlatformId)

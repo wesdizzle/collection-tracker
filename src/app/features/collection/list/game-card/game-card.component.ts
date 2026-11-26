@@ -89,6 +89,15 @@ export class GameCardComponent {
     },
   );
 
+  public readonly splitCovers = computed<string[]>(() => {
+    const g = this.game();
+    if (g.image_url || !g.constituent_games?.length) return [];
+    const imgs = g.constituent_games
+      .map((c) => (c.image_url || '').trim())
+      .filter(Boolean);
+    return imgs.length >= 2 ? imgs.slice(0, 2) : [];
+  });
+
   onCardActivate(): void {
     const g = this.game();
     const rawId = g.stable_id ?? g.id;

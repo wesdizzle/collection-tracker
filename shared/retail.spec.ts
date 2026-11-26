@@ -949,5 +949,35 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       expect(res).toHaveLength(1);
       expect(res[0].name).toBe('Fallback PreOrder - PS5 (PRE-ORDER)');
     });
+
+    it('rejects storefront multi-game cart mega-packs while cleaning merch add-on suffixes from single games', () => {
+      expect(isNonGameRetailTitle('Series 9 "Standard" Mega Pack')).toBe(true);
+      expect(
+        isNonGameRetailTitle(
+          'PlayStation Series 1 Preorder Mega Pack + Bonus!',
+        ),
+      ).toBe(true);
+      expect(isNonGameRetailTitle('Taito CE Bundle')).toBe(true);
+      expect(isNonGameRetailTitle('Indie Action RPG Bundle')).toBe(true);
+      expect(isNonGameRetailTitle('Couch Co-Op Fun Collector Bundle')).toBe(
+        true,
+      );
+
+      // Single-game merch add-on bundles remain matchable for existence/retail links without spawning merch variants
+      expect(
+        isNonGameRetailTitle('Bubble Bobble 4 Friends Plushie Bundle'),
+      ).toBe(false);
+      expect(cleanRetailTitle('Bubble Bobble 4 Friends Plushie Bundle')).toBe(
+        'Bubble Bobble 4 Friends',
+      );
+      expect(
+        cleanRetailTitle('Astonishia Story + Store Exclusive Key Art Stand'),
+      ).toBe('Astonishia Story');
+      expect(
+        cleanRetailTitle(
+          'Final Fantasy VII Revelation (With Exclusive MTG FF Promo Card)',
+        ),
+      ).toBe('Final Fantasy VII Revelation');
+    });
   });
 });

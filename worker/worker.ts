@@ -41,6 +41,7 @@ import {
   normalizeMerchantName,
   normalizeReceiptUrl,
   parseGameMetadataOnce,
+  ConstituentGameLink,
   resolveLocalizedReleaseTitle,
   postProcessGameListRows,
   postProcessToyListRows,
@@ -113,6 +114,7 @@ import {
   normalizeForIgdbMatch,
   normalizeSafeSequelNumerals,
   normalizeTitleForMatching,
+  parseComboCartConstituentTitles,
   resolveCanonicalDisplayTitle,
   stripEditionSuffix,
   stripIgdbEditionWrapper,
@@ -1064,7 +1066,7 @@ let cachedCatalogDeltaGames: {
   expiresAt: number;
 } | null = null;
 
-const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, barcode, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
+const LITE_GAMES_SELECT_COLS = `stable_id, id, title, series, platform_id, sort_index, image_url, igdb_id, genres, region, collections, franchises, canonical_series, CASE WHEN metadata_json LIKE '%alternative_names%' OR metadata_json LIKE '%game_localizations%' OR metadata_json LIKE '%constituent_games%' THEN metadata_json ELSE NULL END AS metadata_json, igdb_url, barcode, bundle_parent_id, bundle_disc_number, retail_price, retail_regular_price, retail_discount_pct, retail_on_sale, retail_store, retail_url, retail_updated_at`;
 const LITE_GAME_RELEASES_SELECT_COLS = `id, game_id, region, variants, also_released_as, rom_name, rom_crc, release_date, image_url, canonical_release_id`;
 
 export async function loadMetaSnapshotForFallback(
@@ -2381,6 +2383,13 @@ function applyGameDetailReleasePartitionAndTitles(
 
   const baseTitle = game.base_title || game.title || '';
   const parsedMeta = parseGameMetadataOnce(game.metadata_json || null);
+  if (
+    Array.isArray(parsedMeta?.constituent_games) &&
+    parsedMeta.constituent_games.length > 0
+  ) {
+    (game as unknown as Record<string, unknown>)['constituent_games'] =
+      parsedMeta.constituent_games;
+  }
   game.title = resolveLocalizedReleaseTitle(
     baseTitle,
     game.region as string | null,
@@ -6801,6 +6810,7 @@ Disallow: /
           runPs5DbNow?: boolean;
           runSerialStationNow?: boolean;
           runWorkerDatsNow?: boolean;
+          recomputeCoverageNow?: boolean;
         } | null;
 
         let batchResult: unknown = undefined;
@@ -6812,6 +6822,7 @@ Disallow: /
         let ps5DbResult: unknown = undefined;
         let serialStationResult: unknown = undefined;
         let workerDatsResult: unknown = undefined;
+        let coverageResult: unknown = undefined;
         if (body?.runBatchNow) {
           batchResult = await syncWorkerBroadCatalogPopulation(env);
           await invalidateEdgeApiCache(request.url);
@@ -6853,6 +6864,9 @@ Disallow: /
           });
           await invalidateEdgeApiCache(request.url);
         }
+        if (body?.recomputeCoverageNow) {
+          coverageResult = await recomputeCatalogCoverageStats(env);
+        }
 
         const status = await getBroadCatalogSeedStatus(env);
         return Response.json({
@@ -6867,6 +6881,7 @@ Disallow: /
           ps5DbResult,
           serialStationResult,
           workerDatsResult,
+          coverageResult,
         });
       }
 
@@ -10802,9 +10817,15 @@ export default {
         case 15:
           await runGatedIngestion('amiibo_catalog', async () => {
             const res = await syncWorkerAmiiboCatalog(env);
+            await recomputeCatalogCoverageStats(env).catch((err) => {
+              console.warn(
+                '[WorkerCron] Failed to refresh catalog_coverage_stats:',
+                err,
+              );
+            });
             return {
               summary: res.hashMatch
-                ? 'AmiiboAPI catalog unchanged (0 writes)'
+                ? 'AmiiboAPI catalog unchanged (0 writes); refreshed coverage snapshot'
                 : `Synced Amiibo catalog (+${res.addedCount} / ~${res.updatedCount}, ${res.writesUsed} writes)`,
               details: res,
             };
@@ -16354,6 +16375,165 @@ export async function mergeDuplicateGameIntoTarget(
 }
 
 /**
+ * Resolves every constituent game of a physical multi-game combo cartridge/disc
+ * against IGDB-linked catalog rows on the same platform first, falling back to
+ * IGDB lookup if any constituent is absent locally. Returns `[]` unless every
+ * constituent resolves to a valid IGDB ID (`>= 2` unique IGDB IDs).
+ */
+export async function resolveComboCartConstituentsFromDbOrIgdb(
+  env: Env,
+  game: { stable_id: number; platform_id: number; region?: string | null },
+  plat: { id: number; igdbId: number | null; launchDate: string | null },
+  constituentTitles: string[],
+): Promise<ConstituentGameLink[]> {
+  if (constituentTitles.length < 2) return [];
+  const { results: platGames } = await env.DB.prepare(
+    `SELECT stable_id, title, igdb_id, igdb_url, image_url
+     FROM games
+     WHERE platform_id = ? AND igdb_id IS NOT NULL AND igdb_id > 0`,
+  )
+    .bind(game.platform_id)
+    .all<{
+      stable_id: number;
+      title: string;
+      igdb_id: number;
+      igdb_url: string | null;
+      image_url: string | null;
+    }>();
+
+  const byKey = new Map<
+    string,
+    Array<{
+      stable_id: number;
+      title: string;
+      igdb_id: number;
+      igdb_url: string | null;
+      image_url: string | null;
+    }>
+  >();
+  for (const row of platGames || []) {
+    for (const k of buildCanonicalLinkerMatchKeys(row.title)) {
+      if (!k) continue;
+      const arr = byKey.get(k) || [];
+      if (!arr.some((x) => x.stable_id === row.stable_id)) {
+        arr.push(row);
+        byKey.set(k, arr);
+      }
+    }
+  }
+
+  const resolved: Array<ConstituentGameLink | null> = new Array(
+    constituentTitles.length,
+  ).fill(null);
+  const missingLookup: Array<{
+    key: string;
+    title: string;
+    normalizedTitle: string;
+    igdbPlatformId: number | null;
+    trackerPlatformId: number;
+    platformLaunchDate: string | null;
+  }> = [];
+
+  for (let idx = 0; idx < constituentTitles.length; idx++) {
+    const partTitle = constituentTitles[idx];
+    const partKeys = buildCanonicalLinkerMatchKeys(partTitle);
+    const cands: Array<{
+      stable_id: number;
+      title: string;
+      igdb_id: number;
+      igdb_url: string | null;
+      image_url: string | null;
+    }> = [];
+    for (const k of partKeys) {
+      for (const m of byKey.get(k) || []) {
+        if (
+          areCanonicalTitlesSequelCompatible(partTitle, m.title) &&
+          !cands.some((x) => x.stable_id === m.stable_id)
+        ) {
+          cands.push(m);
+        }
+      }
+    }
+    if (cands.length > 0) {
+      const exactNorm = normalizeTitleForMatching(partTitle);
+      const picked =
+        cands.find((c) => normalizeTitleForMatching(c.title) === exactNorm) ??
+        cands.sort((a, b) => a.stable_id - b.stable_id)[0];
+      let relDate: string | null = null;
+      try {
+        const relRow = await env.DB.prepare(
+          `SELECT release_date FROM game_releases WHERE game_id = ? AND release_date IS NOT NULL LIMIT 1`,
+        )
+          .bind(picked.stable_id)
+          .first<{ release_date: string }>();
+        relDate = relRow?.release_date ?? null;
+      } catch {
+        // Ignore if minimal test schema lacks game_releases.release_date
+      }
+      resolved[idx] = {
+        stable_id: picked.stable_id,
+        igdb_id: picked.igdb_id,
+        title: picked.title,
+        igdb_url: picked.igdb_url ?? null,
+        image_url: picked.image_url ?? null,
+        release_date: relDate,
+      };
+    } else if (plat.igdbId && plat.igdbId > 0) {
+      const norm =
+        normalizeForIgdbMatch(partTitle) ||
+        normalizeTitleForMatching(partTitle);
+      if (norm) {
+        missingLookup.push({
+          key: String(idx),
+          title: partTitle,
+          normalizedTitle: norm,
+          igdbPlatformId: plat.igdbId,
+          trackerPlatformId: plat.id,
+          platformLaunchDate: plat.launchDate,
+        });
+      }
+    }
+  }
+
+  if (missingLookup.length > 0) {
+    const igdbRes = await fetchIgdbMetadataForTitles(env, missingLookup, {
+      paceDelayMs: 0,
+      enableSearchFallback: true,
+    });
+    for (const item of missingLookup) {
+      const idx = Number(item.key);
+      const meta = igdbRes.get(item.key);
+      if (!meta || !meta.igdb_id) continue;
+      const relDate = resolveIgdbPlatformReleaseDate(
+        meta.release_dates,
+        plat.igdbId,
+        plat.launchDate,
+        game.region ?? 'USA',
+        meta.first_release_date,
+      );
+      resolved[idx] = {
+        stable_id: null,
+        igdb_id: meta.igdb_id,
+        title: meta.name || item.title,
+        igdb_url: meta.igdb_url ?? null,
+        image_url: meta.image_url ?? null,
+        release_date: relDate,
+      };
+    }
+  }
+
+  if (resolved.some((r) => !r || !r.igdb_id)) {
+    return [];
+  }
+  const clean = resolved.filter((r): r is ConstituentGameLink => r !== null);
+  const distinctIgdbIds = new Set(clean.map((r) => r.igdb_id));
+  if (distinctIgdbIds.size < 2) {
+    return [];
+  }
+  return clean;
+}
+
+/**
  * Hourly, write-budgeted IGDB retry job for `games` with `igdb_id IS NULL`.
  *  - Phase 1 (User-Tracked Priority): Scans tracked (`ownership_status > 0`) unmatched
  *    titles via a `CROSS JOIN` driven from `user_game_releases` (ugr.user_id > 0), then
@@ -16748,6 +16928,48 @@ export async function syncWorkerUnmatchedIgdbRetry(
 
   for (let i = 0; i < updateStatements.length; i += 100) {
     await env.DB.batch(updateStatements.slice(i, i + 100));
+  }
+
+  // Fallback for unmatched multi-game physical combo carts: resolve all constituent titles
+  // cleanly inside metadata_json.constituent_games when IGDB lacks a standalone compilation entry.
+  for (const game of rows) {
+    if (igdbMetaMap.has(String(game.stable_id))) continue;
+    if (writesUsedToday + tickWritesUsed + 8 > dailyWriteBudget) break;
+    const constituentTitles = parseComboCartConstituentTitles(game.title);
+    if (constituentTitles.length < 2) continue;
+    const plat = platformById.get(game.platform_id);
+    if (!plat) continue;
+    const resolved = await resolveComboCartConstituentsFromDbOrIgdb(
+      env,
+      game,
+      plat,
+      constituentTitles,
+    );
+    if (resolved.length >= 2) {
+      let existingMeta: Record<string, unknown> = {};
+      if (game.metadata_json) {
+        try {
+          const parsed = JSON.parse(game.metadata_json) as Record<
+            string,
+            unknown
+          >;
+          if (parsed && typeof parsed === 'object') existingMeta = parsed;
+        } catch {
+          // ignore malformed existing JSON
+        }
+      }
+      const nextMetaJson = JSON.stringify({
+        ...existingMeta,
+        constituent_games: resolved,
+      });
+      await env.DB.prepare(
+        `UPDATE games SET metadata_json = ? WHERE stable_id = ? AND igdb_id IS NULL`,
+      )
+        .bind(nextMetaJson, game.stable_id)
+        .run();
+      tickWritesUsed += 8;
+      updatedCount++;
+    }
   }
 
   const remainingForDates = Math.max(
@@ -17741,7 +17963,58 @@ export function selectStrictIgdbMatch(
   if (tier2Matches.length === 1) return tier2Matches[0];
   if (tier2Matches.length > 1) return null;
 
-  // Tier 3: Unique non-DLC benign-subtitle or longer-query-prefix match on platform
+  // Tier 2b: Unique non-DLC trailing DX / Remaster <-> Remastered wrapper on platform
+  const DX_OR_REMASTER_TRAILER_RE =
+    /\s*(?:[:\-–—]\s*|\s+)(?:dx|hd\s+remaster(?:ed)?|remaster(?:ed)?)$/i;
+  if (tier2Matches.length === 0) {
+    const dxMatches = mainlineOnPlatform.filter((c) => {
+      const candBase = (c.name || '')
+        .trim()
+        .replace(DX_OR_REMASTER_TRAILER_RE, '')
+        .trim();
+      const candSeq = rawTitle
+        ? extractTitleSequelSignature(c.name || '').join(',')
+        : '';
+      const candBaseNorm = normalizeForIgdbMatch(candBase);
+      if (!candBaseNorm) return false;
+      return allEntries.some((entry) => {
+        if (rawTitle && candSeq !== entry.sequelSig) return false;
+        const entryNoDx = normalizeForIgdbMatch(
+          entry.raw.replace(DX_OR_REMASTER_TRAILER_RE, '').trim(),
+        );
+        return Boolean(entryNoDx && candBaseNorm === entryNoDx);
+      });
+    });
+    if (dxMatches.length === 1) return dxMatches[0];
+  }
+
+  // Tier 2c: Unique non-DLC missing series-prefix match ("Zero Time Dilemma" -> "Zero Escape: Zero Time Dilemma")
+  if (tier2Matches.length === 0 && rawTitle) {
+    const prefixMatches = mainlineOnPlatform.filter((c) => {
+      const candNames = [
+        c.name || '',
+        ...(c.alternative_names || []).map((a) => a.name || ''),
+        ...(c.game_localizations || []).map((l) => l.name || ''),
+      ].filter(Boolean);
+      const candSeq = extractTitleSequelSignature(c.name || '').join(',');
+      return candNames.some((candStr) => {
+        const candSplit = splitTitlePrefixAndSubtitle(candStr);
+        if (!candSplit || candSplit.prefix.length < 3) return false;
+        const suffixIgdb = normalizeForIgdbMatch(candSplit.subtitle);
+        if (!suffixIgdb) return false;
+        return allEntries.some(
+          (entry) =>
+            !entry.isTildeHalf &&
+            hasDistinctiveShortTitle(entry.raw) &&
+            candSeq === entry.sequelSig &&
+            entry.igdbNorm === suffixIgdb,
+        );
+      });
+    });
+    if (prefixMatches.length === 1) return prefixMatches[0];
+  }
+
+  // Tier 3: Unique non-DLC benign-subtitle, longer-query-prefix, or truncated-subtitle match on platform
   if (!rawTitle) return null;
   const tier3Matches = mainlineOnPlatform.filter((c) => {
     const candName = (c.name || '').trim();
@@ -17774,6 +18047,17 @@ export function selectStrictIgdbMatch(
             normalizeForIgdbMatch(prefix) === candNorm &&
             hasDistinctiveShortTitle(candName),
         )
+      ) {
+        return true;
+      }
+
+      // 3c: Truncated long source title ("Like a Dragon: Pirate Yakuza" -> "Like a Dragon: Pirate Yakuza in Hawaii")
+      if (
+        !entry.isTildeHalf &&
+        entry.wordCount >= 4 &&
+        qNorm.length >= 16 &&
+        candNorm.startsWith(qNorm) &&
+        candNorm.length > qNorm.length
       ) {
         return true;
       }
@@ -17826,7 +18110,11 @@ export async function fetchIgdbMetadataForTitles(
     trackerPlatformId?: number | null;
     platformLaunchDate?: string | null;
   }>,
-  options?: { paceDelayMs?: number },
+  options?: {
+    paceDelayMs?: number;
+    enableSearchFallback?: boolean;
+    maxSearchFallbacks?: number;
+  },
 ): Promise<Map<string, IgdbGameMeta>> {
   const out = new Map<string, IgdbGameMeta>();
   if (!env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET) return out;
@@ -17841,23 +18129,48 @@ export async function fetchIgdbMetadataForTitles(
       buildIgdbSearchTokens(i.title).length > 0,
   );
   const paceDelayMs = options?.paceDelayMs ?? (eligible.length > 30 ? 280 : 0);
+  const enableSearchFallback =
+    options?.enableSearchFallback ?? eligible.length <= 50;
+  const maxSearchFallbacks = options?.maxSearchFallbacks ?? 8;
   let igdbRequestsSent = 0;
+  let searchFallbacksUsed = 0;
+
+  const resolveItemPlatformIds = (item: (typeof eligible)[number]): number[] =>
+    item.trackerPlatformId != null
+      ? getIgdbQueryPlatformIds(item.trackerPlatformId, item.igdbPlatformId)
+      : getIgdbCompanionPlatformIds(item.igdbPlatformId as number);
+
+  const matchCandidatesForItem = (
+    item: (typeof eligible)[number],
+    candidates: IgdbSearchCandidate[],
+  ): IgdbSearchCandidate | null => {
+    const effectiveIgdbPlatformId =
+      item.igdbPlatformId && item.igdbPlatformId > 0
+        ? item.igdbPlatformId
+        : (getIgdbQueryPlatformIds(
+            item.trackerPlatformId as number,
+            item.igdbPlatformId,
+          )[0] ?? 0);
+    return selectStrictIgdbMatch(
+      candidates,
+      item.normalizedTitle,
+      effectiveIgdbPlatformId,
+      {
+        rawTitle: item.title,
+        platformLaunchDate: item.platformLaunchDate,
+      },
+    );
+  };
 
   const runChunkPass = async (
     chunk: typeof eligible,
-    getQueryTitle: (item: (typeof eligible)[number]) => string,
+    getQueryTokens: (item: (typeof eligible)[number]) => string[],
   ) => {
     const body = chunk
       .map((item, idx) => {
-        const tokens = buildIgdbSearchTokens(getQueryTitle(item));
+        const tokens = getQueryTokens(item);
         if (tokens.length === 0) return null;
-        const resolvedPlatformIds =
-          item.trackerPlatformId != null
-            ? getIgdbQueryPlatformIds(
-                item.trackerPlatformId,
-                item.igdbPlatformId,
-              )
-            : getIgdbCompanionPlatformIds(item.igdbPlatformId as number);
+        const resolvedPlatformIds = resolveItemPlatformIds(item);
         if (resolvedPlatformIds.length === 0) return null;
         const platformIds = resolvedPlatformIds.join(',');
         const buildFieldClause = (field: string) =>
@@ -17884,22 +18197,7 @@ export async function fetchIgdbMetadataForTitles(
       const idx = parseInt((entry.name || '').replace(/^q/, ''), 10);
       const item = Number.isFinite(idx) ? chunk[idx] : undefined;
       if (!item) continue;
-      const effectiveIgdbPlatformId =
-        item.igdbPlatformId && item.igdbPlatformId > 0
-          ? item.igdbPlatformId
-          : (getIgdbQueryPlatformIds(
-              item.trackerPlatformId as number,
-              item.igdbPlatformId,
-            )[0] ?? 0);
-      const match = selectStrictIgdbMatch(
-        entry.result || [],
-        item.normalizedTitle,
-        effectiveIgdbPlatformId,
-        {
-          rawTitle: item.title,
-          platformLaunchDate: item.platformLaunchDate,
-        },
-      );
+      const match = matchCandidatesForItem(item, entry.result || []);
       if (match) out.set(item.key, toIgdbGameMeta(match));
     }
   };
@@ -17907,7 +18205,7 @@ export async function fetchIgdbMetadataForTitles(
   for (let start = 0; start < eligible.length; start += IGDB_MULTIQUERY_MAX) {
     const chunk = eligible.slice(start, start + IGDB_MULTIQUERY_MAX);
     try {
-      await runChunkPass(chunk, (item) => item.title);
+      await runChunkPass(chunk, (item) => buildIgdbSearchTokens(item.title));
       const tildeRetries = chunk.filter(
         (item) => !out.has(item.key) && /\s+~\s+/.test(item.title),
       );
@@ -17917,7 +18215,7 @@ export async function fetchIgdbMetadataForTitles(
             .split(/\s+~\s+/)
             .map((h) => h.trim())
             .filter(Boolean);
-          return halves[0] || item.title;
+          return buildIgdbSearchTokens(halves[0] || item.title);
         });
       }
       const subtitlePrefixRetries = chunk
@@ -17948,8 +18246,60 @@ export async function fetchIgdbMetadataForTitles(
         );
         await runChunkPass(
           subtitlePrefixRetries.map((e) => e.item),
-          (item) => prefixByKey.get(item.key) || item.title,
+          (item) =>
+            buildIgdbSearchTokens(prefixByKey.get(item.key) || item.title),
         );
+      }
+
+      // Relaxed top-2 token retry catches accent mismatches ("Cafe" vs "Café") and acronym noise ("PES")
+      const relaxedTokenRetries = chunk.filter((item) => {
+        if (out.has(item.key)) return false;
+        const toks = buildIgdbSearchTokens(item.title);
+        return toks.length >= 3;
+      });
+      if (relaxedTokenRetries.length > 0) {
+        await runChunkPass(relaxedTokenRetries, (item) => {
+          const toks = buildIgdbSearchTokens(item.title);
+          const nonAcronym = toks.filter(
+            (t) => !/^(?:pes|dot|dx|hd)$/i.test(t),
+          );
+          const trimmed = nonAcronym.length >= 2 ? nonAcronym : toks;
+          return trimmed.slice(0, 2);
+        });
+      }
+
+      // Guarded IGDB /v4/games `search` fallback for punctuation/translation deviations (".hack//G.U.")
+      if (enableSearchFallback) {
+        const searchCandidates = chunk.filter(
+          (item) =>
+            !out.has(item.key) &&
+            searchFallbacksUsed < maxSearchFallbacks &&
+            resolveItemPlatformIds(item).length > 0,
+        );
+        for (const item of searchCandidates) {
+          if (searchFallbacksUsed >= maxSearchFallbacks) break;
+          const cleaned = sanitizeIgdbSearchTerm(
+            (cleanTitleForIgdbLookup(item.title) || item.title).replace(
+              /^dot\s+hack\b/i,
+              '.hack',
+            ),
+          );
+          if (!cleaned || cleaned.length < 3) continue;
+          const platformIds = resolveItemPlatformIds(item).join(',');
+          if (igdbRequestsSent > 0 && paceDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, paceDelayMs));
+          }
+          igdbRequestsSent++;
+          searchFallbacksUsed++;
+          const query = `search "${cleaned}"; fields id, name, url, summary, first_release_date, category, game_type, cover.image_id, cover.url, genres.name, collections.name, franchises.name, platforms, alternative_names.name, alternative_names.comment, game_localizations.name, game_localizations.region, release_dates.platform, release_dates.region, release_dates.release_region, release_dates.date, remasters, expanded_games, ports; where platforms = (${platformIds}); limit 15;`;
+          const found = (await queryIGDBEdge(
+            'games',
+            query,
+            env,
+          )) as IgdbSearchCandidate[];
+          const match = matchCandidatesForItem(item, found || []);
+          if (match) out.set(item.key, toIgdbGameMeta(match));
+        }
       }
     } catch (err) {
       console.error('[IGDB] multiquery metadata lookup failed:', err);
@@ -17968,6 +18318,245 @@ export function cleanCanonicalDisplayTitle(rawTitle: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned || rawTitle.trim();
+}
+
+export interface CatalogCoverageBucket {
+  totalGames: number;
+  exemptCuratedCount: number;
+  eligibleGames: number;
+  igdbLinkedCount: number;
+  comboLinkedCount: number;
+  igdbLinkedPct: number;
+  missingIgdbCount: number;
+  missingArtCount: number;
+  missingDateCount: number;
+}
+
+export interface CatalogCoverageStats {
+  computedAt: string;
+  totalGames: number;
+  totalReleases: number;
+  verifiedReleases: number;
+  verifiedPct: number;
+  trackedTotalReleases: number;
+  trackedVerifiedReleases: number;
+  trackedVerifiedPct: number;
+  igdb: {
+    tracked: CatalogCoverageBucket;
+    modernWestern: CatalogCoverageBucket;
+    modern: CatalogCoverageBucket;
+    usaEnglishWestern: CatalogCoverageBucket;
+    western: CatalogCoverageBucket;
+    overall: CatalogCoverageBucket;
+  };
+}
+
+function roundCoveragePct(num: number, den: number): number {
+  if (!den || den <= 0) return 100;
+  return Math.round((num / den) * 1000) / 10;
+}
+
+const COVERAGE_SQL_WEST_REGION_EXPR = (col: string) =>
+  `((',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,usa,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,europe,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,world,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,uk,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,canada,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,australia,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,germany,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,france,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,spain,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,italy,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,netherlands,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,sweden,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,brazil,%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%north america%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%united kingdom%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%new zealand%')`;
+
+const COVERAGE_SQL_USA_ENG_REGION_EXPR = (col: string) =>
+  `((',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,usa,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,world,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,canada,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,uk,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,australia,%'
+    OR (',' || REPLACE(LOWER(TRIM(COALESCE(${col}, ''))), ', ', ',') || ',') LIKE '%,ireland,%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%north america%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%united kingdom%'
+    OR LOWER(COALESCE(${col}, '')) LIKE '%new zealand%')`;
+
+/**
+ * Recomputes cached catalog physical-verification & IGDB completeness telemetry
+ * across all 6 coverage buckets and stores it in `sync_state` (`catalog_coverage_stats`)
+ * so `/admin` reads live telemetry in 1 single D1 row read.
+ */
+export async function recomputeCatalogCoverageStats(
+  env: Env,
+): Promise<CatalogCoverageStats> {
+  const verifiedExpr = `(verified_source IN ('nintendo_revised', 'dat', 'nscollectors', 'nscollectors_upcoming', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog') OR rom_name IS NOT NULL OR canonical_release_id IS NOT NULL)`;
+  const verifiedRelExpr = `(r.verified_source IN ('nintendo_revised', 'dat', 'nscollectors', 'nscollectors_upcoming', 'serialstation', 'ps5db', 'mame', 'neogeo_x', 'lgn', 'retail_catalog') OR r.rom_name IS NOT NULL OR r.canonical_release_id IS NOT NULL)`;
+
+  const [relRow, trackedRelRow, gameSummaryRow] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS total_releases,
+              SUM(CASE WHEN ${verifiedExpr} THEN 1 ELSE 0 END) AS verified_releases
+       FROM game_releases`,
+    ).first<{ total_releases: number; verified_releases: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS tracked_total,
+              SUM(CASE WHEN ${verifiedRelExpr} THEN 1 ELSE 0 END) AS tracked_verified
+       FROM user_game_releases ugr
+       CROSS JOIN game_releases r ON r.id = ugr.release_id
+       WHERE ugr.user_id > 0 AND ugr.ownership_status > 0`,
+    ).first<{ tracked_total: number; tracked_verified: number }>(),
+    env.DB.prepare(
+      `WITH tracked_games AS (
+         SELECT DISTINCT r2.game_id AS stable_id
+         FROM user_game_releases ugr
+         CROSS JOIN game_releases r2 ON r2.id = ugr.release_id
+         WHERE ugr.user_id > 0 AND ugr.ownership_status > 0
+       ),
+       rel_flags AS (
+         SELECT game_id,
+                MAX(CASE WHEN release_date IS NOT NULL AND TRIM(release_date) != '' THEN 1 ELSE 0 END) AS has_date,
+                MAX(CASE WHEN ${COVERAGE_SQL_WEST_REGION_EXPR('region')} THEN 1 ELSE 0 END) AS is_west,
+                MAX(CASE WHEN ${COVERAGE_SQL_USA_ENG_REGION_EXPR('region')} THEN 1 ELSE 0 END) AS is_usa_eng
+         FROM game_releases
+         GROUP BY game_id
+       ),
+       per_game AS (
+         SELECT g.stable_id,
+                CASE WHEN g.igdb_id IS NOT NULL AND g.igdb_id > 0 THEN 1 ELSE 0 END AS has_direct,
+                CASE WHEN (g.igdb_id IS NULL OR g.igdb_id <= 0)
+                  AND g.metadata_json LIKE '%constituent_games%'
+                  AND json_valid(g.metadata_json)
+                  AND COALESCE(json_array_length(json_extract(g.metadata_json, '$.constituent_games')), 0) >= 2
+                THEN 1 ELSE 0 END AS is_combo,
+                CASE WHEN (g.igdb_id IS NULL OR g.igdb_id <= 0) AND g.image_url LIKE '/covers/%' THEN 1 ELSE 0 END AS is_exempt,
+                CASE WHEN TRIM(COALESCE(g.image_url, '')) != ''
+                  OR (g.metadata_json LIKE '%constituent_games%' AND g.metadata_json LIKE '%"image_url":"http%')
+                THEN 1 ELSE 0 END AS has_art,
+                CASE WHEN COALESCE(rf.has_date, 0) = 1
+                  OR (g.metadata_json LIKE '%constituent_games%' AND g.metadata_json LIKE '%"release_date":"%')
+                THEN 1 ELSE 0 END AS has_date,
+                CASE WHEN tg.stable_id IS NOT NULL THEN 1 ELSE 0 END AS is_tracked,
+                CASE WHEN g.platform_id IN (26, 27, 34, 35, 49, 50) THEN 1 ELSE 0 END AS is_modern,
+                CASE WHEN COALESCE(rf.is_west, 0) = 1 OR ${COVERAGE_SQL_WEST_REGION_EXPR('g.region')} THEN 1 ELSE 0 END AS is_west,
+                CASE WHEN COALESCE(rf.is_usa_eng, 0) = 1 OR ${COVERAGE_SQL_USA_ENG_REGION_EXPR('g.region')} THEN 1 ELSE 0 END AS is_usa_eng
+         FROM games g
+         LEFT JOIN tracked_games tg ON tg.stable_id = g.stable_id
+         LEFT JOIN rel_flags rf ON rf.game_id = g.stable_id
+       )
+       SELECT COUNT(*) AS overall_total,
+              SUM(is_exempt) AS overall_exempt,
+              SUM(CASE WHEN has_direct = 1 OR is_combo = 1 THEN 1 ELSE 0 END) AS overall_linked,
+              SUM(is_combo) AS overall_combo,
+              SUM(CASE WHEN has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS overall_miss_igdb,
+              SUM(CASE WHEN has_art = 0 THEN 1 ELSE 0 END) AS overall_miss_art,
+              SUM(CASE WHEN has_date = 0 THEN 1 ELSE 0 END) AS overall_miss_date,
+
+              SUM(is_tracked) AS tracked_total,
+              SUM(CASE WHEN is_tracked = 1 AND is_exempt = 1 THEN 1 ELSE 0 END) AS tracked_exempt,
+              SUM(CASE WHEN is_tracked = 1 AND (has_direct = 1 OR is_combo = 1) THEN 1 ELSE 0 END) AS tracked_linked,
+              SUM(CASE WHEN is_tracked = 1 AND is_combo = 1 THEN 1 ELSE 0 END) AS tracked_combo,
+              SUM(CASE WHEN is_tracked = 1 AND has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS tracked_miss_igdb,
+              SUM(CASE WHEN is_tracked = 1 AND has_art = 0 THEN 1 ELSE 0 END) AS tracked_miss_art,
+              SUM(CASE WHEN is_tracked = 1 AND has_date = 0 THEN 1 ELSE 0 END) AS tracked_miss_date,
+
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 THEN 1 ELSE 0 END) AS mw_total,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND is_exempt = 1 THEN 1 ELSE 0 END) AS mw_exempt,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND (has_direct = 1 OR is_combo = 1) THEN 1 ELSE 0 END) AS mw_linked,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND is_combo = 1 THEN 1 ELSE 0 END) AS mw_combo,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS mw_miss_igdb,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND has_art = 0 THEN 1 ELSE 0 END) AS mw_miss_art,
+              SUM(CASE WHEN is_modern = 1 AND is_west = 1 AND has_date = 0 THEN 1 ELSE 0 END) AS mw_miss_date,
+
+              SUM(is_modern) AS modern_total,
+              SUM(CASE WHEN is_modern = 1 AND is_exempt = 1 THEN 1 ELSE 0 END) AS modern_exempt,
+              SUM(CASE WHEN is_modern = 1 AND (has_direct = 1 OR is_combo = 1) THEN 1 ELSE 0 END) AS modern_linked,
+              SUM(CASE WHEN is_modern = 1 AND is_combo = 1 THEN 1 ELSE 0 END) AS modern_combo,
+              SUM(CASE WHEN is_modern = 1 AND has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS modern_miss_igdb,
+              SUM(CASE WHEN is_modern = 1 AND has_art = 0 THEN 1 ELSE 0 END) AS modern_miss_art,
+              SUM(CASE WHEN is_modern = 1 AND has_date = 0 THEN 1 ELSE 0 END) AS modern_miss_date,
+
+              SUM(is_usa_eng) AS usa_total,
+              SUM(CASE WHEN is_usa_eng = 1 AND is_exempt = 1 THEN 1 ELSE 0 END) AS usa_exempt,
+              SUM(CASE WHEN is_usa_eng = 1 AND (has_direct = 1 OR is_combo = 1) THEN 1 ELSE 0 END) AS usa_linked,
+              SUM(CASE WHEN is_usa_eng = 1 AND is_combo = 1 THEN 1 ELSE 0 END) AS usa_combo,
+              SUM(CASE WHEN is_usa_eng = 1 AND has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS usa_miss_igdb,
+              SUM(CASE WHEN is_usa_eng = 1 AND has_art = 0 THEN 1 ELSE 0 END) AS usa_miss_art,
+              SUM(CASE WHEN is_usa_eng = 1 AND has_date = 0 THEN 1 ELSE 0 END) AS usa_miss_date,
+
+              SUM(is_west) AS west_total,
+              SUM(CASE WHEN is_west = 1 AND is_exempt = 1 THEN 1 ELSE 0 END) AS west_exempt,
+              SUM(CASE WHEN is_west = 1 AND (has_direct = 1 OR is_combo = 1) THEN 1 ELSE 0 END) AS west_linked,
+              SUM(CASE WHEN is_west = 1 AND is_combo = 1 THEN 1 ELSE 0 END) AS west_combo,
+              SUM(CASE WHEN is_west = 1 AND has_direct = 0 AND is_combo = 0 AND is_exempt = 0 THEN 1 ELSE 0 END) AS west_miss_igdb,
+              SUM(CASE WHEN is_west = 1 AND has_art = 0 THEN 1 ELSE 0 END) AS west_miss_art,
+              SUM(CASE WHEN is_west = 1 AND has_date = 0 THEN 1 ELSE 0 END) AS west_miss_date
+       FROM per_game`,
+    ).first<Record<string, number>>(),
+  ]);
+
+  const gSum = gameSummaryRow || {};
+  const toBucket = (prefix: string): CatalogCoverageBucket => {
+    const totalGames = Number(gSum[`${prefix}_total`]) || 0;
+    const exemptCuratedCount = Number(gSum[`${prefix}_exempt`]) || 0;
+    const eligibleGames = Math.max(0, totalGames - exemptCuratedCount);
+    const igdbLinkedCount = Number(gSum[`${prefix}_linked`]) || 0;
+    return {
+      totalGames,
+      exemptCuratedCount,
+      eligibleGames,
+      igdbLinkedCount,
+      comboLinkedCount: Number(gSum[`${prefix}_combo`]) || 0,
+      igdbLinkedPct: roundCoveragePct(igdbLinkedCount, eligibleGames),
+      missingIgdbCount: Number(gSum[`${prefix}_miss_igdb`]) || 0,
+      missingArtCount: Number(gSum[`${prefix}_miss_art`]) || 0,
+      missingDateCount: Number(gSum[`${prefix}_miss_date`]) || 0,
+    };
+  };
+
+  const totalReleases = Number(relRow?.total_releases) || 0;
+  const verifiedReleases = Number(relRow?.verified_releases) || 0;
+  const trackedTotalReleases = Number(trackedRelRow?.tracked_total) || 0;
+  const trackedVerifiedReleases = Number(trackedRelRow?.tracked_verified) || 0;
+
+  const stats: CatalogCoverageStats = {
+    computedAt: new Date().toISOString(),
+    totalGames: Number(gSum['overall_total']) || 0,
+    totalReleases,
+    verifiedReleases,
+    verifiedPct: roundCoveragePct(verifiedReleases, totalReleases),
+    trackedTotalReleases,
+    trackedVerifiedReleases,
+    trackedVerifiedPct: roundCoveragePct(
+      trackedVerifiedReleases,
+      trackedTotalReleases,
+    ),
+    igdb: {
+      tracked: toBucket('tracked'),
+      modernWestern: toBucket('mw'),
+      modern: toBucket('modern'),
+      usaEnglishWestern: toBucket('usa'),
+      western: toBucket('west'),
+      overall: toBucket('overall'),
+    },
+  };
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO sync_state (key, value, updated_at)
+       VALUES ('catalog_coverage_stats', ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+      .bind(JSON.stringify(stats))
+      .run();
+  } catch {
+    // Minimal test schemas may omit sync_state
+  }
+
+  return stats;
 }
 
 export async function getBroadCatalogSeedStatus(
@@ -18024,6 +18613,7 @@ export async function getBroadCatalogSeedStatus(
     lastChangedCount: number;
     retroCursor: number;
   };
+  catalogCoverage: CatalogCoverageStats | null;
 }> {
   const includeTableBounds = options?.includeTableBounds ?? true;
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -18075,6 +18665,7 @@ export async function getBroadCatalogSeedStatus(
     retroCursor: 0,
   };
 
+  let catalogCoverage: CatalogCoverageStats | null = null;
   try {
     const { results } = await env.DB.prepare(
       `SELECT key, value, updated_at FROM sync_state
@@ -18095,7 +18686,8 @@ export async function getBroadCatalogSeedStatus(
          'watched_series_discovery_stats',
          'worker_plan_tier',
          'worker_dat_sync_stats',
-         'worker_dat_retro_cursor'
+         'worker_dat_retro_cursor',
+         'catalog_coverage_stats'
        )`,
     ).all<{ key: string; value: string; updated_at: string }>();
 
@@ -18220,6 +18812,15 @@ export async function getBroadCatalogSeedStatus(
         } catch {
           // ignore malformed JSON
         }
+      } else if (row.key === 'catalog_coverage_stats') {
+        try {
+          const parsedCov = JSON.parse(row.value) as CatalogCoverageStats;
+          if (parsedCov && typeof parsedCov === 'object' && parsedCov.igdb) {
+            catalogCoverage = parsedCov;
+          }
+        } catch {
+          // ignore malformed JSON
+        }
       }
     }
   } catch {
@@ -18300,6 +18901,7 @@ export async function getBroadCatalogSeedStatus(
     workerPlanTier,
     catalogDelivery,
     workerDatSync,
+    catalogCoverage,
   };
 }
 

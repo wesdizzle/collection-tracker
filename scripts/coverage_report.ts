@@ -66,6 +66,7 @@ export interface IgdbCoverageSummary {
   exemptCuratedCount: number;
   eligibleGames: number;
   igdbLinkedCount: number;
+  comboLinkedCount: number;
   igdbLinkedPct: number;
   missingIgdbCount: number;
   missingArtCount: number;
@@ -87,7 +88,9 @@ export interface IgdbDuplicateSiblingSample {
 export interface IgdbCoverageReport {
   overall: IgdbCoverageSummary;
   tracked: IgdbCoverageSummary;
+  modernWestern: IgdbCoverageSummary;
   modern: IgdbCoverageSummary;
+  usaEnglishWestern: IgdbCoverageSummary;
   western: IgdbCoverageSummary;
   duplicateSiblingCount: number;
   trackedDuplicateSiblingCount: number;
@@ -144,7 +147,8 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
               platform_id,
               ${gamesCols.has('igdb_id') ? 'igdb_id' : 'NULL AS igdb_id'},
               ${gamesCols.has('image_url') ? 'image_url' : 'NULL AS image_url'},
-              ${gamesCols.has('region') ? 'region' : 'NULL AS region'}
+              ${gamesCols.has('region') ? 'region' : 'NULL AS region'},
+              ${gamesCols.has('metadata_json') ? 'metadata_json' : 'NULL AS metadata_json'}
        FROM games`,
     )
     .all() as Array<{
@@ -154,6 +158,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     igdb_id: number | null;
     image_url: string | null;
     region: string | null;
+    metadata_json: string | null;
   }>;
 
   const releaseRows = db
@@ -444,11 +449,14 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
   });
 
   const WESTERN_REGION_RE =
-    /\b(usa|europe|world|north america|uk|australia|canada|germany|france|spain|italy|netherlands|sweden|brazil)\b/i;
+    /\b(usa|europe|world|north america|uk|united kingdom|australia|new zealand|canada|germany|france|spain|italy|netherlands|sweden|brazil)\b/i;
+  const USA_ENGLISH_WESTERN_RE =
+    /\b(usa|world|north america|canada|uk|united kingdom|australia|new zealand|ireland)\b/i;
   const MODERN_PLATFORMS = new Set([26, 27, 34, 35, 49, 50]);
 
   const gameHasReleaseDate = new Set<number>();
   const gameIsWestern = new Set<number>();
+  const gameIsUsaEnglishWestern = new Set<number>();
   const igdbGamesByCanonical = new Map<
     string,
     Array<(typeof gameRows)[number]>
@@ -463,6 +471,9 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     gameById.set(g.stable_id, g);
     if (g.region && WESTERN_REGION_RE.test(g.region)) {
       gameIsWestern.add(g.stable_id);
+    }
+    if (g.region && USA_ENGLISH_WESTERN_RE.test(g.region)) {
+      gameIsUsaEnglishWestern.add(g.stable_id);
     }
     if (g.igdb_id != null && g.igdb_id > 0) {
       const edBase = extractPhysicalEditionForVariant(g.title).baseTitle;
@@ -488,6 +499,9 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     }
     if (r.region && WESTERN_REGION_RE.test(r.region)) {
       gameIsWestern.add(r.game_id);
+    }
+    if (r.region && USA_ENGLISH_WESTERN_RE.test(r.region)) {
+      gameIsUsaEnglishWestern.add(r.game_id);
     }
     if (r.canonical_release_id != null) {
       const parent = gameById.get(r.game_id);
@@ -518,27 +532,34 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     totalGames: 0,
     exemptCuratedCount: 0,
     igdbLinkedCount: 0,
+    comboLinkedCount: 0,
     missingIgdbCount: 0,
     missingArtCount: 0,
     missingDateCount: 0,
   });
   const igdbOverall = buildSummaryBucket();
   const igdbTracked = buildSummaryBucket();
+  const igdbModernWestern = buildSummaryBucket();
   const igdbModern = buildSummaryBucket();
+  const igdbUsaEnglishWestern = buildSummaryBucket();
   const igdbWestern = buildSummaryBucket();
 
   const recordIgdbStats = (
     bucket: ReturnType<typeof buildSummaryBucket>,
-    g: (typeof gameRows)[number],
     isCuratedExempt: boolean,
-    hasIgdb: boolean,
+    hasIgdbOrCombo: boolean,
+    isComboLinked: boolean,
     hasArt: boolean,
     hasDate: boolean,
   ) => {
     bucket.totalGames++;
     if (isCuratedExempt) bucket.exemptCuratedCount++;
-    if (hasIgdb) bucket.igdbLinkedCount++;
-    else if (!isCuratedExempt) bucket.missingIgdbCount++;
+    if (hasIgdbOrCombo) {
+      bucket.igdbLinkedCount++;
+      if (isComboLinked) bucket.comboLinkedCount++;
+    } else if (!isCuratedExempt) {
+      bucket.missingIgdbCount++;
+    }
     if (!hasArt) bucket.missingArtCount++;
     if (!hasDate) bucket.missingDateCount++;
   };
@@ -547,35 +568,102 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
   let trackedDuplicateSiblingCount = 0;
 
   for (const g of gameRows) {
-    const hasIgdb = g.igdb_id != null && g.igdb_id > 0;
+    const hasDirectIgdb = g.igdb_id != null && g.igdb_id > 0;
+    let constituents: Array<{
+      igdb_id?: number;
+      image_url?: string | null;
+      release_date?: string | null;
+    }> = [];
+    if (
+      !hasDirectIgdb &&
+      g.metadata_json &&
+      g.metadata_json.includes('constituent_games')
+    ) {
+      try {
+        const parsed = JSON.parse(g.metadata_json) as {
+          constituent_games?: typeof constituents;
+        };
+        if (
+          Array.isArray(parsed?.constituent_games) &&
+          parsed.constituent_games.length >= 2 &&
+          parsed.constituent_games.every((c) => Number(c?.igdb_id) > 0)
+        ) {
+          constituents = parsed.constituent_games;
+        }
+      } catch {
+        // ignore malformed metadata_json
+      }
+    }
+    const isComboLinked = !hasDirectIgdb && constituents.length >= 2;
+    const hasIgdb = hasDirectIgdb || isComboLinked;
     const isCuratedExempt =
       !hasIgdb && Boolean(g.image_url && g.image_url.startsWith('/covers/'));
-    const hasArt = Boolean(g.image_url && g.image_url.trim().length > 0);
-    const hasDate = gameHasReleaseDate.has(g.stable_id);
+    const hasArt = Boolean(
+      (g.image_url && g.image_url.trim().length > 0) ||
+      constituents.some((c) => Boolean(c.image_url && c.image_url.trim())),
+    );
+    const hasDate =
+      gameHasReleaseDate.has(g.stable_id) ||
+      constituents.some((c) => Boolean(c.release_date));
     const isTracked = trackedGameIds.has(g.stable_id);
     const isModern = MODERN_PLATFORMS.has(g.platform_id);
     const isWest = gameIsWestern.has(g.stable_id);
+    const isUsaEngWest = gameIsUsaEnglishWestern.has(g.stable_id);
 
-    recordIgdbStats(igdbOverall, g, isCuratedExempt, hasIgdb, hasArt, hasDate);
+    recordIgdbStats(
+      igdbOverall,
+      isCuratedExempt,
+      hasIgdb,
+      isComboLinked,
+      hasArt,
+      hasDate,
+    );
     if (isTracked) {
       recordIgdbStats(
         igdbTracked,
-        g,
         isCuratedExempt,
         hasIgdb,
+        isComboLinked,
+        hasArt,
+        hasDate,
+      );
+    }
+    if (isModern && isWest) {
+      recordIgdbStats(
+        igdbModernWestern,
+        isCuratedExempt,
+        hasIgdb,
+        isComboLinked,
         hasArt,
         hasDate,
       );
     }
     if (isModern) {
-      recordIgdbStats(igdbModern, g, isCuratedExempt, hasIgdb, hasArt, hasDate);
+      recordIgdbStats(
+        igdbModern,
+        isCuratedExempt,
+        hasIgdb,
+        isComboLinked,
+        hasArt,
+        hasDate,
+      );
+    }
+    if (isUsaEngWest) {
+      recordIgdbStats(
+        igdbUsaEnglishWestern,
+        isCuratedExempt,
+        hasIgdb,
+        isComboLinked,
+        hasArt,
+        hasDate,
+      );
     }
     if (isWest) {
       recordIgdbStats(
         igdbWestern,
-        g,
         isCuratedExempt,
         hasIgdb,
+        isComboLinked,
         hasArt,
         hasDate,
       );
@@ -659,6 +747,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
       exemptCuratedCount: b.exemptCuratedCount,
       eligibleGames,
       igdbLinkedCount: b.igdbLinkedCount,
+      comboLinkedCount: b.comboLinkedCount,
       igdbLinkedPct: roundPct(b.igdbLinkedCount, eligibleGames),
       missingIgdbCount: b.missingIgdbCount,
       missingArtCount: b.missingArtCount,
@@ -687,7 +776,9 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     igdbCoverage: {
       overall: finalizeIgdbSummary(igdbOverall),
       tracked: finalizeIgdbSummary(igdbTracked),
+      modernWestern: finalizeIgdbSummary(igdbModernWestern),
       modern: finalizeIgdbSummary(igdbModern),
+      usaEnglishWestern: finalizeIgdbSummary(igdbUsaEnglishWestern),
       western: finalizeIgdbSummary(igdbWestern),
       duplicateSiblingCount: duplicateSiblings.length,
       trackedDuplicateSiblingCount,
@@ -755,11 +846,13 @@ export function formatCoverageReport(report: CoverageReport): string {
   lines.push('');
   lines.push('=== IGDB Metadata Completeness & Duplicate Sibling Audit ===');
   const formatIgdbRow = (label: string, s: IgdbCoverageSummary) =>
-    `${label.padEnd(16)} ${s.igdbLinkedCount.toLocaleString()}/${s.eligibleGames.toLocaleString()} eligible (${s.igdbLinkedPct.toFixed(1)}%) | Missing IGDB: ${s.missingIgdbCount.toLocaleString()} | No Art: ${s.missingArtCount.toLocaleString()} | No Date: ${s.missingDateCount.toLocaleString()}${s.exemptCuratedCount > 0 ? ` | Curated /covers/ exempt: ${s.exemptCuratedCount}` : ''}`;
+    `${label.padEnd(18)} ${s.igdbLinkedCount.toLocaleString()}/${s.eligibleGames.toLocaleString()} eligible (${s.igdbLinkedPct.toFixed(1)}%) | Missing IGDB: ${s.missingIgdbCount.toLocaleString()} | No Art: ${s.missingArtCount.toLocaleString()} | No Date: ${s.missingDateCount.toLocaleString()}${s.comboLinkedCount > 0 ? ` | Combo-linked: ${s.comboLinkedCount}` : ''}${s.exemptCuratedCount > 0 ? ` | Curated /covers/ exempt: ${s.exemptCuratedCount}` : ''}`;
   lines.push(formatIgdbRow('Overall:', igdb.overall));
   lines.push(formatIgdbRow('Tracked:', igdb.tracked));
-  lines.push(formatIgdbRow('Modern:', igdb.modern));
-  lines.push(formatIgdbRow('Western:', igdb.western));
+  lines.push(formatIgdbRow('Modern (West):', igdb.modernWestern));
+  lines.push(formatIgdbRow('Modern (All):', igdb.modern));
+  lines.push(formatIgdbRow('USA/Eng West:', igdb.usaEnglishWestern));
+  lines.push(formatIgdbRow('Western (All):', igdb.western));
   lines.push(
     `Duplicate Unlinked Siblings: ${igdb.duplicateSiblingCount.toLocaleString()} total (${igdb.trackedDuplicateSiblingCount.toLocaleString()} tracked)`,
   );

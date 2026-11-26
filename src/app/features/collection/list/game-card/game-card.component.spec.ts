@@ -316,4 +316,64 @@ describe('GameCardComponent', () => {
       ),
     ).toBeNull();
   });
+
+  it('renders 2-up split cover when image_url is null and constituent_games has >= 2 covers, and single cover when image_url is set', () => {
+    fixture.componentRef.setInput('game', {
+      ...mockGame,
+      id: 'sonic-combo-switch',
+      title: 'Sonic Mania + Team Sonic Racing',
+      image_url: null,
+      constituent_games: [
+        {
+          stable_id: 101,
+          title: 'Sonic Mania',
+          igdb_id: 94873,
+          image_url: 'https://images.igdb.com/mania.jpg',
+        },
+        {
+          stable_id: 102,
+          title: 'Team Sonic Racing',
+          igdb_id: 103018,
+          image_url: 'https://images.igdb.com/tsr.jpg',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    const splitEl = fixture.nativeElement.querySelector(
+      '[data-testid="combo-split-cover"]',
+    ) as HTMLElement | null;
+    expect(splitEl).toBeTruthy();
+    expect(splitEl?.querySelectorAll('img').length).toBe(2);
+
+    // When explicit image_url is present, single cover wins
+    fixture.componentRef.setInput('game', {
+      ...mockGame,
+      id: 'sonic-combo-switch',
+      image_url: 'https://example.com/boxart.jpg',
+      constituent_games: [
+        {
+          stable_id: 101,
+          title: 'Sonic Mania',
+          igdb_id: 94873,
+          image_url: 'https://images.igdb.com/mania.jpg',
+        },
+        {
+          stable_id: 102,
+          title: 'Team Sonic Racing',
+          igdb_id: 103018,
+          image_url: 'https://images.igdb.com/tsr.jpg',
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="combo-split-cover"]'),
+    ).toBeNull();
+    expect(
+      (fixture.nativeElement.querySelector('.card-art') as HTMLImageElement)
+        ?.src,
+    ).toContain('boxart.jpg');
+  });
 });

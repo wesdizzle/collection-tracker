@@ -1395,6 +1395,41 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           30,
         ),
       ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Atari PAM Diagnostics (USA)',
+          'Atari PAM Diagnostics (USA).a52',
+          3,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Lynx II Production Test Program (USA)',
+          'Lynx II Production Test Program.lnx',
+          5,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Game Boy Aging Cartridge (World)',
+          'Game Boy Aging Cartridge (World).gb',
+          14,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'A Hole New World PALCOM Style Packaging Version (USA)',
+          'hole.nsp',
+          26,
+        ),
+      ).toBe(false);
+      expect(
+        isIgnoredFormatRelease(
+          'Raging Bless - Gouma Mokushiroku (Japan)',
+          'raging.iso',
+          30,
+        ),
+      ).toBe(false);
 
       // Legitimate games & curated pack-ins must remain preserved
       expect(

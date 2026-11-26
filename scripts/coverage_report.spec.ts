@@ -107,10 +107,13 @@ describe('coverage_report', () => {
         exemptCuratedCount: 1,
         eligibleGames: 8,
         igdbLinkedCount: 4,
+        comboLinkedCount: 0,
         missingIgdbCount: 4,
         missingArtCount: 4,
         missingDateCount: 4,
       });
+      expect(report.igdbCoverage.modernWestern).toBeDefined();
+      expect(report.igdbCoverage.usaEnglishWestern).toBeDefined();
       expect(report.igdbCoverage.duplicateSiblingCount).toBe(1);
       expect(report.igdbCoverage.trackedDuplicateSiblingCount).toBe(1);
       expect(report.igdbCoverage.sampleDuplicateSiblings[0]).toMatchObject({

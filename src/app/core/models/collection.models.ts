@@ -97,6 +97,46 @@ export interface SharedMediaReleaseLink {
   has_media: number;
 }
 
+export interface ConstituentGameLink {
+  stable_id?: number | null;
+  title: string;
+  igdb_id: number;
+  igdb_url?: string | null;
+  image_url?: string | null;
+  release_date?: string | null;
+}
+
+export interface CatalogCoverageBucket {
+  totalGames: number;
+  exemptCuratedCount: number;
+  eligibleGames: number;
+  igdbLinkedCount: number;
+  comboLinkedCount: number;
+  igdbLinkedPct: number;
+  missingIgdbCount: number;
+  missingArtCount: number;
+  missingDateCount: number;
+}
+
+export interface CatalogCoverageStats {
+  computedAt: string;
+  totalGames: number;
+  totalReleases: number;
+  verifiedReleases: number;
+  verifiedPct: number;
+  trackedTotalReleases: number;
+  trackedVerifiedReleases: number;
+  trackedVerifiedPct: number;
+  igdb: {
+    tracked: CatalogCoverageBucket;
+    modernWestern: CatalogCoverageBucket;
+    modern: CatalogCoverageBucket;
+    usaEnglishWestern: CatalogCoverageBucket;
+    western: CatalogCoverageBucket;
+    overall: CatalogCoverageBucket;
+  };
+}
+
 /**
  * Unified Game / Catalog Media Row / Detail View interface.
  *
@@ -171,6 +211,7 @@ export interface Game {
   /** Detail view: alternate regional/variant releases belonging to the same Platform Game. */
   other_releases?: GameRelease[];
   bundled_games?: BundledGame[];
+  constituent_games?: ConstituentGameLink[];
   shared_media_releases?: SharedMediaReleaseLink[];
   voucher_notes?: string[];
   compatible_toys?: CompatibleToySummary[];
@@ -905,6 +946,7 @@ export interface CatalogSeedStatus {
     lastChangedCount: number;
     retroCursor: number;
   };
+  catalogCoverage?: CatalogCoverageStats | null;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   resolveCanonicalDisplayTitle,
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
+  parseComboCartConstituentTitles,
 } from './title_matching.js';
 
 describe('Title Normalization', () => {
@@ -1398,6 +1399,106 @@ describe('Title Matching Strategies', () => {
         baseTitle: 'Real Bout Fatal Fury Special',
         edition: null,
       });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          "Alisa: Developer's Cut [RETRO EDITION] [PREMIUM EDITION GAMES SERIES 10]",
+        ),
+      ).toEqual({
+        baseTitle: "Alisa: Developer's Cut",
+        edition: 'Retro Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'BACKERS - DE#9: Chained Echoes Complete Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Chained Echoes',
+        edition: 'Complete Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Elder Scrolls IV: Oblivion Remaster - Deluxe Edition, The',
+        ),
+      ).toEqual({
+        baseTitle: 'The Elder Scrolls IV: Oblivion Remaster',
+        edition: 'Deluxe Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Bubble Bobble 4 Friends Plushie Bundle',
+        ),
+      ).toEqual({
+        baseTitle: 'Bubble Bobble 4 Friends',
+        edition: null,
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Final Fantasy VII Revelation Deluxe Edition (With Exclusive MTG FF Promo Card)',
+        ),
+      ).toEqual({
+        baseTitle: 'Final Fantasy VII Revelation',
+        edition: 'Deluxe Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Astonishia Story + Store Exclusive Key Art Stand',
+        ),
+      ).toEqual({
+        baseTitle: 'Astonishia Story',
+        edition: null,
+      });
+
+      expect(
+        buildCanonicalLinkerMatchKeys(
+          '2 Games in One! - Dr. Mario + Puzzle League',
+        ),
+      ).toContain('drmariopuzzleleague');
+    });
+
+    it('parses physical multi-game combo cart constituent titles without splitting single games containing ampersands', () => {
+      expect(
+        parseComboCartConstituentTitles('Sonic Mania + Team Sonic Racing'),
+      ).toEqual(['Sonic Mania', 'Team Sonic Racing']);
+      expect(parseComboCartConstituentTitles('Yakuza Kiwami 1+2')).toEqual([
+        'Yakuza Kiwami',
+        'Yakuza Kiwami 2',
+      ]);
+      expect(
+        parseComboCartConstituentTitles('Star Wars Jedi Outcast/Jedi Academy'),
+      ).toEqual(['Star Wars Jedi Outcast', 'Star Wars Jedi Academy']);
+      expect(
+        parseComboCartConstituentTitles(
+          'Harvest Moon: The Lost Valley and Skytree Village',
+        ),
+      ).toEqual([
+        'Harvest Moon: The Lost Valley',
+        'Harvest Moon: Skytree Village',
+      ]);
+      expect(
+        parseComboCartConstituentTitles(
+          "2 in 1 Game Pack - Spider-Man - Mysterio's Menace + X2 - Wolverine's Revenge",
+        ),
+      ).toEqual(["Spider-Man - Mysterio's Menace", "X2 - Wolverine's Revenge"]);
+
+      // Negative guards: single titles with natural '&' or 'and'
+      expect(
+        parseComboCartConstituentTitles(
+          'DC League of Super-Pets: Adventure of Krypto & Ace',
+        ),
+      ).toEqual([]);
+      expect(
+        parseComboCartConstituentTitles(
+          'The Walking Dead: Saints and Sinners Chapter 2',
+        ),
+      ).toEqual([]);
+      expect(parseComboCartConstituentTitles('Ratchet & Clank')).toEqual([]);
+      expect(parseComboCartConstituentTitles('Sonic & Knuckles')).toEqual([]);
     });
   });
 });

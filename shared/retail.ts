@@ -12,6 +12,7 @@
 import {
   stripBoutiqueCatalogPrefix,
   stripLgnPlatformPipeTrailer,
+  stripMerchAddonSuffix,
   stripRetailPreorderAndPlatformTrailer,
 } from './title_matching.js';
 
@@ -284,7 +285,9 @@ export function cleanRetailTitle(rawTitle: string): string {
     )
     .replace(/\s*[-–—]\s*\((?:PS4|PS5|PSV|PSVR2?|XB1|XSX|NSW2?)\)\s*$/i, '');
 
-  cleaned = stripRetailPreorderAndPlatformTrailer(cleaned);
+  cleaned = stripMerchAddonSuffix(
+    stripRetailPreorderAndPlatformTrailer(cleaned),
+  );
   for (let i = 0; i < 4; i++) {
     const next = cleaned.replace(RETAIL_TRAILING_CONDITION_OR_IMPORT_RE, '');
     if (next === cleaned) break;
@@ -331,7 +334,7 @@ export async function fetchCadToUsdRate(
 }
 
 const NON_GAME_RETAIL_KEYWORDS =
-  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live|console\s+bundle|hardware|console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only|series\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack|preorder\s+mega\s+pack|collector\s+mega\s+bundle|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?\s+bundle|indie\s+(?:action\s+rpg|adventure)\s+(?:le\s+)?bundle|taito\s+ce\s+bundle|super\s+meta\s+x?le\s+bundle|cotton\s+(?:100%\s+legacy|16-bit|modern|complete\s+collector'?s?)\s+.*bundle|digital\s+eclipse\s+presents:\s*.*\bcomplete\s+bundle|toaplan\s+arcade\s+collection\s+volume\s+1\s+and\s+2\s+complete\s+bundle|snow\s+bros:\s*the\s+ultimate\s+bundle|wonder\s+boy\s+ultra\s+collector'?s?\s+bundle|irem\s+collection\s+volume\s+1\s*-\s*5\s+bundle)\b)/i;
 
 /**
  * Returns true if a retailer product title/type is clearly hardware, apparel, TCG,

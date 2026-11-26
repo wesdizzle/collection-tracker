@@ -1531,5 +1531,72 @@ describe('ItemDetailComponent', () => {
         'Playable character in Skylanders mode',
       );
     });
+
+    it('renders combo-cart split cover, IGDB Linked (N Games) pill, and Included Games on This Cart section', async () => {
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          stable_id: 9500,
+          id: 'sonic-mania-plus-tsr-switch',
+          title: 'Sonic Mania + Team Sonic Racing',
+          platform: 'Nintendo Switch',
+          platform_id: 26,
+          igdb_id: null,
+          igdb_url: null,
+          image_url: null,
+          constituent_games: [
+            {
+              stable_id: 101,
+              title: 'Sonic Mania',
+              igdb_id: 94873,
+              igdb_url: 'https://www.igdb.com/games/sonic-mania',
+              image_url: 'https://images.igdb.com/mania.jpg',
+              release_date: '2017-08-15',
+            },
+            {
+              stable_id: 102,
+              title: 'Team Sonic Racing',
+              igdb_id: 103018,
+              igdb_url: 'https://www.igdb.com/games/team-sonic-racing',
+              image_url: 'https://images.igdb.com/tsr.jpg',
+              release_date: '2019-05-21',
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '9500', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const pill = compiled.querySelector('[data-testid="combo-igdb-pill"]');
+      expect(pill).toBeTruthy();
+      expect(pill?.textContent).toContain('IGDB Linked (2 Games)');
+
+      const splitCover = compiled.querySelector(
+        '[data-testid="detail-combo-split-cover"]',
+      );
+      expect(splitCover).toBeTruthy();
+      expect(splitCover?.querySelectorAll('img').length).toBe(2);
+
+      const section = compiled.querySelector(
+        '[data-testid="constituent-games-section"]',
+      );
+      expect(section).toBeTruthy();
+      expect(section?.textContent).toContain('Included Games on This Cart');
+      expect(section?.textContent).toContain('Sonic Mania');
+      expect(section?.textContent).toContain('Team Sonic Racing');
+      const catalogLink = section?.querySelector(
+        'a[href="/game/101"]',
+      ) as HTMLAnchorElement | null;
+      expect(catalogLink).toBeTruthy();
+      const igdbLink = section?.querySelector(
+        'a[href="https://www.igdb.com/games/team-sonic-racing"]',
+      ) as HTMLAnchorElement | null;
+      expect(igdbLink).toBeTruthy();
+      expect(igdbLink?.textContent).toContain('IGDB ↗');
+    });
   });
 });

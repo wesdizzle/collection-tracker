@@ -124,6 +124,7 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       runNsCollectorsNow?: boolean;
       runRetailPreOrdersNow?: boolean;
       runWorkerDatsNow?: boolean;
+      recomputeCoverageNow?: boolean;
     },
     successMessage: (status: CatalogSeedStatus) => string,
     fallbackError: string,
@@ -200,6 +201,17 @@ export class AdminCenterComponent implements OnInit, OnDestroy {
       { runWorkerDatsNow: true },
       () => 'Worker DAT sync completed.',
       'Failed to run Worker DAT sync.',
+    );
+  }
+
+  public async triggerRecomputeCoverageNow(): Promise<void> {
+    await this.runPipelineControlAction(
+      { recomputeCoverageNow: true },
+      (s) =>
+        s.catalogCoverage
+          ? `Catalog coverage recomputed (Tracked ${s.catalogCoverage.igdb.tracked.igdbLinkedPct}%, Modern West ${s.catalogCoverage.igdb.modernWestern.igdbLinkedPct}%).`
+          : 'Catalog coverage recomputed.',
+      'Failed to recompute catalog coverage stats.',
     );
   }
 

@@ -40,6 +40,7 @@ import {
   OwnershipStatus,
   PlayStatus,
   GameRelease,
+  ConstituentGameLink,
   CompatibleToySummary,
   CompatibleGameSummary,
   getMediaIconName,
@@ -257,6 +258,39 @@ export class ItemDetailComponent {
   public platform = computed(() =>
     this.type() === 'platform' ? (this.item() as Platform) : null,
   );
+
+  public readonly constituentGames = computed<ConstituentGameLink[]>(() => {
+    const g = this.game();
+    if (!g) return [];
+    if (Array.isArray(g.constituent_games) && g.constituent_games.length > 0) {
+      return g.constituent_games;
+    }
+    if (g.metadata_json) {
+      try {
+        const parsed = JSON.parse(g.metadata_json) as {
+          constituent_games?: unknown;
+        };
+        if (Array.isArray(parsed?.constituent_games)) {
+          return parsed.constituent_games.filter(
+            (c): c is ConstituentGameLink =>
+              Boolean(c && typeof c === 'object' && 'igdb_id' in c),
+          );
+        }
+      } catch {
+        // ignore malformed metadata_json
+      }
+    }
+    return [];
+  });
+
+  public readonly splitCovers = computed<string[]>(() => {
+    const g = this.game();
+    if (!g || g.image_url) return [];
+    const imgs = this.constituentGames()
+      .map((c) => (c.image_url || '').trim())
+      .filter(Boolean);
+    return imgs.length >= 2 ? imgs.slice(0, 2) : [];
+  });
 
   public filteredCompatibleToys = computed<CompatibleToySummary[]>(() => {
     const toys = this.game()?.compatible_toys || [];

@@ -243,6 +243,15 @@ const NON_GAME_KEYWORDS = [
   'tote bag',
   'apparel',
   'digital code only',
+  'mega pack',
+  'collector mega bundle',
+  'couch co-op fun collector bundle',
+  'couch co-op fun le bundle',
+  'indie action rpg bundle',
+  'indie adventure le bundle',
+  'taito ce bundle',
+  'super meta le bundle',
+  'super meta xle bundle',
 ];
 
 const NON_GAME_REGEXES = NON_GAME_KEYWORDS.map(

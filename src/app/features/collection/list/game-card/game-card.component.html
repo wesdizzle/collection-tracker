@@ -19,6 +19,22 @@
         decoding="async"
         referrerpolicy="no-referrer"
       />
+    } @else if (splitCovers().length >= 2) {
+      <div
+        class="card-art-split"
+        data-testid="combo-split-cover"
+        [title]="game().title"
+      >
+        @for (src of splitCovers(); track src) {
+          <img
+            [src]="src"
+            alt="Included game cover"
+            loading="lazy"
+            decoding="async"
+            referrerpolicy="no-referrer"
+          />
+        }
+      </div>
     } @else {
       <div
         class="card-art-placeholder text-secondary text-2xs uppercase letter-spacing-wide"

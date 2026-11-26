@@ -183,6 +183,64 @@
 
     <kit-section-card
       class="mb-lg"
+      title="Catalog Coverage &amp; IGDB Completeness"
+      testId="catalog-coverage-card"
+      [compact]="true"
+    >
+      <span
+        cardActions
+        class="pipeline-badge"
+        [class.done]="
+          (s.catalogCoverage?.igdb?.tracked?.igdbLinkedPct ?? 0) >= 95
+        "
+        [class.warn]="
+          !s.catalogCoverage ||
+          s.catalogCoverage.igdb.tracked.igdbLinkedPct < 95
+        "
+      >
+        {{
+          s.catalogCoverage
+            ? 'Tracked ' + s.catalogCoverage.igdb.tracked.igdbLinkedPct + '%'
+            : 'Not Computed Yet'
+        }}
+      </span>
+
+      <div class="pipeline-card-body">
+        @if (s.catalogCoverage) {
+          <kit-stat-bar-list
+            [items]="coverageBarItems()"
+            [defaultMax]="100"
+            [compact]="true"
+            ariaLabel="Catalog physical verification and IGDB completeness metrics"
+          />
+          <kit-kv-grid
+            [items]="coverageKvItems()"
+            density="compact"
+            layout="list"
+          />
+        } @else {
+          <p class="text-sm text-secondary m-0">
+            Coverage metrics have not been computed yet. Click Recompute
+            Coverage to populate the live D1 snapshot.
+          </p>
+        }
+
+        <div class="pipeline-card-actions">
+          <button
+            type="button"
+            class="m3-btn m3-btn-secondary btn-sm"
+            data-testid="pipeline-recompute-coverage-btn"
+            [disabled]="actionBusy()"
+            (click)="recomputeCoverage.emit()"
+          >
+            Recompute Coverage
+          </button>
+        </div>
+      </div>
+    </kit-section-card>
+
+    <kit-section-card
+      class="mb-lg"
       title="Worker Plan Tier &amp; Quota Guard"
       testId="worker-plan-tier-card"
       [compact]="true"

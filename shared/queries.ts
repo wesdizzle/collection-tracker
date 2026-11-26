@@ -74,10 +74,11 @@ export function buildGamesListQuery(userId?: number | null): string {
            g.franchises,
            CASE
              WHEN g.metadata_json IS NULL THEN NULL
-             WHEN g.metadata_json NOT LIKE '%alternative_names%' AND g.metadata_json NOT LIKE '%game_localizations%' THEN NULL
+             WHEN g.metadata_json NOT LIKE '%alternative_names%' AND g.metadata_json NOT LIKE '%game_localizations%' AND g.metadata_json NOT LIKE '%constituent_games%' THEN NULL
              WHEN json_valid(g.metadata_json) THEN json_object(
                'alternative_names', json_extract(g.metadata_json, '$.alternative_names'),
-               'game_localizations', json_extract(g.metadata_json, '$.game_localizations')
+               'game_localizations', json_extract(g.metadata_json, '$.game_localizations'),
+               'constituent_games', json_extract(g.metadata_json, '$.constituent_games')
              )
              ELSE NULL
            END as metadata_json,
@@ -2053,9 +2054,19 @@ export function normalizeReceiptUrl(
 const NATIVE_ASIAN_SCRIPT_REGEX =
   /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
 
+export interface ConstituentGameLink {
+  stable_id: number | null;
+  igdb_id: number;
+  title: string;
+  igdb_url: string | null;
+  image_url: string | null;
+  release_date: string | null;
+}
+
 export interface ParsedGameMetadata {
   alternative_names?: Array<{ name?: string; comment?: string }>;
   game_localizations?: Array<{ region?: number; name?: string }>;
+  constituent_games?: ConstituentGameLink[];
 }
 
 export function parseGameMetadataOnce(
@@ -2065,7 +2076,8 @@ export function parseGameMetadataOnce(
   if (typeof metadataJsonOrObj === 'object') return metadataJsonOrObj;
   if (
     !metadataJsonOrObj.includes('alternative_names') &&
-    !metadataJsonOrObj.includes('game_localizations')
+    !metadataJsonOrObj.includes('game_localizations') &&
+    !metadataJsonOrObj.includes('constituent_games')
   ) {
     return null;
   }
@@ -2314,6 +2326,12 @@ export function enrichAndStripGameListRow(
     if (extraNames.size > 0) {
       row['searchableNames'] = Array.from(extraNames);
     }
+  }
+  if (
+    Array.isArray(parsedMetadata?.constituent_games) &&
+    parsedMetadata.constituent_games.length > 0
+  ) {
+    row['constituent_games'] = parsedMetadata.constituent_games;
   }
   row['metadata_json'] = undefined;
   row['raw_title'] = undefined;

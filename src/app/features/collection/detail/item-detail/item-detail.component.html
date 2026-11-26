@@ -82,6 +82,13 @@
                 /></span>
                 <span>IGDB Verified</span>
               </a>
+            } @else if (constituentGames().length >= 2) {
+              <div class="stat-pill active igdb" data-testid="combo-igdb-pill">
+                <span class="icon"
+                  ><app-icon name="verified-badge" [size]="14"
+                /></span>
+                <span>IGDB Linked ({{ constituentGames().length }} Games)</span>
+              </div>
             }
             @if (g.platform_id === 26 || g.platform_id === 27) {
               <a
@@ -211,6 +218,19 @@
                   [style.view-transition-name]="mediaViewTransitionName()"
                   referrerpolicy="no-referrer"
                 />
+              } @else if (type() === 'game' && splitCovers().length >= 2) {
+                <div
+                  class="detail-art-split"
+                  data-testid="detail-combo-split-cover"
+                >
+                  @for (src of splitCovers(); track src) {
+                    <img
+                      [src]="src"
+                      alt="Included game cover"
+                      referrerpolicy="no-referrer"
+                    />
+                  }
+                </div>
               } @else {
                 <div class="placeholder">No Image</div>
               }
@@ -308,6 +328,61 @@
                 }
               }
               @if (game(); as g) {
+                @if (constituentGames().length > 0) {
+                  <div
+                    class="meta-box full-width mt-lg"
+                    data-testid="constituent-games-section"
+                  >
+                    <span class="label">Included Games on This Cart</span>
+                    <div class="discs-list flex flex-col gap-md mt-2xs">
+                      @for (c of constituentGames(); track c.igdb_id) {
+                        <div
+                          class="disc-row flex flex-col md:flex-row md:items-center justify-between gap-md p-sm rounded-md border border-outline-variant bg-surface-container-high"
+                        >
+                          <div
+                            class="disc-info flex items-center gap-sm flex-1"
+                          >
+                            @if (c.image_url) {
+                              <img
+                                class="constituent-thumb"
+                                [src]="c.image_url"
+                                [alt]="c.title"
+                                referrerpolicy="no-referrer"
+                              />
+                            }
+                            <div class="flex items-center gap-sm flex-wrap">
+                              @if (c.stable_id) {
+                                <a
+                                  class="meta-link font-bold text-sm"
+                                  [routerLink]="['/game', c.stable_id]"
+                                >
+                                  {{ c.title }}
+                                </a>
+                              } @else {
+                                <strong class="text-sm">{{ c.title }}</strong>
+                              }
+                              @if (c.release_date) {
+                                <span class="crc-text">{{
+                                  c.release_date
+                                }}</span>
+                              }
+                            </div>
+                          </div>
+                          @if (c.igdb_url) {
+                            <a
+                              [href]="c.igdb_url"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="stat-pill active igdb interactive"
+                            >
+                              <span>IGDB ↗</span>
+                            </a>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
                 @if (g.bundled_games && g.bundled_games.length > 0) {
                   <div class="meta-box full-width bundles-section mt-lg">
                     <span class="label"

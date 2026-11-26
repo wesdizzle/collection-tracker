@@ -62,6 +62,84 @@ describe('AdminCenterComponent', () => {
       lastChangedCount: 1,
       retroCursor: 2,
     },
+    catalogCoverage: {
+      computedAt: '2026-11-26T10:00:00Z',
+      totalGames: 51790,
+      totalReleases: 74000,
+      verifiedReleases: 68000,
+      verifiedPct: 91.9,
+      trackedTotalReleases: 5330,
+      trackedVerifiedReleases: 5300,
+      trackedVerifiedPct: 99.4,
+      igdb: {
+        tracked: {
+          totalGames: 5330,
+          exemptCuratedCount: 0,
+          eligibleGames: 5330,
+          igdbLinkedCount: 5320,
+          comboLinkedCount: 12,
+          igdbLinkedPct: 99.8,
+          missingIgdbCount: 10,
+          missingArtCount: 10,
+          missingDateCount: 12,
+        },
+        modernWestern: {
+          totalGames: 10000,
+          exemptCuratedCount: 3,
+          eligibleGames: 9997,
+          igdbLinkedCount: 9850,
+          comboLinkedCount: 120,
+          igdbLinkedPct: 98.5,
+          missingIgdbCount: 147,
+          missingArtCount: 147,
+          missingDateCount: 200,
+        },
+        modern: {
+          totalGames: 11800,
+          exemptCuratedCount: 3,
+          eligibleGames: 11797,
+          igdbLinkedCount: 10900,
+          comboLinkedCount: 125,
+          igdbLinkedPct: 92.4,
+          missingIgdbCount: 897,
+          missingArtCount: 897,
+          missingDateCount: 950,
+        },
+        usaEnglishWestern: {
+          totalGames: 27000,
+          exemptCuratedCount: 3,
+          eligibleGames: 26997,
+          igdbLinkedCount: 26200,
+          comboLinkedCount: 200,
+          igdbLinkedPct: 97.0,
+          missingIgdbCount: 797,
+          missingArtCount: 797,
+          missingDateCount: 900,
+        },
+        western: {
+          totalGames: 33700,
+          exemptCuratedCount: 3,
+          eligibleGames: 33697,
+          igdbLinkedCount: 31000,
+          comboLinkedCount: 210,
+          igdbLinkedPct: 92.0,
+          missingIgdbCount: 2697,
+          missingArtCount: 2697,
+          missingDateCount: 3000,
+        },
+        overall: {
+          totalGames: 51790,
+          exemptCuratedCount: 3,
+          eligibleGames: 51787,
+          igdbLinkedCount: 42000,
+          comboLinkedCount: 250,
+          igdbLinkedPct: 81.1,
+          missingIgdbCount: 9787,
+          missingArtCount: 9787,
+          missingDateCount: 11000,
+        },
+      },
+    },
   };
 
   let mockCollectionService: {
@@ -246,5 +324,37 @@ describe('AdminCenterComponent', () => {
     fixture.detectChanges();
 
     expect(card.textContent).toContain('Awaiting eBay API Keys');
+  });
+
+  it('renders Catalog Coverage & IGDB Completeness card with 6 IGDB buckets and wires Recompute Coverage', async () => {
+    const el = fixture.nativeElement as HTMLElement;
+    const covCard = el.querySelector(
+      '[data-testid="catalog-coverage-card"]',
+    ) as HTMLElement;
+    expect(covCard).toBeTruthy();
+    expect(covCard.textContent).toContain('Physical Verification (Tracked)');
+    expect(covCard.textContent).toContain('99.4%');
+    expect(covCard.textContent).toContain('Physical Verification (Overall)');
+    expect(covCard.textContent).toContain('91.9%');
+    expect(covCard.textContent).toContain('IGDB — Tracked');
+    expect(covCard.textContent).toContain('IGDB — Modern (Western)');
+    expect(covCard.textContent).toContain('IGDB — USA / English-Western');
+    expect(covCard.textContent).toContain('IGDB — Modern (All)');
+    expect(covCard.textContent).toContain('IGDB — Western (All)');
+    expect(covCard.textContent).toContain('IGDB — Overall Catalog');
+    expect(covCard.textContent).toContain('120 combo');
+
+    const recomputeBtn = covCard.querySelector(
+      '[data-testid="pipeline-recompute-coverage-btn"]',
+    ) as HTMLButtonElement;
+    recomputeBtn.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(mockCollectionService.updateCatalogSeedControl).toHaveBeenCalledWith(
+      {
+        recomputeCoverageNow: true,
+      },
+    );
   });
 });

@@ -623,6 +623,7 @@ export class CollectionService implements OnDestroy {
     runNsCollectorsNow?: boolean;
     runRetailPreOrdersNow?: boolean;
     runWorkerDatsNow?: boolean;
+    recomputeCoverageNow?: boolean;
   }): Observable<CatalogSeedStatus> {
     return this.http
       .post<
