@@ -120,6 +120,7 @@ export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   games: 7,
   game_releases: 7,
   toys: 5,
+  toy_game_compatibility: 1,
   user_games: 1,
   user_game_releases: 1,
   user_toys: 1,
@@ -441,6 +442,16 @@ export function runCollectionStaticSchemaCostGuard(
       name: 'unmatched IGDB retry duplicate sibling check by igdb_id',
       sql: 'SELECT stable_id FROM games WHERE igdb_id = ? AND igdb_id IS NOT NULL AND +platform_id = ? AND stable_id != ? LIMIT 1',
       params: [100, 26, 1],
+    },
+    {
+      name: 'toy_game_compatibility lookup by game_stable_id',
+      sql: 'SELECT t.stable_id, t.id, t.name, c.can_read, c.can_write, c.description FROM toy_game_compatibility c CROSS JOIN toys t ON t.stable_id = c.toy_stable_id WHERE c.game_stable_id = ?',
+      params: [1],
+    },
+    {
+      name: 'toy_game_compatibility lookup by toy_stable_id',
+      sql: 'SELECT g.stable_id, g.id, g.title, c.can_read, c.can_write, c.description FROM toy_game_compatibility c CROSS JOIN games g ON g.stable_id = c.game_stable_id WHERE c.toy_stable_id = ?',
+      params: [1],
     },
   ];
 

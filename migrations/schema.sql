@@ -127,15 +127,15 @@ CREATE TABLE IF NOT EXISTS toys (
 );
 
 CREATE TABLE IF NOT EXISTS toy_game_compatibility (
-    toy_stable_id INTEGER,
-    game_stable_id INTEGER,
+    toy_stable_id INTEGER NOT NULL,
+    game_stable_id INTEGER NOT NULL,
     can_read BOOLEAN,
     can_write BOOLEAN,
     description TEXT,
     PRIMARY KEY (toy_stable_id, game_stable_id),
     FOREIGN KEY (toy_stable_id) REFERENCES toys (stable_id),
     FOREIGN KEY (game_stable_id) REFERENCES games (stable_id)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS ignored_items (
     id TEXT PRIMARY KEY
@@ -280,6 +280,8 @@ CREATE INDEX IF NOT EXISTS idx_toys_amiibo_id ON toys (amiibo_id);
 CREATE INDEX IF NOT EXISTS idx_toys_line ON toys (line);
 CREATE INDEX IF NOT EXISTS idx_toys_name_nocase ON toys (name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_toys_series_id ON toys (series_id);
+
+CREATE INDEX IF NOT EXISTS idx_tgc_game_stable_id ON toy_game_compatibility (game_stable_id);
 
 CREATE INDEX IF NOT EXISTS idx_ugr_release ON user_game_releases (release_id);
 CREATE INDEX IF NOT EXISTS idx_ug_game ON user_games (game_id);

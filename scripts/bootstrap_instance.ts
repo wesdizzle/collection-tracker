@@ -34,6 +34,7 @@ import { resolveLocalDatabasePath } from './lib/db.js';
 import { downloadAllCanonicalDats } from './fetch_canonical_sources.js';
 import { syncCanonicalSources } from './sync_canonical_sources.js';
 import { runWithD1CostGuard } from './d1_cost_guard.js';
+import { syncToyCompatibility } from './sync_toy_compatibility.js';
 
 export interface BootstrapOptions {
   rootDir?: string;
@@ -175,6 +176,16 @@ export async function bootstrapInstance(
           isDryRun: false,
         });
       }
+    }
+
+    if (phase === 'all') {
+      console.log('6. Syncing toy-game compatibility matrix...');
+      await syncToyCompatibility({
+        db,
+        applyLocal: true,
+        dryRun: true,
+        amiiboItems: options.skipDatsSync ? [] : undefined,
+      });
     }
 
     const platformsCount = (
