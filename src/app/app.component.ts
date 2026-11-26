@@ -9,20 +9,28 @@ import {
 } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SwUpdate } from '@angular/service-worker';
+import { KitPwaInstallPromptComponent } from '@wesdizzle/app-kit/angular';
 import { ConfirmationDialogComponent } from './shared/components/confirmation-dialog/confirmation-dialog.component';
 import { CommandPaletteComponent } from './shared/components/command-palette/command-palette.component';
+import { BrandingService } from './core/services/branding.service';
 import { DialogService } from './core/services/dialog.service';
 import { CommandPaletteService } from './core/services/command-palette.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, ConfirmationDialogComponent, CommandPaletteComponent],
+  imports: [
+    RouterOutlet,
+    ConfirmationDialogComponent,
+    CommandPaletteComponent,
+    KitPwaInstallPromptComponent,
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent implements OnDestroy {
   public title = 'tracker';
+  public readonly branding = inject(BrandingService);
   private readonly dialogService = inject(DialogService);
   private readonly commandPaletteService = inject(CommandPaletteService);
   private readonly swUpdate = inject(SwUpdate, { optional: true });

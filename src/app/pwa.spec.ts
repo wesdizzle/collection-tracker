@@ -53,6 +53,43 @@ describe('SwUpdate Service', () => {
     expect(mockSwUpdate.isEnabled).toBe(true);
     expect(activated).toBe(true);
   });
+
+  it('renders KitPwaInstallPromptComponent inside AppComponent when beforeinstallprompt fires', async () => {
+    localStorage.removeItem('kit-pwa-install-v1');
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: SwUpdate,
+          useValue: { isEnabled: false, versionUpdates: of() },
+        },
+      ],
+    });
+
+    const { AppComponent } = await import('./app.component');
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const promptEvent = new Event('beforeinstallprompt') as Event & {
+      prompt: () => Promise<void>;
+      userChoice: Promise<{
+        outcome: 'accepted' | 'dismissed';
+        platform: string;
+      }>;
+    };
+    promptEvent.prompt = async () => {};
+    promptEvent.userChoice = Promise.resolve({
+      outcome: 'dismissed',
+      platform: 'web',
+    });
+    window.dispatchEvent(promptEvent);
+    fixture.detectChanges();
+
+    const promptEl = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="kit-pwa-install-prompt"]',
+    );
+    expect(promptEl).not.toBeNull();
+    localStorage.removeItem('kit-pwa-install-v1');
+  });
 });
 
 describe('PWA Theme Color Meta Tags', () => {

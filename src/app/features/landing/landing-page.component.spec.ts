@@ -46,4 +46,16 @@ describe('LandingPageComponent', () => {
     component.dismissAlert();
     expect(component.accountMissing()).toBe(false);
   });
+
+  it('should render factual summary, theme toggle, and privacy footer link', () => {
+    const el = fixture.nativeElement as HTMLElement;
+    expect(
+      el.querySelector('[data-testid="landing-details"]')?.textContent,
+    ).toContain('Catalog games by platform');
+    expect(el.querySelector('kit-theme-toggle')).not.toBeNull();
+    const privacyLink = el.querySelector(
+      '[data-testid="landing-privacy-link"]',
+    ) as HTMLAnchorElement | null;
+    expect(privacyLink?.getAttribute('href')).toBe('/privacy');
+  });
 });

@@ -2,6 +2,11 @@
   <router-outlet></router-outlet>
 </main>
 
+<kit-pwa-install-prompt
+  [appName]="branding.appName()"
+  [logoUrl]="branding.logoUrl()"
+/>
+
 @defer (when paletteOpen()) {
   <app-command-palette></app-command-palette>
 }

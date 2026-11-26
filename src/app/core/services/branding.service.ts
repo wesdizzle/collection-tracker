@@ -37,7 +37,7 @@ export const DEFAULT_BRANDING: AppBrandingConfig = {
   providedIn: 'root',
 })
 export class BrandingService {
-  private readonly http = inject(HttpClient);
+  private readonly http = inject(HttpClient, { optional: true });
   private readonly titleService = inject(Title);
 
   private readonly config = signal<AppBrandingConfig>(DEFAULT_BRANDING);
@@ -65,6 +65,10 @@ export class BrandingService {
   }
 
   private async init(): Promise<void> {
+    if (!this.http) {
+      this.titleService.setTitle(DEFAULT_BRANDING.appName);
+      return;
+    }
     try {
       const remoteConfig = await firstValueFrom(
         this.http.get<Partial<AppBrandingConfig>>('/api/config'),
