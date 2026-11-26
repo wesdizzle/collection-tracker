@@ -824,6 +824,117 @@
           </section>
         }
 
+        @if (g.compatible_toys && g.compatible_toys.length > 0) {
+          <section
+            class="compat-section animate-slide-up mb-xl"
+            data-testid="compatible-toys-section"
+          >
+            <div class="compat-header">
+              <div class="flex items-center gap-xs flex-wrap">
+                <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+                  <app-icon name="sparkles" [size]="20" />
+                  <span>Compatible Figures &amp; Toys</span>
+                </h2>
+                <span class="compat-count-badge">{{
+                  g.compatible_toys.length
+                }}</span>
+              </div>
+              @if (g.compatible_toys.length > 8) {
+                <input
+                  type="search"
+                  class="compat-search-input"
+                  [ngModel]="compatSearch()"
+                  (ngModelChange)="compatSearch.set($event)"
+                  placeholder="Filter compatible toys..."
+                  aria-label="Filter compatible toys"
+                  data-testid="compatible-toys-search"
+                />
+              }
+            </div>
+
+            @if (visibleCompatibleToys().length > 0) {
+              <div class="compat-grid">
+                @for (ct of visibleCompatibleToys(); track ct.id) {
+                  <a
+                    [routerLink]="['/toy', ct.id]"
+                    class="compat-card"
+                    data-testid="compatible-toy-card"
+                  >
+                    <div class="compat-thumb">
+                      @if (ct.image_url) {
+                        <img
+                          [src]="ct.image_url"
+                          [alt]="ct.name"
+                          loading="lazy"
+                        />
+                      } @else {
+                        <app-icon name="sparkles" [size]="22" />
+                      }
+                    </div>
+                    <div class="compat-card-body">
+                      <div class="compat-card-title">{{ ct.name }}</div>
+                      <div class="compat-card-sub">
+                        {{ ct.series_name || ct.line }}
+                      </div>
+                      <div class="compat-badges">
+                        <span
+                          class="compat-rw-badge"
+                          [class.rw-write]="ct.can_write === 1"
+                        >
+                          {{ ct.can_write === 1 ? 'Read & Write' : 'Read' }}
+                        </span>
+                        @if (
+                          collectionService.canShowPersonalState() &&
+                            compatOwnershipLabel(ct.ownership_status);
+                          as ownLabel
+                        ) {
+                          <span
+                            class="compat-own-badge"
+                            [class.is-owned]="ct.ownership_status === 1"
+                          >
+                            {{ ownLabel }}
+                          </span>
+                        }
+                      </div>
+                      @if (ct.description) {
+                        <p class="compat-desc" [title]="ct.description">
+                          {{ ct.description }}
+                        </p>
+                      }
+                    </div>
+                  </a>
+                }
+              </div>
+
+              @if (
+                filteredCompatibleToys().length > compatCollapseLimit &&
+                !compatSearch().trim()
+              ) {
+                <div class="compat-footer">
+                  <button
+                    type="button"
+                    class="compat-toggle-btn"
+                    (click)="compatExpanded.set(!compatExpanded())"
+                    data-testid="compatible-toys-toggle"
+                  >
+                    {{
+                      compatExpanded()
+                        ? 'Show fewer'
+                        : 'Show all ' +
+                          filteredCompatibleToys().length +
+                          ' toys'
+                    }}
+                  </button>
+                </div>
+              }
+            } @else {
+              <p class="text-sm text-secondary m-0">
+                No compatible toys match "{{ compatSearch() }}".
+              </p>
+            }
+          </section>
+        }
+
         @if (collectionService.canViewMarketPrices()) {
           <app-item-market-price
             itemType="game"
@@ -992,6 +1103,119 @@
       }
 
       @if (toy(); as t) {
+        @if (t.compatible_games && t.compatible_games.length > 0) {
+          <section
+            class="compat-section animate-slide-up mb-xl"
+            data-testid="compatible-games-section"
+          >
+            <div class="compat-header">
+              <div class="flex items-center gap-xs flex-wrap">
+                <h2 class="text-xl font-bold flex items-center gap-xs m-0">
+                  <app-icon name="gamepad" [size]="20" />
+                  <span>Compatible Games</span>
+                </h2>
+                <span class="compat-count-badge">{{
+                  t.compatible_games.length
+                }}</span>
+              </div>
+              @if (t.compatible_games.length > 8) {
+                <input
+                  type="search"
+                  class="compat-search-input"
+                  [ngModel]="compatSearch()"
+                  (ngModelChange)="compatSearch.set($event)"
+                  placeholder="Filter compatible games..."
+                  aria-label="Filter compatible games"
+                  data-testid="compatible-games-search"
+                />
+              }
+            </div>
+
+            @if (visibleCompatibleGames().length > 0) {
+              <div class="compat-grid">
+                @for (cg of visibleCompatibleGames(); track cg.stable_id) {
+                  <a
+                    [routerLink]="['/game', cg.stable_id]"
+                    class="compat-card"
+                    data-testid="compatible-game-card"
+                  >
+                    <div class="compat-thumb">
+                      @if (cg.image_url) {
+                        <img
+                          [src]="cg.image_url"
+                          [alt]="cg.title"
+                          loading="lazy"
+                        />
+                      } @else {
+                        <app-icon name="gamepad" [size]="22" />
+                      }
+                    </div>
+                    <div class="compat-card-body">
+                      <div class="compat-card-title">{{ cg.title }}</div>
+                      @if (cg.platform_name) {
+                        <div class="compat-card-sub">
+                          {{ cg.platform_name }}
+                        </div>
+                      }
+                      <div class="compat-badges">
+                        <span
+                          class="compat-rw-badge"
+                          [class.rw-write]="cg.can_write === 1"
+                        >
+                          {{ cg.can_write === 1 ? 'Read & Write' : 'Read' }}
+                        </span>
+                        @if (
+                          collectionService.canShowPersonalState() &&
+                            compatOwnershipLabel(cg.ownership_status);
+                          as ownLabel
+                        ) {
+                          <span
+                            class="compat-own-badge"
+                            [class.is-owned]="cg.ownership_status === 1"
+                          >
+                            {{ ownLabel }}
+                          </span>
+                        }
+                      </div>
+                      @if (cg.description) {
+                        <p class="compat-desc" [title]="cg.description">
+                          {{ cg.description }}
+                        </p>
+                      }
+                    </div>
+                  </a>
+                }
+              </div>
+
+              @if (
+                filteredCompatibleGames().length > compatCollapseLimit &&
+                !compatSearch().trim()
+              ) {
+                <div class="compat-footer">
+                  <button
+                    type="button"
+                    class="compat-toggle-btn"
+                    (click)="compatExpanded.set(!compatExpanded())"
+                    data-testid="compatible-games-toggle"
+                  >
+                    {{
+                      compatExpanded()
+                        ? 'Show fewer'
+                        : 'Show all ' +
+                          filteredCompatibleGames().length +
+                          ' games'
+                    }}
+                  </button>
+                </div>
+              }
+            } @else {
+              <p class="text-sm text-secondary m-0">
+                No compatible games match "{{ compatSearch() }}".
+              </p>
+            }
+          </section>
+        }
+
         @if (collectionService.canViewMarketPrices()) {
           <app-item-market-price
             itemType="toy"

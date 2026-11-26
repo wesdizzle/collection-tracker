@@ -173,6 +173,7 @@ export interface Game {
   bundled_games?: BundledGame[];
   shared_media_releases?: SharedMediaReleaseLink[];
   voucher_notes?: string[];
+  compatible_toys?: CompatibleToySummary[];
   /** Virtually grouped list view: structured list of all individual media items in this SKU. */
   mediaItems?: ReleaseMediaItem[];
   searchableNames?: string[];
@@ -196,6 +197,33 @@ export interface BundledGame {
   bundle_disc_number?: number;
   rom_name?: string | null;
   has_media?: number;
+}
+
+export interface CompatibleToySummary {
+  stable_id: number;
+  id: string;
+  name: string;
+  line: string;
+  series_name?: string | null;
+  type?: string | null;
+  image_url?: string | null;
+  ownership_status: OwnershipStatus;
+  can_read: number;
+  can_write: number;
+  description?: string | null;
+}
+
+export interface CompatibleGameSummary {
+  stable_id: number;
+  id: string;
+  title: string;
+  platform_id: number;
+  platform_name?: string | null;
+  image_url?: string | null;
+  ownership_status: OwnershipStatus;
+  can_read: number;
+  can_write: number;
+  description?: string | null;
 }
 
 export interface Toy {
@@ -226,6 +254,7 @@ export interface Toy {
   retail_store?: string | null;
   retail_url?: string | null;
   retail_updated_at?: string | null;
+  compatible_games?: CompatibleGameSummary[];
 }
 
 export function isItemAvailableAtRetail(item: {

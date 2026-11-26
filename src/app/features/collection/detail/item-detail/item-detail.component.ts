@@ -37,8 +37,11 @@ import {
   Game,
   Toy,
   Platform,
+  OwnershipStatus,
   PlayStatus,
   GameRelease,
+  CompatibleToySummary,
+  CompatibleGameSummary,
   getMediaIconName,
   getMediaNoun,
   JournalEntry,
@@ -87,6 +90,9 @@ export class ItemDetailComponent {
   public isEditingJournal = signal<boolean>(false);
   public journalSaving = signal<boolean>(false);
   public journalSaveError = signal<string | null>(null);
+  public compatSearch = signal<string>('');
+  public compatExpanded = signal<boolean>(false);
+  public readonly compatCollapseLimit = 12;
 
   public journalForm: {
     datePrecision: 'exact' | 'month' | 'year' | 'unknown';
@@ -115,6 +121,8 @@ export class ItemDetailComponent {
     this.route.paramMap.subscribe((params) => {
       this.isEditingJournal.set(false);
       this.journalSaveError.set(null);
+      this.compatSearch.set('');
+      this.compatExpanded.set(false);
       const itemType = params.get('type');
       const id = params.get('id');
       if ((itemType === 'game' || itemType === 'toy') && id) {
@@ -249,6 +257,64 @@ export class ItemDetailComponent {
   public platform = computed(() =>
     this.type() === 'platform' ? (this.item() as Platform) : null,
   );
+
+  public filteredCompatibleToys = computed<CompatibleToySummary[]>(() => {
+    const toys = this.game()?.compatible_toys || [];
+    const q = this.compatSearch().trim().toLowerCase();
+    if (!q) return toys;
+    return toys.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.line.toLowerCase().includes(q) ||
+        (t.series_name || '').toLowerCase().includes(q) ||
+        (t.description || '').toLowerCase().includes(q),
+    );
+  });
+
+  public visibleCompatibleToys = computed<CompatibleToySummary[]>(() => {
+    const list = this.filteredCompatibleToys();
+    if (this.compatExpanded() || this.compatSearch().trim()) {
+      return list;
+    }
+    return list.slice(0, this.compatCollapseLimit);
+  });
+
+  public filteredCompatibleGames = computed<CompatibleGameSummary[]>(() => {
+    const games = this.toy()?.compatible_games || [];
+    const q = this.compatSearch().trim().toLowerCase();
+    if (!q) return games;
+    return games.filter(
+      (g) =>
+        g.title.toLowerCase().includes(q) ||
+        (g.platform_name || '').toLowerCase().includes(q) ||
+        (g.description || '').toLowerCase().includes(q),
+    );
+  });
+
+  public visibleCompatibleGames = computed<CompatibleGameSummary[]>(() => {
+    const list = this.filteredCompatibleGames();
+    if (this.compatExpanded() || this.compatSearch().trim()) {
+      return list;
+    }
+    return list.slice(0, this.compatCollapseLimit);
+  });
+
+  compatOwnershipLabel(
+    status?: OwnershipStatus | number | null,
+  ): string | null {
+    switch (status) {
+      case OwnershipStatus.Owned:
+        return 'Owned';
+      case OwnershipStatus.Seeking:
+        return 'Seeking';
+      case OwnershipStatus.Ordered:
+        return 'Ordered';
+      case OwnershipStatus.PrioritySeeking:
+        return 'Priority';
+      default:
+        return null;
+    }
+  }
 
   /** The current item identifier derived from the route */
   public routeId = toSignal(

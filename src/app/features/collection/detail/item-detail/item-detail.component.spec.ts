@@ -1404,5 +1404,132 @@ describe('ItemDetailComponent', () => {
         compiled.querySelector('[data-testid="primary-verification-link"]'),
       ).toBeNull();
     });
+
+    it('renders Compatible Toys section on game detail with search filtering, badges, and detail link', async () => {
+      vi.spyOn(collectionService, 'canShowPersonalState').mockReturnValue(true);
+      vi.spyOn(collectionService, 'getGameById').mockReturnValue(
+        of({
+          ...mockGame,
+          stable_id: 700,
+          id: 'switch-smash',
+          platform_id: 26,
+          platform: 'Nintendo Switch',
+          title: 'Super Smash Bros. Ultimate',
+          compatible_toys: [
+            {
+              stable_id: 1,
+              id: '0000000000000002',
+              name: 'Mario',
+              line: 'amiibo',
+              series_name: 'Super Smash Bros.',
+              type: 'Figure',
+              image_url: 'mario-amiibo.png',
+              ownership_status: 1,
+              can_read: 1,
+              can_write: 1,
+              description: 'Train Figure Player',
+            },
+            ...Array.from({ length: 12 }, (_, idx) => ({
+              stable_id: idx + 10,
+              id: `amiibo-extra-${idx}`,
+              name: `Fighter ${idx + 1}`,
+              line: 'amiibo',
+              series_name: 'Super Smash Bros.',
+              type: 'Figure',
+              image_url: null,
+              ownership_status: 0,
+              can_read: 1,
+              can_write: 0,
+              description: 'Unlock spirit',
+            })),
+          ],
+        }),
+      );
+
+      paramMapSubject.next(convertToParamMap({ id: '700', type: 'game' }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const section = compiled.querySelector(
+        '[data-testid="compatible-toys-section"]',
+      );
+      expect(section).toBeTruthy();
+      expect(
+        compiled.querySelectorAll('[data-testid="compatible-toy-card"]').length,
+      ).toBe(12);
+
+      const firstCard = compiled.querySelector(
+        '[data-testid="compatible-toy-card"]',
+      ) as HTMLAnchorElement;
+      expect(firstCard.getAttribute('href')).toBe('/toy/0000000000000002');
+      expect(firstCard.textContent).toContain('Read & Write');
+      expect(firstCard.textContent).toContain('Owned');
+      expect(firstCard.textContent).toContain('Train Figure Player');
+
+      component.compatSearch.set('Fighter 12');
+      fixture.detectChanges();
+      const filteredCards = compiled.querySelectorAll(
+        '[data-testid="compatible-toy-card"]',
+      );
+      expect(filteredCards.length).toBe(1);
+      expect(filteredCards[0].textContent).toContain('Fighter 12');
+      expect(filteredCards[0].textContent).toContain('Read');
+    });
+
+    it('renders Compatible Games section on toy detail with platform label and game route', async () => {
+      vi.spyOn(collectionService, 'canShowPersonalState').mockReturnValue(true);
+      vi.spyOn(collectionService, 'getToyById').mockReturnValue(
+        of({
+          ...mockToy,
+          stable_id: 595,
+          id: 'skylanders-hammer-slam-bowser',
+          name: 'Hammer Slam Bowser',
+          line: 'Skylanders',
+          compatible_games: [
+            {
+              stable_id: 9102,
+              id: 'wiiu-superchargers',
+              title: 'Skylanders SuperChargers',
+              platform_id: 24,
+              platform_name: 'Wii U',
+              image_url: null,
+              ownership_status: 1,
+              can_read: 1,
+              can_write: 1,
+              description: 'Playable character in Skylanders mode',
+            },
+          ],
+        }),
+      );
+
+      paramMapSubject.next(
+        convertToParamMap({
+          id: 'skylanders-hammer-slam-bowser',
+          type: 'toy',
+        }),
+      );
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const section = compiled.querySelector(
+        '[data-testid="compatible-games-section"]',
+      );
+      expect(section).toBeTruthy();
+      const card = compiled.querySelector(
+        '[data-testid="compatible-game-card"]',
+      ) as HTMLAnchorElement;
+      expect(card.getAttribute('href')).toBe('/game/9102');
+      expect(card.textContent).toContain('Skylanders SuperChargers');
+      expect(card.textContent).toContain('Wii U');
+      expect(card.textContent).toContain('Read & Write');
+      expect(card.textContent).toContain('Owned');
+      expect(card.textContent).toContain(
+        'Playable character in Skylanders mode',
+      );
+    });
   });
 });
