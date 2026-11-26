@@ -971,6 +971,7 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
         ),
       ).toBe(true);
       expect(isNonGameRetailTitle('Frostpunk: Console Edition')).toBe(false);
+      expect(isNonGameRetailTitle('Xbox Live Arcade')).toBe(false);
 
       // Single-game merch add-on bundles remain matchable for existence/retail links without spawning merch variants
       expect(
