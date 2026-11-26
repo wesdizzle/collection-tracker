@@ -11,7 +11,10 @@ import {
   isCanonicalNoiseTitle,
 } from './canonical_releases.js';
 import { parseCsvRows } from './switch_revisions.js';
-import { normalizeTitleForMatching } from './title_matching.js';
+import {
+  extractPhysicalEditionForVariant,
+  normalizeTitleForMatching,
+} from './title_matching.js';
 
 export const PS5DB_CSV_URL =
   'https://docs.google.com/spreadsheets/d/1LNoL9HTVyLutj9T_bWNM54qkyrPGV1tSkiTBJAus-cE/export?format=csv';
@@ -65,16 +68,23 @@ export function parsePs5DbCsv(csv: string): CanonicalRelease[] {
 
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r];
-    const rawTitle = (row[titleCol] || '').replace(/\s+/g, ' ').trim();
-    if (!rawTitle || /^(total|count|legend|last updated)/i.test(rawTitle)) {
+    const cleanedTitle = (row[titleCol] || '').replace(/\s+/g, ' ').trim();
+    if (
+      !cleanedTitle ||
+      /^(total|count|legend|last updated)/i.test(cleanedTitle)
+    ) {
       continue;
     }
 
-    const normTitle = normalizeTitleForMatching(rawTitle);
+    const extracted = extractPhysicalEditionForVariant(cleanedTitle);
+    const rawTitle = cleanedTitle;
+    const normTitle = normalizeTitleForMatching(
+      extracted.baseTitle || cleanedTitle,
+    );
     if (!normTitle) continue;
 
     const limitedRaw = limitedCol >= 0 ? (row[limitedCol] || '').trim() : '';
-    if (isCanonicalNoiseTitle(rawTitle, 35, limitedRaw)) continue;
+    if (isCanonicalNoiseTitle(cleanedTitle, 35, limitedRaw)) continue;
 
     const esrbVal = esrbCol >= 0 ? (row[esrbCol] || '').trim() : '';
     const pegiVal = pegiCol >= 0 ? (row[pegiCol] || '').trim() : '';
@@ -89,10 +99,14 @@ export function parsePs5DbCsv(csv: string): CanonicalRelease[] {
             ? 'Europe'
             : 'World';
 
-    const variants =
-      isPresentCell(limitedRaw) && !/^standard$/i.test(limitedRaw)
-        ? 'Limited Print'
-        : null;
+    const variantParts: string[] = [];
+    if (extracted.edition) {
+      variantParts.push(extracted.edition);
+    }
+    if (isPresentCell(limitedRaw) && !/^standard$/i.test(limitedRaw)) {
+      variantParts.push('Limited Print');
+    }
+    const variants = variantParts.length > 0 ? variantParts.join(', ') : null;
 
     const dedupKey = `${normTitle}::${region}::${variants || ''}`;
     if (seenKeys.has(dedupKey)) continue;

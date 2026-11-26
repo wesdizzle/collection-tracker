@@ -33,6 +33,7 @@ import {
   RetailStoreName,
 } from '../../../shared/retail.js';
 import {
+  extractPhysicalEditionForVariant,
   normalizeTitleForMatching,
   stripBoutiqueCatalogPrefix,
   stripLgnPlatformPipeTrailer,
@@ -491,8 +492,10 @@ export function parseRetailBackCatalog(
     const cleanTitle = cleanRetailTitle(
       stripBoutiqueCatalogPrefix(item.name, { stripPreOrderPrefix: true }),
     );
-    const normTitle = normalizeTitleForMatching(cleanTitle);
-    if (!cleanTitle || !normTitle) continue;
+    const extracted = extractPhysicalEditionForVariant(cleanTitle);
+    const baseTitle = extracted.baseTitle || cleanTitle;
+    const normTitle = normalizeTitleForMatching(baseTitle);
+    if (!baseTitle || !normTitle) continue;
     if (isCanonicalNoiseTitle(cleanTitle, platformId)) continue;
     const region =
       /\b(PAL(?:\s+IMPORT)?|PEGI|UK(?:\s+IMPORT)?|EUR(?:OPE)?(?:\s+IMPORT)?|EU\s+IMPORT)\b/i.test(
@@ -512,7 +515,7 @@ export function parseRetailBackCatalog(
       raw_title: cleanTitle,
       normalized_title: normTitle,
       region,
-      variants: null,
+      variants: extracted.edition ?? null,
       rom_name: null,
       rom_crc: null,
       serial_code: null,

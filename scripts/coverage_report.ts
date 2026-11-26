@@ -17,6 +17,8 @@ import { getCanonicalSourceTier } from '../shared/canonical_releases.js';
 import {
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
+  extractPhysicalEditionForVariant,
+  isCompilationOrBundleTitle,
   normalizeTitleForMatching,
 } from '../shared/title_matching.js';
 
@@ -59,6 +61,39 @@ export interface XboxPlatformGapReport {
   sampleUnverified: XboxGapSample[];
 }
 
+export interface IgdbCoverageSummary {
+  totalGames: number;
+  exemptCuratedCount: number;
+  eligibleGames: number;
+  igdbLinkedCount: number;
+  igdbLinkedPct: number;
+  missingIgdbCount: number;
+  missingArtCount: number;
+  missingDateCount: number;
+}
+
+export interface IgdbDuplicateSiblingSample {
+  gameId: number;
+  platformId: number;
+  platformName: string;
+  title: string;
+  tracked: boolean;
+  reason: 'shared_canonical' | 'title_or_edition_match';
+  siblingGameId: number;
+  siblingTitle: string;
+  siblingIgdbId: number;
+}
+
+export interface IgdbCoverageReport {
+  overall: IgdbCoverageSummary;
+  tracked: IgdbCoverageSummary;
+  modern: IgdbCoverageSummary;
+  western: IgdbCoverageSummary;
+  duplicateSiblingCount: number;
+  trackedDuplicateSiblingCount: number;
+  sampleDuplicateSiblings: IgdbDuplicateSiblingSample[];
+}
+
 export interface CoverageReport {
   overall: {
     totalGames: number;
@@ -74,6 +109,7 @@ export interface CoverageReport {
   };
   platforms: PlatformCoverageRow[];
   xboxGaps: XboxPlatformGapReport[];
+  igdbCoverage: IgdbCoverageReport;
 }
 
 function roundPct(numerator: number, denominator: number): number {
@@ -96,9 +132,29 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     )
     .all() as Array<{ id: number; display_name: string }>;
 
+  const gamesCols = new Set(
+    (db.pragma('table_info(games)') as Array<{ name: string }>).map(
+      (c) => c.name,
+    ),
+  );
   const gameRows = db
-    .prepare('SELECT stable_id, title, platform_id FROM games')
-    .all() as Array<{ stable_id: number; title: string; platform_id: number }>;
+    .prepare(
+      `SELECT stable_id,
+              title,
+              platform_id,
+              ${gamesCols.has('igdb_id') ? 'igdb_id' : 'NULL AS igdb_id'},
+              ${gamesCols.has('image_url') ? 'image_url' : 'NULL AS image_url'},
+              ${gamesCols.has('region') ? 'region' : 'NULL AS region'}
+       FROM games`,
+    )
+    .all() as Array<{
+    stable_id: number;
+    title: string;
+    platform_id: number;
+    igdb_id: number | null;
+    image_url: string | null;
+    region: string | null;
+  }>;
 
   const releaseRows = db
     .prepare(
@@ -108,6 +164,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
               g.platform_id,
               r.region,
               r.rom_name,
+              r.release_date,
               r.canonical_release_id,
               ${sourceSelectExpr} AS effective_source,
               CASE WHEN EXISTS (
@@ -125,6 +182,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     platform_id: number;
     region: string | null;
     rom_name: string | null;
+    release_date: string | null;
     canonical_release_id: number | null;
     effective_source: string | null;
     is_tracked: number;
@@ -385,6 +443,229 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     };
   });
 
+  const WESTERN_REGION_RE =
+    /\b(usa|europe|world|north america|uk|australia|canada|germany|france|spain|italy|netherlands|sweden|brazil)\b/i;
+  const MODERN_PLATFORMS = new Set([26, 27, 34, 35, 49, 50]);
+
+  const gameHasReleaseDate = new Set<number>();
+  const gameIsWestern = new Set<number>();
+  const igdbGamesByCanonical = new Map<
+    string,
+    Array<(typeof gameRows)[number]>
+  >();
+  const gameById = new Map<number, (typeof gameRows)[number]>();
+  const igdbGamesByPlatLinkerKey = new Map<
+    string,
+    Array<(typeof gameRows)[number]>
+  >();
+
+  for (const g of gameRows) {
+    gameById.set(g.stable_id, g);
+    if (g.region && WESTERN_REGION_RE.test(g.region)) {
+      gameIsWestern.add(g.stable_id);
+    }
+    if (g.igdb_id != null && g.igdb_id > 0) {
+      const edBase = extractPhysicalEditionForVariant(g.title).baseTitle;
+      const keys = new Set<string>([
+        ...buildCanonicalLinkerMatchKeys(g.title),
+        ...(edBase ? buildCanonicalLinkerMatchKeys(edBase) : []),
+      ]);
+      for (const k of keys) {
+        if (!k) continue;
+        const mapKey = `${g.platform_id}::${k}`;
+        const bucket = igdbGamesByPlatLinkerKey.get(mapKey) || [];
+        if (!bucket.some((x) => x.stable_id === g.stable_id)) {
+          bucket.push(g);
+          igdbGamesByPlatLinkerKey.set(mapKey, bucket);
+        }
+      }
+    }
+  }
+
+  for (const r of releaseRows) {
+    if (r.release_date && r.release_date.trim()) {
+      gameHasReleaseDate.add(r.game_id);
+    }
+    if (r.region && WESTERN_REGION_RE.test(r.region)) {
+      gameIsWestern.add(r.game_id);
+    }
+    if (r.canonical_release_id != null) {
+      const parent = gameById.get(r.game_id);
+      if (parent && parent.igdb_id != null && parent.igdb_id > 0) {
+        const key = `${r.platform_id}::${r.canonical_release_id}`;
+        const bucket = igdbGamesByCanonical.get(key) || [];
+        if (!bucket.some((x) => x.stable_id === parent.stable_id)) {
+          bucket.push(parent);
+          igdbGamesByCanonical.set(key, bucket);
+        }
+      }
+    }
+  }
+
+  const canonicalIdsByUnlinkedGame = new Map<number, number[]>();
+  for (const r of releaseRows) {
+    if (r.canonical_release_id == null) continue;
+    const parent = gameById.get(r.game_id);
+    if (!parent || (parent.igdb_id != null && parent.igdb_id > 0)) continue;
+    const arr = canonicalIdsByUnlinkedGame.get(parent.stable_id) || [];
+    if (!arr.includes(r.canonical_release_id)) {
+      arr.push(r.canonical_release_id);
+      canonicalIdsByUnlinkedGame.set(parent.stable_id, arr);
+    }
+  }
+
+  const buildSummaryBucket = () => ({
+    totalGames: 0,
+    exemptCuratedCount: 0,
+    igdbLinkedCount: 0,
+    missingIgdbCount: 0,
+    missingArtCount: 0,
+    missingDateCount: 0,
+  });
+  const igdbOverall = buildSummaryBucket();
+  const igdbTracked = buildSummaryBucket();
+  const igdbModern = buildSummaryBucket();
+  const igdbWestern = buildSummaryBucket();
+
+  const recordIgdbStats = (
+    bucket: ReturnType<typeof buildSummaryBucket>,
+    g: (typeof gameRows)[number],
+    isCuratedExempt: boolean,
+    hasIgdb: boolean,
+    hasArt: boolean,
+    hasDate: boolean,
+  ) => {
+    bucket.totalGames++;
+    if (isCuratedExempt) bucket.exemptCuratedCount++;
+    if (hasIgdb) bucket.igdbLinkedCount++;
+    else if (!isCuratedExempt) bucket.missingIgdbCount++;
+    if (!hasArt) bucket.missingArtCount++;
+    if (!hasDate) bucket.missingDateCount++;
+  };
+
+  const duplicateSiblings: IgdbDuplicateSiblingSample[] = [];
+  let trackedDuplicateSiblingCount = 0;
+
+  for (const g of gameRows) {
+    const hasIgdb = g.igdb_id != null && g.igdb_id > 0;
+    const isCuratedExempt =
+      !hasIgdb && Boolean(g.image_url && g.image_url.startsWith('/covers/'));
+    const hasArt = Boolean(g.image_url && g.image_url.trim().length > 0);
+    const hasDate = gameHasReleaseDate.has(g.stable_id);
+    const isTracked = trackedGameIds.has(g.stable_id);
+    const isModern = MODERN_PLATFORMS.has(g.platform_id);
+    const isWest = gameIsWestern.has(g.stable_id);
+
+    recordIgdbStats(igdbOverall, g, isCuratedExempt, hasIgdb, hasArt, hasDate);
+    if (isTracked) {
+      recordIgdbStats(
+        igdbTracked,
+        g,
+        isCuratedExempt,
+        hasIgdb,
+        hasArt,
+        hasDate,
+      );
+    }
+    if (isModern) {
+      recordIgdbStats(igdbModern, g, isCuratedExempt, hasIgdb, hasArt, hasDate);
+    }
+    if (isWest) {
+      recordIgdbStats(
+        igdbWestern,
+        g,
+        isCuratedExempt,
+        hasIgdb,
+        hasArt,
+        hasDate,
+      );
+    }
+
+    if (!hasIgdb && !isCuratedExempt) {
+      const isComp = isCompilationOrBundleTitle(g.title);
+      let matchedSib: (typeof gameRows)[number] | undefined;
+      let matchReason: 'shared_canonical' | 'title_or_edition_match' =
+        'shared_canonical';
+
+      const canonIds = canonicalIdsByUnlinkedGame.get(g.stable_id) || [];
+      for (const cid of canonIds) {
+        const cands =
+          igdbGamesByCanonical.get(`${g.platform_id}::${cid}`) || [];
+        const sib = cands.find(
+          (c) => isCompilationOrBundleTitle(c.title) === isComp,
+        );
+        if (sib) {
+          matchedSib = sib;
+          matchReason = 'shared_canonical';
+          break;
+        }
+      }
+
+      if (!matchedSib) {
+        const edBase = extractPhysicalEditionForVariant(g.title).baseTitle;
+        const keys = new Set<string>([
+          ...buildCanonicalLinkerMatchKeys(g.title),
+          ...(edBase ? buildCanonicalLinkerMatchKeys(edBase) : []),
+        ]);
+        for (const k of keys) {
+          if (!k) continue;
+          const cands =
+            igdbGamesByPlatLinkerKey.get(`${g.platform_id}::${k}`) || [];
+          const sib = cands.find(
+            (c) =>
+              isCompilationOrBundleTitle(c.title) === isComp &&
+              areCanonicalTitlesSequelCompatible(g.title, c.title),
+          );
+          if (sib) {
+            matchedSib = sib;
+            matchReason = 'title_or_edition_match';
+            break;
+          }
+        }
+      }
+
+      if (matchedSib && matchedSib.igdb_id) {
+        if (isTracked) trackedDuplicateSiblingCount++;
+        duplicateSiblings.push({
+          gameId: g.stable_id,
+          platformId: g.platform_id,
+          platformName:
+            platNameById.get(g.platform_id) || `Platform ${g.platform_id}`,
+          title: g.title,
+          tracked: isTracked,
+          reason: matchReason,
+          siblingGameId: matchedSib.stable_id,
+          siblingTitle: matchedSib.title,
+          siblingIgdbId: matchedSib.igdb_id,
+        });
+      }
+    }
+  }
+
+  duplicateSiblings.sort((a, b) => {
+    if (a.tracked !== b.tracked) return a.tracked ? -1 : 1;
+    if (a.reason !== b.reason) {
+      return a.reason === 'shared_canonical' ? -1 : 1;
+    }
+    return a.title.localeCompare(b.title);
+  });
+
+  const finalizeIgdbSummary = (
+    b: ReturnType<typeof buildSummaryBucket>,
+  ): IgdbCoverageSummary => {
+    const eligibleGames = Math.max(0, b.totalGames - b.exemptCuratedCount);
+    return {
+      totalGames: b.totalGames,
+      exemptCuratedCount: b.exemptCuratedCount,
+      eligibleGames,
+      igdbLinkedCount: b.igdbLinkedCount,
+      igdbLinkedPct: roundPct(b.igdbLinkedCount, eligibleGames),
+      missingIgdbCount: b.missingIgdbCount,
+      missingArtCount: b.missingArtCount,
+      missingDateCount: b.missingDateCount,
+    };
+  };
+
   return {
     overall: {
       totalGames: gameRows.length,
@@ -403,6 +684,15 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     },
     platforms,
     xboxGaps,
+    igdbCoverage: {
+      overall: finalizeIgdbSummary(igdbOverall),
+      tracked: finalizeIgdbSummary(igdbTracked),
+      modern: finalizeIgdbSummary(igdbModern),
+      western: finalizeIgdbSummary(igdbWestern),
+      duplicateSiblingCount: duplicateSiblings.length,
+      trackedDuplicateSiblingCount,
+      sampleDuplicateSiblings: duplicateSiblings.slice(0, 15),
+    },
   };
 }
 
@@ -459,6 +749,25 @@ export function formatCoverageReport(report: CoverageReport): string {
         `  ${tag} ${s.releaseId} | ${s.title} (${s.region || '?'})${near}`,
       );
     }
+  }
+
+  const igdb = report.igdbCoverage;
+  lines.push('');
+  lines.push('=== IGDB Metadata Completeness & Duplicate Sibling Audit ===');
+  const formatIgdbRow = (label: string, s: IgdbCoverageSummary) =>
+    `${label.padEnd(16)} ${s.igdbLinkedCount.toLocaleString()}/${s.eligibleGames.toLocaleString()} eligible (${s.igdbLinkedPct.toFixed(1)}%) | Missing IGDB: ${s.missingIgdbCount.toLocaleString()} | No Art: ${s.missingArtCount.toLocaleString()} | No Date: ${s.missingDateCount.toLocaleString()}${s.exemptCuratedCount > 0 ? ` | Curated /covers/ exempt: ${s.exemptCuratedCount}` : ''}`;
+  lines.push(formatIgdbRow('Overall:', igdb.overall));
+  lines.push(formatIgdbRow('Tracked:', igdb.tracked));
+  lines.push(formatIgdbRow('Modern:', igdb.modern));
+  lines.push(formatIgdbRow('Western:', igdb.western));
+  lines.push(
+    `Duplicate Unlinked Siblings: ${igdb.duplicateSiblingCount.toLocaleString()} total (${igdb.trackedDuplicateSiblingCount.toLocaleString()} tracked)`,
+  );
+  for (const d of igdb.sampleDuplicateSiblings) {
+    const tag = d.tracked ? '[TRACKED]' : '[CATALOG]';
+    lines.push(
+      `  ${tag} #${d.gameId} (${d.platformName}) "${d.title}" -> #${d.siblingGameId} "${d.siblingTitle}" (igdb:${d.siblingIgdbId}, ${d.reason})`,
+    );
   }
 
   return lines.join('\n');

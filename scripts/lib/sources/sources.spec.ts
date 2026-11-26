@@ -158,11 +158,12 @@ describe('Offline Canonical Source Adapters', () => {
         'Title,Developer,Game Publisher,Physical Publisher,Limited,ESRB SKU,PEGI Rating,Release Date',
         '1000xRESIST,Sunset Visitor,Fellow Traveller,Aerosoft Move,-,PPSA-12345,PEGI 12,2024-11-04',
         'Rare Indie PS5,Dev,Pub,Limited Run Games,Yes,810105670001,-,2025-02-01',
+        'Disco Elysium: The Final Cut - iam8bit Exclusive Edition,ZA/UM,ZA/UM,iam8bit,Yes,810105670002,-,2025-03-01',
       ].join('\n');
 
       const mockFetch = async () => new Response(csv, { status: 200 });
       const fetched = await fetchPs5DbSource(tmpDir, mockFetch as typeof fetch);
-      expect(fetched.count).toBe(2);
+      expect(fetched.count).toBe(3);
 
       const direct = parsePs5DbCsv(csv);
       expect(direct[0]).toMatchObject({
@@ -181,7 +182,14 @@ describe('Offline Canonical Source Adapters', () => {
         barcode: '810105670001',
         source: 'ps5db',
       });
-      expect(loadPs5DbReleases(tmpDir)).toHaveLength(2);
+      expect(direct[2]).toMatchObject({
+        platform_id: 35,
+        raw_title: 'Disco Elysium: The Final Cut - iam8bit Exclusive Edition',
+        normalized_title: 'discoelysiumfinalcut',
+        variants: 'iam8bit Exclusive Edition, Limited Print',
+        source: 'ps5db',
+      });
+      expect(loadPs5DbReleases(tmpDir)).toHaveLength(3);
     });
   });
 

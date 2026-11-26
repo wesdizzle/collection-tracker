@@ -853,18 +853,23 @@ export function stripRetailPreorderAndPlatformTrailer(title: string): string {
  * so base releases can match their canonical cartridge dumps.
  */
 export function stripEditionSuffix(title: string): string {
-  const norm = (title || '').replace(/[\u2018\u2019\u201B\u2032`]/g, "'");
+  const norm = (title || '')
+    .replace(/[\u2018\u2019\u201B\u2032`]/g, "'")
+    .replace(
+      /\s*\((?:retail|standard|limited|collector'?s?|deluxe|special)\s+editions?\)\s*$/i,
+      '',
+    );
   return norm
     .replace(
-      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*editions?/gi,
+      /:\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ultra deluxe|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes|\d+(?:st|nd|rd|th)\s+anniversary)\s*editions?/gi,
       '',
     )
     .replace(
-      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*editions?/gi,
+      /\s*[-–—]\s*(crewmate|definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|hd|plus|plortable|archaeologist|hero|crafted|ancestral|the radical dreamers|gourmet|enhanced|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one|deathinitive|warmastered|return to castlevania|owltimate|fully yoked|tv|the prince'?s?|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|playstation hits|nintendo hits|player'?s? choice|greatest hits|platinum hits|nes)\s*editions?/gi,
       '',
     )
     .replace(
-      /\s+(definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|gourmet|enhanced|deathinitive|warmastered|owltimate|fully yoked|year one|prisoner'?s?|sunset|trapezoid|day one|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one)\s+editions?/gi,
+      /\s+(definitive|deluxe|ultimate|complete|standard|special|steelbook|collector'?s?|anniversary|remastered|legacy|plortable|archaeologist|hero|crafted|ancestral|gourmet|enhanced|deathinitive|warmastered|owltimate|fully yoked|year\s+(?:one|1)|prisoner'?s?|sunset|trapezoid|day\s+(?:one|1)|launch|premium|limited|iam8bit exclusive|nintendo switch(?:\s*2)?|switch\s*2|xbox\s*one)\s+editions?/gi,
       '',
     )
     .replace(
@@ -956,7 +961,11 @@ export function stripIgdbEditionWrapper(
     }
     current = current
       .replace(
-        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Gourmet|Enhanced|Year\s+One|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i,
+        /\s*\((?:retail|standard|limited|collector'?s?|deluxe|special)\s+editions?\)\s*$/i,
+        '',
+      )
+      .replace(
+        /\s*(?:[:\-–—|]\s*)?(?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Enhanced|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Deathinitive|Warmastered|Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i,
         '',
       )
       .replace(
@@ -1239,10 +1248,19 @@ const PLUS_ADDON_KEYWORD_RE =
   /\b(?:pass|expansion|booster|treasure|world|tv|minions|fury|story|chapter|dlc|content|island|quest|season|pack|episode|adventure)\b/i;
 
 const SPACE_EDITION_RE =
-  /^(.{3,}?)\s+((?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+One|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Edition)$/i;
+  /^(.{3,}?[^\s:\-–—])\s+((?:Collector'?s?|Special|Steelbook|Definitive|Deluxe|Ultra\s+Deluxe|Ultimate|Complete|Standard|Limited|Day\s+(?:One|1)|Launch|Royal|Gourmet|Next\s+Level|Gold|Platinum|Silver|Anniversary|\d+(?:st|nd|rd|th)\s+Anniversary|GOTY|Game\s+of\s+the\s+Year|Crewmate|Plortable|Archaeologist|Hero|Crafted|Ancestral|Warmastered|Deathinitive|Remastered|Legacy|Expanded|Director'?s?|Year\s+(?:One|1)|Prisoner'?s?|Sunset|Trapezoid|Premium|iam8bit\s+Exclusive|PlayStation\s+Hits|Nintendo\s+Hits|Player'?s?\s+Choice|Greatest\s+Hits|Platinum\s+Hits|Nintendo\s+Switch(?:\s*2)?|(?<!Nintendo\s)Switch\s*2|Xbox\s*One)\s+Edition)$/i;
 
 const NAMED_EDITION_CUT_RE =
   /^(.{3,}?)(?:\s*[:\-–—]\s*|\s+)(Director'?s?\s+Cut|Extended\s+Cut|GOTY|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited|Remastered|HD\s+Remaster)$/i;
+
+const RETAIL_PAREN_EDITION_RE =
+  /\s*\(((?:Retail|Standard|Limited|Collector'?s?|Deluxe|Special)\s+Editions?)\)\s*$/i;
+
+const PLATFORM_EDITION_ONLY_RE =
+  /^(?:Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i;
+
+const STANDALONE_CONTENT_EDITION_RE =
+  /^(?:Director'?s?\s+Cut|Extended\s+Cut|Remastered|HD\s+Remaster|Remake|Final\s+Cut|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited)$/i;
 
 function splitTitleEditionSuffix(
   title: string,
@@ -1264,9 +1282,22 @@ function splitTitleEditionSuffix(
   }
 
   // 2. Separator-delimited English "... Edition" ("Game: Special Edition", "... - Nintendo Switch 2 Edition")
+  // vs space-delimited ("Sonic Racing: CrossWorlds Year 1 Edition"): if both match, prefer whichever leaves the longer base title.
   const sepEditionMatch = trimmed.match(
     /^(.{3,}?)\s*[:\-–—]\s*([^:\-–—]+\bEdition)$/i,
   );
+  const spaceEditionMatch = trimmed.match(SPACE_EDITION_RE);
+  if (
+    spaceEditionMatch &&
+    !NON_ENGLISH_EDITION_RE.test(spaceEditionMatch[2].trim()) &&
+    (!sepEditionMatch ||
+      spaceEditionMatch[1].trim().length > sepEditionMatch[1].trim().length)
+  ) {
+    return {
+      base: spaceEditionMatch[1].trim(),
+      suffix: spaceEditionMatch[2].trim(),
+    };
+  }
   if (sepEditionMatch) {
     const base = sepEditionMatch[1].trim();
     const suffix = sepEditionMatch[2].trim();
@@ -1277,9 +1308,6 @@ function splitTitleEditionSuffix(
       return { base, suffix };
     }
   }
-
-  // 3. Space-delimited recognized English edition ("Croc ... Platinum Edition")
-  const spaceEditionMatch = trimmed.match(SPACE_EDITION_RE);
   if (spaceEditionMatch) {
     const base = spaceEditionMatch[1].trim();
     const suffix = spaceEditionMatch[2].trim();
@@ -1307,6 +1335,85 @@ function splitTitleEditionSuffix(
  */
 export function extractEditionSuffix(title: string): string | null {
   return splitTitleEditionSuffix(title)?.suffix ?? null;
+}
+
+/**
+ * Separates retail/packaging edition wrappers (e.g. `Year One Edition`, `Day One Edition`,
+ * `Premium Edition`, `Collector's Edition`, `iam8bit Exclusive Edition`, `(Retail Edition)`)
+ * from a canonical title so verification feeds attach editions via `game_releases.variants`
+ * onto the base game rather than creating unlinked duplicate `games` rows.
+ *
+ * Preserves non-English titles (`Pokemon - Goldene Edition`), standalone platform editions
+ * (`Nintendo Switch 2 Edition`), remasters/cuts (`Remastered`, `Director's Cut`), and `+` DLC.
+ */
+export function extractPhysicalEditionForVariant(rawTitle: string): {
+  baseTitle: string;
+  edition: string | null;
+} {
+  const trimmed = (rawTitle || '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) return { baseTitle: '', edition: null };
+
+  // Strip trailing parenthetical retail marker such as "Sea of Stars: Sunset Edition (Retail Edition)"
+  let working = trimmed;
+  let parenEdition: string | null = null;
+  const parenMatch = working.match(RETAIL_PAREN_EDITION_RE);
+  if (parenMatch) {
+    const candidateBase = working.slice(0, parenMatch.index).trim();
+    if (
+      candidateBase.length >= 3 &&
+      !NON_ENGLISH_EDITION_RE.test(parenMatch[1])
+    ) {
+      working = candidateBase;
+      parenEdition = parenMatch[1].trim();
+    }
+  }
+
+  // Handle stacked Switch 2 wrapper after an inner packaging edition:
+  // e.g. "Sonic Racing: CrossWorlds - Year One Edition Nintendo Switch 2 Edition"
+  const stackedSw2Match = working.match(
+    /^(.{3,}?)\s+((?:Nintendo\s+)?Switch\s+2\s+Edition)$/i,
+  );
+  if (stackedSw2Match) {
+    const inner = stackedSw2Match[1].trim();
+    const sw2Suffix = stackedSw2Match[2].trim();
+    const innerSplit = splitTitleEditionSuffix(inner);
+    if (
+      innerSplit &&
+      !innerSplit.suffix.startsWith('+') &&
+      !PLATFORM_EDITION_ONLY_RE.test(innerSplit.suffix) &&
+      !STANDALONE_CONTENT_EDITION_RE.test(innerSplit.suffix) &&
+      !NON_ENGLISH_EDITION_RE.test(innerSplit.suffix)
+    ) {
+      const sep = innerSplit.base.includes(':') ? ' - ' : ' - ';
+      return {
+        baseTitle: `${innerSplit.base}${sep}${sw2Suffix}`,
+        edition: innerSplit.suffix,
+      };
+    }
+  }
+
+  const split = splitTitleEditionSuffix(working);
+  if (
+    split &&
+    !split.suffix.startsWith('+') &&
+    !PLATFORM_EDITION_ONLY_RE.test(split.suffix) &&
+    !STANDALONE_CONTENT_EDITION_RE.test(split.suffix) &&
+    !NON_ENGLISH_EDITION_RE.test(split.suffix)
+  ) {
+    return {
+      baseTitle: split.base,
+      edition: split.suffix,
+    };
+  }
+
+  if (parenEdition) {
+    return {
+      baseTitle: working,
+      edition: parenEdition,
+    };
+  }
+
+  return { baseTitle: trimmed, edition: null };
 }
 
 /**

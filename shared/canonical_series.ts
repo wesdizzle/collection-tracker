@@ -1049,11 +1049,35 @@ function computeGameCanonicalSeriesInternal(
     return 'Civilization';
   }
 
-  // STEP 13: PERSONA
+  // STEP 13: PERSONA (title or primary collection/series, or uncontested franchise)
+  const isTitleSonic =
+    titleLower.includes('sonic riders') ||
+    titleLower.includes('sonic rush') ||
+    titleLower.includes('sonic the hedgehog') ||
+    titleLower.includes('sonic adventure') ||
+    titleLower.includes('sonic advance') ||
+    titleLower.includes('sonic colors') ||
+    titleLower.includes('sonic generations') ||
+    titleLower.includes('sonic boom') ||
+    titleLower.includes('sonic forces') ||
+    titleLower.includes('sonic lost world') ||
+    titleLower.includes('sonic heroes') ||
+    titleLower.includes('sonic unleashed') ||
+    titleLower.includes('sonic mania') ||
+    titleLower.includes('sonic frontiers') ||
+    titleLower.includes('team sonic racing') ||
+    titleLower.includes('shadow the hedgehog') ||
+    titleLower.includes('tails and the music maker') ||
+    (titleLower.startsWith('sonic ') &&
+      !titleLower.startsWith('sonic wings') &&
+      !titleLower.startsWith('sonic spike') &&
+      !seriesRaw.some((s) => normalize(s) === 'aerofighters'));
+
   if (
-    /\bpersona\b/i.test(cleanTitle) ||
-    seriesRaw.some((s) => /^persona(?:\b|:)/i.test(s.trim())) ||
-    franchisesRaw.some((f) => /^persona(?:\b|:)/i.test(f.trim()))
+    !isTitleSonic &&
+    (/\bpersona\b/i.test(cleanTitle) ||
+      seriesRaw.some((s) => /^persona(?:\b|:)/i.test(s.trim())) ||
+      franchisesRaw.some((f) => /^persona(?:\b|:)/i.test(f.trim())))
   ) {
     return 'Persona';
   }
@@ -1076,29 +1100,7 @@ function computeGameCanonicalSeriesInternal(
   }
 
   // STEP 15: SONIC
-  if (
-    titleLower.includes('sonic riders') ||
-    titleLower.includes('sonic rush') ||
-    titleLower.includes('sonic the hedgehog') ||
-    titleLower.includes('sonic adventure') ||
-    titleLower.includes('sonic advance') ||
-    titleLower.includes('sonic colors') ||
-    titleLower.includes('sonic generations') ||
-    titleLower.includes('sonic boom') ||
-    titleLower.includes('sonic forces') ||
-    titleLower.includes('sonic lost world') ||
-    titleLower.includes('sonic heroes') ||
-    titleLower.includes('sonic unleashed') ||
-    titleLower.includes('sonic mania') ||
-    titleLower.includes('sonic frontiers') ||
-    titleLower.includes('team sonic racing') ||
-    titleLower.includes('shadow the hedgehog') ||
-    titleLower.includes('tails and the music maker') ||
-    (titleLower.startsWith('sonic ') &&
-      !titleLower.startsWith('sonic wings') &&
-      !titleLower.startsWith('sonic spike') &&
-      !seriesRaw.some((s) => normalize(s) === 'aerofighters'))
-  ) {
+  if (isTitleSonic) {
     return 'Sonic the Hedgehog';
   }
 

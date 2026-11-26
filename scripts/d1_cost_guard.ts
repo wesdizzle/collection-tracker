@@ -442,8 +442,33 @@ export function runCollectionStaticSchemaCostGuard(
     },
     {
       name: 'unmatched IGDB retry duplicate sibling check by igdb_id',
-      sql: 'SELECT stable_id FROM games WHERE igdb_id = ? AND igdb_id IS NOT NULL AND +platform_id = ? AND stable_id != ? LIMIT 1',
+      sql: 'SELECT stable_id, title FROM games WHERE igdb_id = ? AND igdb_id IS NOT NULL AND +platform_id = ? AND stable_id != ? LIMIT 1',
       params: [100, 26, 1],
+    },
+    {
+      name: 'merge duplicate game: source/target release lookup by game_id',
+      sql: 'SELECT id, region, variants, canonical_release_id FROM game_releases WHERE game_id = ?',
+      params: [1],
+    },
+    {
+      name: 'merge duplicate game: user_game_releases lookup by release_id',
+      sql: 'SELECT user_id, ownership_status, has_media, has_case, has_manual FROM user_game_releases WHERE release_id = ?',
+      params: ['rel-1'],
+    },
+    {
+      name: 'merge duplicate game: user_games lookup by game_id',
+      sql: 'SELECT user_id, play_status, queued FROM user_games WHERE game_id = ?',
+      params: [1],
+    },
+    {
+      name: 'merge duplicate game: toy_game_compatibility lookup by game_stable_id',
+      sql: 'SELECT toy_stable_id, can_read, can_write, description FROM toy_game_compatibility WHERE game_stable_id = ?',
+      params: [1],
+    },
+    {
+      name: 'merge duplicate game: bundle_parent_id repoint',
+      sql: 'UPDATE games SET bundle_parent_id = ? WHERE bundle_parent_id = ?',
+      params: [2, 1],
     },
     {
       name: 'toy_game_compatibility lookup by game_stable_id',

@@ -15,7 +15,10 @@ import {
   normalizeSpreadsheetRegion,
   parseCsvRows,
 } from './switch_revisions.js';
-import { normalizeTitleForMatching } from './title_matching.js';
+import {
+  extractPhysicalEditionForVariant,
+  normalizeTitleForMatching,
+} from './title_matching.js';
 
 export type NsCollectorsSourceType =
   | 'nscollectors'
@@ -285,11 +288,19 @@ export function parseNsCollectorsCsv(
 
     for (let r = cols.headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r];
-      const rawTitle = cleanNsCollectorsTitle(row[cols.titleCol] || '');
-      if (!rawTitle) continue;
-      if (/^(total|count|legend|key|last updated)/i.test(rawTitle)) continue;
+      const cleanedTitle = cleanNsCollectorsTitle(row[cols.titleCol] || '');
+      if (!cleanedTitle) continue;
+      if (/^(total|count|legend|key|last updated)/i.test(cleanedTitle))
+        continue;
 
-      const normTitle = normalizeTitleForMatching(rawTitle);
+      const extracted =
+        tab.source === 'nscollectors_ciab'
+          ? { baseTitle: cleanedTitle, edition: null }
+          : extractPhysicalEditionForVariant(cleanedTitle);
+      const rawTitle = cleanedTitle;
+      const normTitle = normalizeTitleForMatching(
+        extracted.baseTitle || cleanedTitle,
+      );
       if (!normTitle) continue;
 
       const rawRegion =
@@ -306,17 +317,24 @@ export function parseNsCollectorsCsv(
 
       const rawFormat =
         cols.formatCol >= 0 ? (row[cols.formatCol] || '').trim() : '';
-      let variants: string | null = null;
+      const variantParts: string[] = [];
       if (tab.source === 'nscollectors_ciab') {
-        variants = 'Code in a Box (Download Only)';
-      } else if (
-        tab.platformId === 27 &&
-        /\b(game[\s-]?key\s*card|key\s*card|gkc)\b/i.test(
-          `${rawFormat} ${row.join(' ')}`,
-        )
-      ) {
-        variants = 'Game-Key Card';
+        variantParts.push('Code in a Box (Download Only)');
+      } else {
+        if (extracted.edition) {
+          variantParts.push(extracted.edition);
+        }
+        if (
+          tab.platformId === 27 &&
+          /\b(game[\s-]?key\s*card|key\s*card|gkc)\b/i.test(
+            `${rawFormat} ${row.join(' ')}`,
+          )
+        ) {
+          variantParts.push('Game-Key Card');
+        }
       }
+      const variants: string | null =
+        variantParts.length > 0 ? variantParts.join(', ') : null;
 
       for (const region of regions) {
         const dedupKey = `${tab.platformId}::${normTitle}::${region}::${tab.source}::${variants || ''}`;

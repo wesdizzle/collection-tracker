@@ -37,6 +37,7 @@ describe('r/NSCollectors Physical Release Parser', () => {
           'Title,Region,Release Date,Publisher',
           'Hollow Knight,USA / EUR,05/31/2019,Fangamer',
           'Metroid Dread,NA,2021-10-08,Nintendo',
+          'Sonic Racing: CrossWorlds - Year One Edition,NA,2025-09-25,Sega',
         ].join('\n'),
       },
       {
@@ -53,6 +54,7 @@ describe('r/NSCollectors Physical Release Parser', () => {
           'Game,Region,Cart Type,Release Date,Publisher',
           'Mario Kart World,USA,64GB Cartridge,June 5 2025,Nintendo',
           'Bravely Default Flying Fairy HD,USA,Game-Key Card,2025-06-05,Square Enix',
+          'Sonic Racing: CrossWorlds - Year One Edition Nintendo Switch 2 Edition,USA,Game-Key Card,2025-12-04,Sega',
         ].join('\n'),
       },
       {
@@ -86,5 +88,26 @@ describe('r/NSCollectors Physical Release Parser', () => {
     expect(upcoming.release.platform_id).toBe(27);
     expect(upcoming.release.is_verified_physical).toBe(1);
     expect(upcoming.releaseDate).toBe('2026-11-12');
+
+    const sonicSw1 = parsed.find(
+      (e) =>
+        e.release.platform_id === 26 &&
+        e.release.raw_title === 'Sonic Racing: CrossWorlds - Year One Edition',
+    )!;
+    expect(sonicSw1).toBeDefined();
+    expect(sonicSw1.release.normalized_title).toBe('sonicracingcrossworlds');
+    expect(sonicSw1.release.variants).toBe('Year One Edition');
+
+    const sonicSw2 = parsed.find(
+      (e) =>
+        e.release.platform_id === 27 &&
+        e.release.raw_title ===
+          'Sonic Racing: CrossWorlds - Year One Edition Nintendo Switch 2 Edition',
+    )!;
+    expect(sonicSw2).toBeDefined();
+    expect(sonicSw2.release.normalized_title).toBe(
+      'sonicracingcrossworldsswitch2',
+    );
+    expect(sonicSw2.release.variants).toBe('Year One Edition, Game-Key Card');
   });
 });

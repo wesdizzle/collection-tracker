@@ -627,6 +627,15 @@ describe('Canonical Series Logic Integrity Suite', () => {
     );
     assert.equal(
       computeGameCanonicalSeries({
+        title: 'Sonic Racing: CrossWorlds',
+        collections: 'Sonic Racing',
+        franchises:
+          'Sonic The Hedgehog, Hatsune Miku, Persona, Yakuza: Like a Dragon',
+      }),
+      'Sonic the Hedgehog',
+    );
+    assert.equal(
+      computeGameCanonicalSeries({
         title: 'Watch Dogs 2',
         franchises: 'Watch_Dogs',
       }),

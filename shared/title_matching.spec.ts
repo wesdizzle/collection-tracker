@@ -16,6 +16,7 @@ import {
   gameMatchesReleaseWithAlternatives,
   isCompilationOrBundleTitle,
   extractEditionSuffix,
+  extractPhysicalEditionForVariant,
   resolveCanonicalDisplayTitle,
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
@@ -1309,6 +1310,94 @@ describe('Title Matching Strategies', () => {
           'Persona 5 (Royal Edition)',
         ),
       ).toBe(false);
+    });
+
+    it('extracts physical retail/packaging editions for variants while protecting non-English, platform-only, and retro Special titles', () => {
+      expect(
+        extractPhysicalEditionForVariant(
+          'Sonic Racing: CrossWorlds - Year One Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Sonic Racing: CrossWorlds',
+        edition: 'Year One Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Sonic Racing: CrossWorlds - Year One Edition Nintendo Switch 2 Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Sonic Racing: CrossWorlds - Nintendo Switch 2 Edition',
+        edition: 'Year One Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Sonic Racing: CrossWorlds Year 1 Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Sonic Racing: CrossWorlds',
+        edition: 'Year 1 Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Final Fantasy VII: Revelation Day One Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Final Fantasy VII: Revelation',
+        edition: 'Day One Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Sea of Stars: Sunset Edition (Retail Edition)',
+        ),
+      ).toEqual({
+        baseTitle: 'Sea of Stars',
+        edition: 'Sunset Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Disco Elysium: The Final Cut - iam8bit Exclusive Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Disco Elysium: The Final Cut',
+        edition: 'iam8bit Exclusive Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          "Assassin's Creed IV: Black Flag - PlayStation Hits Edition",
+        ),
+      ).toEqual({
+        baseTitle: "Assassin's Creed IV: Black Flag",
+        edition: 'PlayStation Hits Edition',
+      });
+
+      expect(
+        extractPhysicalEditionForVariant(
+          'Animal Crossing: New Horizons - Nintendo Switch 2 Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Animal Crossing: New Horizons - Nintendo Switch 2 Edition',
+        edition: null,
+      });
+
+      expect(
+        extractPhysicalEditionForVariant('Pokemon - Goldene Edition'),
+      ).toEqual({
+        baseTitle: 'Pokemon - Goldene Edition',
+        edition: null,
+      });
+
+      expect(
+        extractPhysicalEditionForVariant('Real Bout Fatal Fury Special'),
+      ).toEqual({
+        baseTitle: 'Real Bout Fatal Fury Special',
+        edition: null,
+      });
     });
   });
 });

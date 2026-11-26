@@ -36,6 +36,7 @@ import worker, {
   performCanonicalReleasesBackup,
   performChunkedCatalogBackup,
   performScheduledBackup,
+  queryIGDBEdge,
   resetWorkerRateLimits,
   resolveAmiiboRegionsAndMetadata,
   resolveCatalogManifest,
@@ -6750,23 +6751,36 @@ describe('Worker API Logic', () => {
         }
       });
 
-      it('syncWorkerUnmatchedIgdbRetry prioritizes user-tracked unmatched games, skips duplicate sibling igdb_ids, sets cooldown, scans catalog PK tail, and enforces daily write budget', async () => {
+      it('syncWorkerUnmatchedIgdbRetry prioritizes user-tracked unmatched games, merges duplicate sibling igdb_ids with ownership precedence, skips unsafe compilation collisions, sets cooldown, scans catalog PK tail, and honors tier write budgets', async () => {
         db.exec(`
           INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, manually_verified)
           VALUES
             (9701, '9701', 'Chrono Trigger', 15, NULL, NULL, 0),
-            (9702, '9702', 'EarthBound Duplicate', 15, NULL, NULL, 0),
-            (9703, '9703', 'EarthBound Canonical', 15, 5555, NULL, 0),
+            (9702, '9702', 'EarthBound - Year One Edition', 15, NULL, NULL, 0),
+            (9703, '9703', 'EarthBound', 15, 5555, NULL, 0),
             (9704, '9704', 'Secret of Mana', 15, NULL, NULL, 0),
-            (9705, '9705', 'PlayStation VR Demo Disc Test', 34, NULL, '/covers/test.jpg', 0);
-          INSERT INTO game_releases (id, game_id, region)
+            (9705, '9705', 'PlayStation VR Demo Disc Test', 34, NULL, '/covers/test.jpg', 0),
+            (9706, '9706', 'EarthBound Trilogy Collection', 15, NULL, NULL, 0);
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical)
           VALUES
-            ('9701-1', 9701, 'USA'),
-            ('9702-1', 9702, 'USA');
-          INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+            (97020, 15, 'EarthBound', 'earthbound', 'USA', 'dat', 1),
+            (97021, 15, 'EarthBound - Year One Edition', 'earthbound', 'Europe', 'dat', 1);
+          INSERT INTO game_releases (id, game_id, region, canonical_release_id)
           VALUES
-            (1, '9701-1', 1),
-            (1, '9702-1', 1);
+            ('9701-1', 9701, 'USA', NULL),
+            ('9702-1', 9702, 'USA', 97020),
+            ('9702-2', 9702, 'Europe', 97021),
+            ('9703-1', 9703, 'USA', 97020),
+            ('9706-1', 9706, 'USA', NULL);
+          INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_case, has_manual)
+          VALUES
+            (1, '9701-1', 1, 1, 1),
+            (1, '9702-1', 1, 1, 0),
+            (1, '9702-2', 2, 0, 0),
+            (1, '9703-1', 2, 0, 0),
+            (1, '9706-1', 2, 0, 0);
+          INSERT INTO journal_entries (user_id, item_type, item_id, notes)
+          VALUES (1, 'game', '9702', 'Duplicate journal note');
         `);
 
         stubIgdbFetch({
@@ -6781,12 +6795,19 @@ describe('Worker API Logic', () => {
               platforms: [19],
             },
           ],
-          'EarthBound Duplicate': [
+          'EarthBound - Year One Edition': [
             {
               id: 5555,
               name: 'EarthBound',
               platforms: [19],
-              alternative_names: [{ name: 'EarthBound Duplicate' }],
+            },
+          ],
+          'EarthBound Trilogy Collection': [
+            {
+              id: 5555,
+              name: 'EarthBound',
+              platforms: [19],
+              alternative_names: [{ name: 'EarthBound Trilogy Collection' }],
             },
           ],
           'Secret of Mana': [
@@ -6802,12 +6823,13 @@ describe('Worker API Logic', () => {
         });
 
         try {
-          // Run 1: Phase 1 tracked pass updates 9701, skips 9702 sibling collision
+          // Run 1: Phase 1 tracked pass updates 9701, merges 9702 -> 9703, skips compilation 9706
           const run1 = await syncWorkerUnmatchedIgdbRetry(mockEnv, {
             batchSize: 10,
           });
           expect(run1.phase).toBe('tracked');
           expect(run1.updatedCount).toBe(1);
+          expect(run1.mergedDuplicates).toBe(1);
           expect(run1.skippedDuplicates).toBe(1);
 
           const g9701 = db
@@ -6817,10 +6839,46 @@ describe('Worker API Logic', () => {
             .get() as { igdb_id: number | null; summary: string | null };
           expect(g9701).toEqual({ igdb_id: 1111, summary: 'SNES RPG' });
 
+          // 9702 merged into 9703, preserving Owned (1) > Seeking (2) on shared canonical 97020 and Year One Edition variant on 9702-2
           const g9702 = db
-            .prepare('SELECT igdb_id FROM games WHERE stable_id = 9702')
+            .prepare('SELECT stable_id FROM games WHERE stable_id = 9702')
+            .get();
+          expect(g9702).toBeUndefined();
+
+          const mergedRels = db
+            .prepare(
+              'SELECT id, game_id, variants, canonical_release_id FROM game_releases WHERE game_id = 9703 ORDER BY id',
+            )
+            .all() as Array<{
+            id: string;
+            game_id: number;
+            variants: string | null;
+            canonical_release_id: number | null;
+          }>;
+          expect(mergedRels).toHaveLength(2);
+          expect(mergedRels.find((r) => r.id === '9702-2')?.variants).toBe(
+            'Year One Edition',
+          );
+
+          const preservedOwned = db
+            .prepare(
+              "SELECT ownership_status, has_case FROM user_game_releases WHERE user_id = 1 AND release_id = '9703-1'",
+            )
+            .get() as { ownership_status: number; has_case: number };
+          expect(preservedOwned).toEqual({ ownership_status: 1, has_case: 1 });
+
+          const migratedJournal = db
+            .prepare(
+              "SELECT item_id FROM journal_entries WHERE user_id = 1 AND notes = 'Duplicate journal note'",
+            )
+            .get() as { item_id: string };
+          expect(migratedJournal.item_id).toBe('9703');
+
+          // Compilation 9706 was NOT merged into single game 9703
+          const g9706 = db
+            .prepare('SELECT igdb_id FROM games WHERE stable_id = 9706')
             .get() as { igdb_id: number | null };
-          expect(g9702.igdb_id).toBeNull();
+          expect(g9706.igdb_id).toBeNull();
 
           const cdRow = db
             .prepare(
@@ -6844,16 +6902,155 @@ describe('Worker API Logic', () => {
             .get() as { igdb_id: number | null };
           expect(g9705.igdb_id).toBeNull();
 
-          // Budget exhaustion short-circuits cleanly
+          // Free-tier budget exhaustion at 15,000 vs Paid-tier 100,000 cap
           const today = new Date().toISOString().slice(0, 10);
           db.prepare(
             `INSERT INTO sync_state (key, value) VALUES ('igdb_retry_daily_writes', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
           ).run(JSON.stringify({ date: today, writes: 15000 }));
-          const capped = await syncWorkerUnmatchedIgdbRetry(mockEnv);
-          expect(capped.phase).toBe('budget_exhausted');
-          expect(capped.writesUsed).toBe(0);
+          db.prepare(
+            `INSERT INTO sync_state (key, value) VALUES ('worker_plan_tier', 'free') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          ).run();
+          const freeCapped = await syncWorkerUnmatchedIgdbRetry(mockEnv);
+          expect(freeCapped.phase).toBe('budget_exhausted');
+          expect(freeCapped.writesUsed).toBe(0);
+
+          db.prepare(
+            `INSERT INTO sync_state (key, value) VALUES ('worker_plan_tier', 'paid') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+          ).run();
+          const paidNotCapped = await syncWorkerUnmatchedIgdbRetry(mockEnv);
+          expect(paidNotCapped.phase).toBe('catalog');
         } finally {
           vi.unstubAllGlobals();
+        }
+      });
+
+      it('syncWorkerBroadCatalogPopulation matches incoming edition-suffixed canonical titles onto existing base games via variants without creating duplicate games', async () => {
+        db.exec(`
+          INSERT INTO games (stable_id, id, title, platform_id, igdb_id, image_url, summary, canonical_series)
+          VALUES (9750, '9750', 'Sonic Racing: CrossWorlds', 26, 325608, 'https://images.igdb.com/t_cover_big/co9e16.jpg', 'Sonic racer.', 'Sonic the Hedgehog');
+          INSERT INTO game_releases (id, game_id, region)
+          VALUES ('9750-1', 9750, 'Europe');
+          INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical)
+          VALUES (97500, 26, 'Sonic Racing: CrossWorlds - Year One Edition', 'sonicracingcrossworldsyearone', 'USA', 'nscollectors', 1);
+          INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '97499');
+        `);
+
+        stubIgdbFetch({});
+        try {
+          const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+          expect(res.ingestedGames).toBe(0);
+          expect(res.ingestedReleases).toBe(1);
+
+          const gamesCount = (
+            db
+              .prepare(
+                "SELECT COUNT(*) AS cnt FROM games WHERE platform_id = 26 AND title LIKE '%CrossWorlds%'",
+              )
+              .get() as { cnt: number }
+          ).cnt;
+          expect(gamesCount).toBe(1);
+
+          const addedRel = db
+            .prepare(
+              'SELECT game_id, region, variants, canonical_release_id FROM game_releases WHERE canonical_release_id = 97500',
+            )
+            .get() as {
+            game_id: number;
+            region: string;
+            variants: string | null;
+            canonical_release_id: number;
+          };
+          expect(addedRel).toEqual({
+            game_id: 9750,
+            region: 'USA',
+            variants: 'Year One Edition',
+            canonical_release_id: 97500,
+          });
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it('queryIGDBEdge retries once on HTTP 429 and syncWorkerIgdbSeriesAndCanonical chunks >500 IDs on Paid tier', async () => {
+        let retryCalls = 0;
+        const origFetch = globalThis.fetch;
+        const fetchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.includes('id.twitch.tv/oauth2/token')) {
+              return Response.json({ access_token: 'tok', expires_in: 3600 });
+            }
+            if (url.includes('api.igdb.com/v4/games')) {
+              retryCalls++;
+              if (retryCalls === 1) {
+                return new Response('Too Many Requests', {
+                  status: 429,
+                  headers: { 'Retry-After': '0' },
+                });
+              }
+              return Response.json([{ id: 42, name: 'Test' }]);
+            }
+            return origFetch(input);
+          });
+
+        try {
+          const res = await queryIGDBEdge('games', 'fields id; limit 1;', {
+            ...mockEnv,
+            TWITCH_CLIENT_ID: 'cid',
+            TWITCH_CLIENT_SECRET: 'csec',
+          });
+          expect(retryCalls).toBe(2);
+          expect(res).toHaveLength(1);
+        } finally {
+          fetchSpy.mockRestore();
+        }
+
+        // Paid tier defaults batchSize to 500 and chunks >500 IDs safely
+        const insertGame = db.prepare(
+          `INSERT INTO games (stable_id, id, title, platform_id, igdb_id) VALUES (?, ?, ?, 1, ?)`,
+        );
+        const insertTx = db.transaction(() => {
+          for (let i = 1; i <= 520; i++) {
+            insertGame.run(
+              20000 + i,
+              String(20000 + i),
+              `Batch Game ${i}`,
+              90000 + i,
+            );
+          }
+        });
+        insertTx();
+        db.prepare(
+          `INSERT INTO sync_state (key, value) VALUES ('igdb_sync_offset', '19999') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        ).run();
+
+        const igdbQueries: string[] = [];
+        const batchSpy = vi
+          .spyOn(globalThis, 'fetch')
+          .mockImplementation(async (input, init) => {
+            const url = String(input);
+            if (url.includes('id.twitch.tv/oauth2/token')) {
+              return Response.json({ access_token: 'tok', expires_in: 3600 });
+            }
+            if (url.includes('api.igdb.com/v4/games')) {
+              igdbQueries.push(String(init?.body || ''));
+              return Response.json([]);
+            }
+            return new Response('[]', { status: 200 });
+          });
+
+        try {
+          const rollingRes = await syncWorkerIgdbSeriesAndCanonical({
+            ...mockEnv,
+            TWITCH_CLIENT_ID: 'cid',
+            TWITCH_CLIENT_SECRET: 'csec',
+          });
+          expect(rollingRes.cursorOffset).toBe(20500);
+          expect(igdbQueries).toHaveLength(1);
+          expect(igdbQueries[0]).toContain('limit 500;');
+        } finally {
+          batchSpy.mockRestore();
         }
       });
 
@@ -10382,6 +10579,73 @@ describe('Worker API Logic', () => {
         const second = await syncWorkerNsCollectors(mockEnv);
         expect(second.hashMatch).toBe(true);
         expect(second.addedCanonical).toBe(0);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('syncWorkerNsCollectors attaches an edition release onto an existing game matched by igdb_id', async () => {
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, region, igdb_id)
+         VALUES (7010, '7010', 'SRCW Base', 26, 'USA', 325608)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('7010-1', 7010, 'Europe')`,
+      ).run();
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input) => {
+          const urlStr = String(input);
+          if (urlStr.includes('gid=2004832329')) {
+            return new Response(
+              [
+                'Title,Region,Release Date,Publisher',
+                'Sonic Racing: CrossWorlds - Year One Edition,USA,2025-09-25,Sega',
+              ].join('\n'),
+              { status: 200, headers: { 'Content-Type': 'text/csv' } },
+            );
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 325608,
+                    name: 'Sonic Racing: CrossWorlds',
+                    platforms: [130],
+                  },
+                ],
+              },
+            ]);
+          }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          return new Response('Title,Region\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/csv' },
+          });
+        });
+
+      try {
+        const res = await syncWorkerNsCollectors(mockEnv);
+        expect(res.ingestedGames).toBe(0);
+        expect(res.linkedReleases).toBeGreaterThanOrEqual(1);
+
+        const rels = db
+          .prepare(
+            'SELECT id, region, variants, canonical_release_id FROM game_releases WHERE game_id = 7010 ORDER BY id',
+          )
+          .all() as Array<{
+          id: string;
+          region: string;
+          variants: string | null;
+          canonical_release_id: number | null;
+        }>;
+        expect(rels.some((r) => r.variants === 'Year One Edition')).toBe(true);
       } finally {
         fetchSpy.mockRestore();
       }
