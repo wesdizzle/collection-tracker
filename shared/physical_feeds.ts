@@ -220,32 +220,47 @@ export const BOUTIQUE_FEED_CONFIGS: BoutiqueFeedConfig[] = [
  */
 const NON_GAME_KEYWORDS = [
   'vinyl',
+  '2xlp',
+  '3xlp',
+  'lp vinyl',
+  '180g',
+  'audio cd',
   'soundtrack',
+  'original score',
   'ost',
+  'cassette',
+  'slipmat',
+  'turntable',
   'plush',
   't-shirt',
   'tee',
   'hoodie',
   'poster',
+  'art print',
   'artbook',
   'art book',
   'pin set',
   'enamel pin',
+  'lapel pin',
   'keychain',
   'slipcover only',
   'slipcover',
+  'empty steelbook',
   'trading cards',
   'card pack',
   'card sleeve',
+  'card games',
   'blind box',
   'standee',
   'acrylic stand',
   'figure only',
   'figurine',
+  'action figure',
   'statue',
   'controller',
   'faceplate',
   'carrying case',
+  'travel bag',
   'replacement case',
   'manual only',
   'desk mat',
@@ -255,16 +270,23 @@ const NON_GAME_KEYWORDS = [
   'jacket',
   'tote bag',
   'apparel',
+  'test equipment',
   'digital code only',
 ];
 
-const NON_GAME_REGEXES = NON_GAME_KEYWORDS.map(
-  (kw) =>
-    new RegExp(
-      `\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')}\\b`,
-      'i',
-    ),
-);
+const NON_GAME_REGEXES = [
+  ...NON_GAME_KEYWORDS.map((kw) => {
+    const escaped = kw
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\s+/g, '\\s+');
+    if (kw === 'controller') {
+      return /(?<!air\s+traffic\s+|traffic\s+)\bcontroller\b/i;
+    }
+    return new RegExp(`\\b${escaped}\\b`, 'i');
+  }),
+  /\bnendoroid\s+(?:doll|figure|petit|plus|pin)\b/i,
+  /\btrading\s+card(?!\s*(?:game\b|[:\-–—]\s*card\s+summoner\b))\b/i,
+];
 
 const BOUTIQUE_PLATFORM_PATTERNS: Array<{ regex: RegExp; id: number }> = [
   { regex: /\b(?:Nintendo\s+)?Switch\s+2\b/i, id: 27 },
@@ -614,53 +636,142 @@ const BOX_SET_TITLE_RE =
   /\b(?:deluxe\s+limited\s+edition|box\s+set|anthology|collection\s+box)\b/i;
 
 const BOX_SET_NON_GAME_LINE_RE =
-  /\b(?:soundtrack|vinyl|folio|slipcover|book|artbook|art\s+book|box|case|bag|poster|print|certificate|limited\s+to|cover|sleeve|manual|pin|sticker|patch|keychain|medallion|coin|postcards?|disc(?:s)?\s+for|cartridge(?:s)?\s+for|features?\b|includes?\b|packaging)\b/i;
+  /\b(?:soundtrack|vinyl|2xlp|3xlp|folio|slipcover|book|artbook|art\s+book|box|case|bag|poster|print|certificate|limited\s+to|individually\s+numbered|cover|sleeve|manual|pin|sticker|patch|keychain|medallion|coin|postcards?|disc(?:s)?\s+for|cartridge(?:s)?\s+for|features?\b|includes?\b|packaging|per\s+customer|shipping|download\s+code|voucher)\b/i;
+
+const BOX_SET_PROSE_SENTENCE_RE =
+  /(?:\.\s+[A-Z]|^(?:featuring|reversible|region[- ]free|full[- ]color|collectible|custom\s+|physical\s+(?:copy|edition|cartridge|disc)|all\s+\d+\s+games)\b)/i;
+
+function normalizeBoxSetBulletText(htmlFrag: string): string {
+  return decodeHtmlEntities(htmlFrag.replace(/<[^>]+>/g, ' '))
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/^[•\-*\u2022]+\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isCleanBoxSetGameLine(text: string): boolean {
+  if (text.length < 2) return false;
+  if (BOX_SET_NON_GAME_LINE_RE.test(text)) return false;
+  if (BOX_SET_PROSE_SENTENCE_RE.test(text)) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length >= 6 && /[.!]$/.test(text)) return false;
+  return !NON_GAME_REGEXES.some((rx) => rx.test(text));
+}
+
+function extractTagGamePrefix(
+  tagsRaw: string | string[] | undefined,
+  cleanTitle: string,
+): { baseTitle: string; edition: string } | null {
+  const tagList = Array.isArray(tagsRaw)
+    ? tagsRaw
+    : typeof tagsRaw === 'string'
+      ? tagsRaw.split(',')
+      : [];
+  for (const tag of tagList) {
+    const trimmedTag = tag.trim();
+    const m = trimmedTag.match(/^game_(.{2,})$/i);
+    if (!m) continue;
+    const tagTitle = decodeHtmlEntities(m[1].replace(/[-_]+/g, ' ')).trim();
+    if (tagTitle.length < 2) continue;
+    const normTag = tagTitle.toLowerCase();
+    const normClean = cleanTitle.trim().toLowerCase();
+    if (normClean.startsWith(normTag) && normClean.length > normTag.length) {
+      const rest = cleanTitle.slice(tagTitle.length).trim();
+      const edMatch = rest.match(/^(?:[:\-–—]\s*)?(.+\bEditions?)$/i);
+      if (edMatch && cleanTitle[tagTitle.length]?.match(/[\s:\-–—]/)) {
+        return {
+          baseTitle: cleanTitle.slice(0, tagTitle.length).trim(),
+          edition: edMatch[1].trim(),
+        };
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Dynamically extracts constituent game titles from an explicit HTML `Includes` list
- * on multi-game boutique box sets (e.g. iam8bit's `Annapurna Interactive Deluxe Limited Edition`)
- * without hardcoding specific game names. Returns `[]` unless `>= 2` clean game titles are found.
+ * or clean leading game bullet list on multi-game boutique box sets (e.g. iam8bit's
+ * `Annapurna Interactive Deluxe Limited Edition` across Switch/PS4/PS5 layouts)
+ * without hardcoding game names or fragile character/item-count thresholds.
+ * Returns `[]` unless `>= 2` clean game titles are found.
  */
 export function extractBoxSetConstituentGameTitles(
   rawTitle: string,
   bodyHtml?: string | null,
 ): string[] {
   if (!rawTitle || !bodyHtml || !BOX_SET_TITLE_RE.test(rawTitle)) return [];
+
+  const collectTitles = (
+    rawItems: string[],
+    requireAllClean: boolean,
+  ): string[] => {
+    if (rawItems.length < 2) return [];
+    const titles: string[] = [];
+    const seen = new Set<string>();
+    for (const htmlFrag of rawItems) {
+      const text = normalizeBoxSetBulletText(htmlFrag);
+      if (!isCleanBoxSetGameLine(text)) {
+        if (requireAllClean) return [];
+        continue;
+      }
+      const cand = buildStructuralTitleCandidates(text)[0] ?? text;
+      const key = cand.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        titles.push(cand);
+      }
+    }
+    return titles.length >= 2 ? titles : [];
+  };
+
+  // Layout 1 & 2: Explicit Includes heading followed by <li> rows or standalone <div>/<p> rows
   const includesMatch = bodyHtml.match(
-    /(?:games?\s+included|included\s+games|this\s+(?:collection|set)\s+includes|discs?\s+for\s*:)([\s\S]{10,2500})/i,
+    /(?:games?\s+included|included\s+games|this\s+(?:collection|set)\s+includes|discs?\s+for\s*:|\bincludes\b\s*[:<])([\s\S]{10,4000})/i,
   );
-  if (!includesMatch) return [];
+  if (includesMatch) {
+    const block = includesMatch[1];
+    const liItems = Array.from(
+      block.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi),
+      (m) => m[1],
+    );
+    const liTitles = collectTitles(liItems, false);
+    if (liTitles.length >= 2) return liTitles;
 
-  const block = includesMatch[1];
-  const rawItems: string[] = [];
-  for (const m of block.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
-    rawItems.push(m[1]);
-  }
-  if (rawItems.length < 2) return [];
+    // Layout 2 (e.g. PS4 Annapurna): standalone Includes heading followed by <div>/<p> rows or <br>-separated lines
+    const headingStopped = block.split(/<h[1-6]\b/i)[0] || block;
+    const blockItems = Array.from(
+      headingStopped.matchAll(/<(?:div|p)[^>]*>([\s\S]*?)<\/(?:div|p)>/gi),
+      (m) => m[1],
+    );
+    const divTitles = collectTitles(blockItems, false);
+    if (divTitles.length >= 2) return divTitles;
 
-  const titles: string[] = [];
-  const seen = new Set<string>();
-  for (const htmlFrag of rawItems) {
-    const text = decodeHtmlEntities(htmlFrag.replace(/<[^>]+>/g, ' '))
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/^[•\-*\u2022]+\s*/, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (
-      text.length < 2 ||
-      text.length > 65 ||
-      BOX_SET_NON_GAME_LINE_RE.test(text)
-    ) {
-      continue;
-    }
-    const cand = buildStructuralTitleCandidates(text)[0] ?? text;
-    const key = cand.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      titles.push(cand);
-    }
+    const brLines = headingStopped
+      .split(/<br\s*\/?>/gi)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const brTitles = collectTitles(brLines, false);
+    if (brTitles.length >= 2) return brTitles;
   }
-  return titles.length >= 2 ? titles : [];
+
+  // Layout 3: Leading <ul> before <p> — only accepted when 100% of bullets are clean game titles
+  const leadingUlMatch = bodyHtml.match(/^\s*<ul[^>]*>([\s\S]*?)<\/ul>/i);
+  const firstParagraphIdx = bodyHtml.search(/<p\b/i);
+  if (
+    leadingUlMatch &&
+    leadingUlMatch.index !== undefined &&
+    (firstParagraphIdx === -1 || leadingUlMatch.index < firstParagraphIdx)
+  ) {
+    const leadingItems = Array.from(
+      leadingUlMatch[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi),
+      (m) => m[1],
+    );
+    const leadingTitles = collectTitles(leadingItems, true);
+    if (leadingTitles.length >= 2) return leadingTitles;
+  }
+
+  return [];
 }
 
 function parseShopifyBoutiqueItem(
@@ -668,9 +779,14 @@ function parseShopifyBoutiqueItem(
   item: ShopifyProductItem,
 ): BoutiquePreOrder[] {
   const rawTitle = item.title || '';
+  const tagsStr = Array.isArray(item.tags)
+    ? item.tags.join(' ')
+    : typeof item.tags === 'string'
+      ? item.tags
+      : '';
   if (
     !rawTitle ||
-    isStorefrontNonGameOrMultiBoxBundle(rawTitle, item.product_type) ||
+    isStorefrontNonGameOrMultiBoxBundle(rawTitle, item.product_type, tagsStr) ||
     NON_GAME_REGEXES.some((rx) => rx.test(rawTitle)) ||
     (item.product_type &&
       NON_GAME_REGEXES.some((rx) => rx.test(item.product_type!)))
@@ -687,16 +803,18 @@ function parseShopifyBoutiqueItem(
   if (!baseCleaned.isGame || baseCleaned.cleanTitle.length <= 1) {
     return [];
   }
-
-  const tagsStr = Array.isArray(item.tags)
-    ? item.tags.join(' ')
-    : typeof item.tags === 'string'
-      ? item.tags
-      : '';
-  const bodyPlain = decodeHtmlEntities(
-    (item.body_html || '').replace(/<[^>]+>/g, ' '),
+  const tagGameOverride = extractTagGamePrefix(
+    item.tags,
+    baseCleaned.cleanTitle,
   );
-  const xboxContext = `${tagsStr} ${item.product_type || ''} ${bodyPlain}`;
+  if (tagGameOverride) {
+    baseCleaned.cleanTitle = tagGameOverride.baseTitle;
+    if (!baseCleaned.edition) {
+      baseCleaned.edition = tagGameOverride.edition;
+    }
+  }
+
+  const xboxContext = `${rawTitle} ${item.product_type || ''} ${tagsStr}`;
 
   let isPre = baseCleaned.isPreOrder;
   if (!isPre && tagsStr) {
@@ -856,15 +974,31 @@ function parseShopifyBoutiqueItem(
     return expandBoxSet(out);
   }
 
-  // Single-platform fallback: rawTitle platform -> product_type / tags
+  // Single-platform fallback: rawTitle platform -> product_type -> unambiguous single-platform tags
   let resolvedPid = baseCleaned.platformId;
   let resolvedAmbiguous = Boolean(baseCleaned.ambiguousXbox);
-  if (resolvedPid === null) {
-    const metaHit = extractPlatformFromShopifyText(
-      `${item.product_type || ''} ${tagsStr}`,
+  if (resolvedPid === null && item.product_type) {
+    const typeHit = extractPlatformFromShopifyText(item.product_type);
+    resolvedPid = typeHit.platformId;
+    resolvedAmbiguous = typeHit.ambiguousXbox;
+  }
+  if (resolvedPid === null && tagsStr) {
+    const tagPlatforms = extractAllPlatformIds(tagsStr);
+    const nonXboxSeriesCollapsed = Array.from(
+      new Set(
+        tagPlatforms.map((id) =>
+          id === 50 && tagPlatforms.includes(49) ? 49 : id,
+        ),
+      ),
     );
-    resolvedPid = metaHit.platformId;
-    resolvedAmbiguous = metaHit.ambiguousXbox;
+    if (nonXboxSeriesCollapsed.length === 1) {
+      resolvedPid = nonXboxSeriesCollapsed[0];
+      resolvedAmbiguous = false;
+    } else if (tagPlatforms.length === 0) {
+      const bareHit = extractPlatformFromShopifyText(tagsStr);
+      resolvedPid = bareHit.platformId;
+      resolvedAmbiguous = bareHit.ambiguousXbox;
+    }
   }
   if (resolvedPid === null) {
     return [];
@@ -1182,21 +1316,24 @@ export async function fetchLimitedGameNewsReleases(
           continue;
         }
 
-        const textPlatforms = extractAllPlatformIds(
-          `${decodedHeadline} ${decodedExcerpt}`,
-        );
+        const headlinePlatforms = extractAllPlatformIds(decodedHeadline);
         const categoryMatchedPlatforms = catIds
           .map((id) => categoryPlatforms.get(id))
           .filter((id): id is number => id !== undefined);
+        const excerptPlatforms =
+          headlinePlatforms.length === 0 &&
+          categoryMatchedPlatforms.length === 0
+            ? extractAllPlatformIds(decodedExcerpt)
+            : [];
         const platformIds = Array.from(
           new Set(
-            textPlatforms.length > 0
-              ? textPlatforms
+            headlinePlatforms.length > 0
+              ? headlinePlatforms
               : categoryMatchedPlatforms.length > 0
                 ? categoryMatchedPlatforms
                 : cleaned.platformId !== null
                   ? [cleaned.platformId]
-                  : [],
+                  : excerptPlatforms,
           ),
         );
 

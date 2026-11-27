@@ -31,6 +31,7 @@ import worker, {
   X_CATALOG_PARTIAL_HEADER,
   X_CATALOG_CHUNK_SIZE_HEADER,
   buildIgdbSearchTokens,
+  classifyIgdbVersionParentEdition,
   fetchIgdbMetadataForTitles,
   getBackupChunkR2Key,
   getBroadCatalogSeedStatus,
@@ -12951,6 +12952,385 @@ describe('Worker API Logic', () => {
         );
       } finally {
         dealFetchSpy.mockRestore();
+      }
+    });
+
+    it('classifies Category A packaging vs Category B follow-up version_parents, folds Category A commutatively, links Category B Seeking rows bidirectionally, and heals late IGDB links in rolling sweep', async () => {
+      // 1. Unit classification: Category A packaging / pun boxes / CIAB vs Category B on-media follow-ups
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 407117,
+            name: 'Overlord: Dagdan Collection',
+            version_parent: { id: 366896, name: 'Overlord', platforms: [130] },
+          },
+          130,
+        )?.classification,
+      ).toBe('packaging');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 210461,
+            name: "Oddworld: Stranger's Wrath - Limited Oddition",
+            version_parent: {
+              id: 18357,
+              name: "Oddworld: Stranger's Wrath",
+              platforms: [130],
+            },
+          },
+          130,
+        )?.classification,
+      ).toBe('packaging');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 134220,
+            name: 'Persona 5 Royal: Phantom Thieves Edition',
+            version_parent: {
+              id: 114283,
+              name: 'Persona 5 Royal',
+              platforms: [48],
+            },
+          },
+          48,
+        )?.classification,
+      ).toBe('packaging');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 342885,
+            name: 'Tomba! Special Edition: Whoopee Edition',
+            version_parent: {
+              id: 256467,
+              name: 'Tomba! Special Edition',
+              platforms: [130],
+            },
+          },
+          130,
+        )?.classification,
+      ).toBe('packaging');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 999111,
+            name: 'Sonic Mania: Complete Edition [nscollectors_ciab]',
+            version_parent: {
+              id: 19686,
+              name: 'Sonic Mania',
+              platforms: [130],
+            },
+          },
+          130,
+        )?.classification,
+      ).toBe('packaging');
+
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 381623,
+            name: 'Bloodstained: Ritual of the Night - Complete Edition',
+            version_parent: {
+              id: 10760,
+              name: 'Bloodstained: Ritual of the Night',
+              platforms: [130],
+            },
+          },
+          130,
+        ),
+      ).toMatchObject({
+        classification: 'followup',
+        parentIgdbId: 10760,
+        editionTitle: 'Complete Edition',
+      });
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 76723,
+            name: 'Sonic Mania Plus',
+            version_parent: {
+              id: 19686,
+              name: 'Sonic Mania',
+              platforms: [130],
+            },
+          },
+          130,
+        )?.classification,
+      ).toBe('followup');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 889901,
+            name: 'Minimal Mock CE',
+            version_parent: { cover: { image_id: 'cov_only' } },
+          },
+          130,
+        ),
+      ).toBeNull();
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 999222,
+            name: 'Cross-Gen Only Collector Edition',
+            version_parent: { id: 555, name: 'Base Game', platforms: [48] },
+          },
+          167,
+        ),
+      ).toBeNull();
+
+      // 2. Commutative arrival + rolling fold + Category B watched series Seeking & detail shared_media_releases
+      const futurePub = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      db.exec(`
+        INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES (26, 'switch', 'Nintendo Switch', 130);
+        INSERT OR REPLACE INTO sync_state (key, value) VALUES
+          ('boutique_seed_completed', '1'),
+          ('boutique_store_seeded:Strictly Limited Games', '1'),
+          ('watched_series_discovery_cursor', '0');
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source) VALUES
+          (81001, 26, 'Bloodstained: Ritual of the Night - Complete Edition', '${normalizeTitleForMatching('Bloodstained: Ritual of the Night - Complete Edition')}', 'USA', 1, 'dat');
+        INSERT INTO games (stable_id, id, title, platform_id, region, igdb_id, canonical_series) VALUES
+          (9001, '9001', 'Overlord', 26, 'USA', 366896, 'Overlord'),
+          (9002, '9002', 'Overlord: Dagdan Collection', 26, 'USA', 407117, 'Overlord'),
+          (9003, '9003', 'Bloodstained: Ritual of the Night', 26, 'USA', 10760, 'Bloodstained');
+        INSERT INTO game_releases (id, game_id, region, verified_source, canonical_title) VALUES
+          ('9001-1', 9001, 'USA', 'dat', 'Overlord'),
+          ('9002-1', 9002, 'USA', 'retail_catalog', 'Overlord: Dagdan Collection'),
+          ('9003-1', 9003, 'USA', 'dat', 'Bloodstained: Ritual of the Night');
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media) VALUES
+          (1, '9002-1', 1, 1);
+        INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored) VALUES
+          (1, 'series', 'Bloodstained', 2, 'home', 0);
+      `);
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(
+          async (input: string | URL | Request, init?: RequestInit) => {
+            const urlStr =
+              typeof input === 'string'
+                ? input
+                : input instanceof URL
+                  ? input.toString()
+                  : input.url;
+            if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+              return Response.json({ access_token: 'tok', expires_in: 3600 });
+            }
+            if (urlStr.includes('strictlylimitedgames.com')) {
+              return Response.json({
+                products: [
+                  {
+                    id: 95001,
+                    title:
+                      "Oddworld: Stranger's Wrath - Limited Oddition (Switch)",
+                    handle: 'oddworld-limited-oddition',
+                    product_type: 'Nintendo Switch',
+                    published_at: futurePub,
+                    tags: ['pre-order'],
+                    variants: [
+                      { title: 'Switch', price: '49.99', available: true },
+                    ],
+                  },
+                  {
+                    id: 95002,
+                    title: 'Non-Game Soundtrack Vinyl (Switch)',
+                    handle: 'ost-vinyl',
+                    product_type: 'LP Vinyl',
+                    published_at: futurePub,
+                    tags: ['Nintendo Switch'],
+                    variants: [
+                      {
+                        title: 'Default Title',
+                        price: '34.99',
+                        available: true,
+                      },
+                    ],
+                  },
+                ],
+              });
+            }
+            if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+              const body = String(init?.body || '');
+              if (body.includes('query games "s0"')) {
+                return Response.json([
+                  {
+                    name: 's0',
+                    result: [
+                      {
+                        id: 381623,
+                        name: 'Bloodstained: Ritual of the Night - Complete Edition',
+                        platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                        collections: [{ name: 'Bloodstained' }],
+                        version_parent: {
+                          id: 10760,
+                          name: 'Bloodstained: Ritual of the Night',
+                          platforms: [130],
+                        },
+                      },
+                    ],
+                  },
+                ]);
+              }
+              const out: Array<{ name: string; result: unknown[] }> = [];
+              for (const m of body.matchAll(
+                /query games "(q\d+)" \{([^}]+)\}/g,
+              )) {
+                if (m[2].includes('"Oddworld"')) {
+                  out.push({
+                    name: m[1],
+                    result: [
+                      {
+                        id: 210461,
+                        name: "Oddworld: Stranger's Wrath - Limited Oddition",
+                        platforms: [130],
+                        version_parent: {
+                          id: 18357,
+                          name: "Oddworld: Stranger's Wrath",
+                          platforms: [130],
+                          url: 'https://www.igdb.com/games/oddworld-strangers-wrath',
+                        },
+                      },
+                    ],
+                  });
+                } else {
+                  out.push({ name: m[1], result: [] });
+                }
+              }
+              return Response.json(out);
+            }
+            if (urlStr.includes('api.igdb.com/v4/games')) {
+              return Response.json([
+                {
+                  id: 407117,
+                  name: 'Overlord: Dagdan Collection',
+                  platforms: [130],
+                  collections: [{ name: 'Overlord' }],
+                  version_parent: {
+                    id: 366896,
+                    name: 'Overlord',
+                    platforms: [130],
+                  },
+                },
+                {
+                  id: 381623,
+                  name: 'Bloodstained: Ritual of the Night - Complete Edition',
+                  platforms: [130],
+                  collections: [{ name: 'Bloodstained' }],
+                  version_parent: {
+                    id: 10760,
+                    name: 'Bloodstained: Ritual of the Night',
+                    platforms: [130],
+                  },
+                },
+              ]);
+            }
+            return Response.json({ products: [] });
+          },
+        );
+
+      try {
+        // Boutique Category A edition arriving BEFORE base canonicalizes onto base IGDB id & title
+        await syncWorkerBoutiquePreOrders(mockEnv);
+        const oddworldRow = db
+          .prepare(
+            `SELECT stable_id, title, igdb_id FROM games WHERE igdb_id = 18357 AND platform_id = 26`,
+          )
+          .get() as { stable_id: number; title: string; igdb_id: number };
+        expect(oddworldRow).toBeTruthy();
+        expect(oddworldRow.title).toBe("Oddworld: Stranger's Wrath");
+        expect(
+          db.prepare(`SELECT 1 FROM games WHERE igdb_id = 210461`).get(),
+        ).toBeUndefined();
+        expect(
+          db
+            .prepare(`SELECT variants FROM game_releases WHERE game_id = ?`)
+            .get(oddworldRow.stable_id),
+        ).toEqual({ variants: 'Limited Oddition' });
+        // Merch vinyl listing must never be ingested
+        expect(
+          db
+            .prepare(`SELECT 1 FROM games WHERE title LIKE '%Soundtrack%'`)
+            .get(),
+        ).toBeUndefined();
+
+        // Watched Series Discovery keeps Category B Complete Edition separate & marks Seeking (2)
+        await syncWorkerWatchedSeriesDiscovery(mockEnv);
+        const bsComplete = db
+          .prepare(
+            `SELECT stable_id, id, metadata_json FROM games WHERE igdb_id = 381623 AND platform_id = 26`,
+          )
+          .get() as {
+          stable_id: number;
+          id: string;
+          metadata_json: string | null;
+        };
+        expect(bsComplete).toBeTruthy();
+        expect(JSON.parse(bsComplete.metadata_json || '{}')).toMatchObject({
+          version_parent_igdb_id: 10760,
+          version_title: 'Complete Edition',
+        });
+        expect(
+          db
+            .prepare(
+              `SELECT ownership_status FROM user_game_releases ugr JOIN game_releases gr ON gr.id = ugr.release_id WHERE gr.game_id = ?`,
+            )
+            .get(bsComplete.stable_id),
+        ).toEqual({ ownership_status: 2 });
+
+        // Bidirectional detail links via GET /api/games/:id
+        const parentDetailRes = await worker.fetch(
+          new Request('http://localhost/api/games/9003'),
+          mockEnv,
+        );
+        const parentDetail = (await parentDetailRes.json()) as {
+          shared_media_releases?: Array<{ stable_id?: number; title: string }>;
+        };
+        expect(parentDetail.shared_media_releases).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              stable_id: bsComplete.stable_id,
+              title: 'Bloodstained: Ritual of the Night - Complete Edition',
+            }),
+          ]),
+        );
+
+        const childDetailRes = await worker.fetch(
+          new Request(`http://localhost/api/games/${bsComplete.id}`),
+          mockEnv,
+        );
+        const childDetail = (await childDetailRes.json()) as {
+          shared_media_releases?: Array<{ stable_id?: number; title: string }>;
+        };
+        expect(childDetail.shared_media_releases).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              stable_id: 9003,
+              title: 'Bloodstained: Ritual of the Night (Base Release)',
+            }),
+          ]),
+        );
+
+        // Rolling sweep folds leaked Category A row 9002 into base 9001 preserving user ownership & variant
+        await syncWorkerIgdbSeriesAndCanonical(mockEnv);
+        expect(
+          db.prepare(`SELECT 1 FROM games WHERE stable_id = 9002`).get(),
+        ).toBeUndefined();
+        const movedRel = db
+          .prepare(
+            `SELECT game_id, variants FROM game_releases WHERE id = '9002-1'`,
+          )
+          .get() as { game_id: number; variants: string | null };
+        expect(movedRel).toEqual({
+          game_id: 9001,
+          variants: 'Dagdan Collection',
+        });
+        expect(
+          db
+            .prepare(
+              `SELECT ownership_status FROM user_game_releases WHERE release_id = '9002-1'`,
+            )
+            .get(),
+        ).toEqual({ ownership_status: 1 });
+      } finally {
+        fetchSpy.mockRestore();
       }
     });
   });

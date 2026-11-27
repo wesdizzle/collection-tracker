@@ -483,7 +483,7 @@ export function parseRetailBackCatalog(
     const rawEd = item.edition || extracted.edition || null;
     const isMerchEd =
       rawEd &&
-      /\b(?:plushie|book|yunomi|nendoroid)\s+bundle\b|\bpromo\s+card\b|\bstore\s+exclusive\b/i.test(
+      /\b(?:plushie|book|yunomi|nendoroid)\s+bundle\b|\bpromo\s+card\b|\bstore\s+exclusive\b|\b(?:vinyl|2xlp|3xlp|soundtrack|ost|art\s*book|slipcover|figurine)\b/i.test(
         rawEd,
       );
     const variants = isMerchEd ? null : rawEd;

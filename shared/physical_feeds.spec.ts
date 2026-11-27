@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   cleanBoutiqueTitle,
+  extractBoxSetConstituentGameTitles,
   fetchBoutiquePreOrders,
   fetchLimitedGameNewsReleases,
   BoutiqueFeedConfig,
@@ -716,6 +717,99 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
         ['Gorogoa', 34],
         ['Telling Lies', 34],
       ]);
+    });
+
+    it('extracts PS4 div-row and clean leading-ul box sets, supports Fangamer game_ tags, and prevents platform bleed', async () => {
+      const divBoxSet = extractBoxSetConstituentGameTitles(
+        'Annapurna Interactive Deluxe Limited Edition - PS4',
+        '<p><strong>Includes:</strong></p><div>Donut County</div><div>Kentucky Route Zero: TV Edition</div><div>Outer Wilds + Echoes of the Eye (Extra long subtitle exceeding sixty-five characters cleanly)</div><div>Custom Folio Slipcover</div>',
+      );
+      expect(divBoxSet).toEqual([
+        'Donut County',
+        'Kentucky Route Zero: TV Edition',
+        'Outer Wilds + Echoes of the Eye',
+      ]);
+
+      const leadingUlClean = extractBoxSetConstituentGameTitles(
+        'Indie Anthology Box Set',
+        '<ul><li>Celeste</li><li>Inside</li></ul><p>Ships Q4.</p>',
+      );
+      expect(leadingUlClean).toEqual(['Celeste', 'Inside']);
+
+      const leadingUlWithProse = extractBoxSetConstituentGameTitles(
+        'Indie Box Set',
+        '<ul><li>Celeste</li><li>Limited to 5,000 numbered copies</li></ul><p>Order now.</p>',
+      );
+      expect(leadingUlWithProse).toEqual([]);
+
+      const shopifyMockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          products: [
+            {
+              id: 77701,
+              title: 'OFF Bad Human Edition',
+              handle: 'off-bad-human',
+              product_type: 'Nintendo Switch',
+              tags: ['game_OFF', 'Switch', 'PS5'],
+              variants: [{ title: 'Default Title', price: '59.99' }],
+            },
+            {
+              id: 77702,
+              title: 'Shovel Knight Vinyl',
+              handle: 'shovel-knight-vinyl',
+              product_type: 'LP Vinyl',
+              tags: ['Nintendo Switch'],
+              variants: [{ title: 'Default Title', price: '39.99' }],
+            },
+          ],
+        }),
+      });
+      const boutiqueRes = await fetchBoutiquePreOrders(
+        shopifyMockFetch as unknown as typeof fetch,
+        [
+          {
+            store: 'Fangamer',
+            url: 'https://www.fangamer.com/products.json?limit=250',
+            baseUrl: 'https://www.fangamer.com',
+            type: 'shopify',
+          },
+        ],
+      );
+      expect(boutiqueRes).toHaveLength(1);
+      expect(boutiqueRes[0].cleanTitle).toBe('OFF');
+      expect(boutiqueRes[0].edition).toBe('Bad Human Edition');
+      expect(boutiqueRes[0].platformId).toBe(26);
+
+      const lgnMockFetch = vi.fn().mockImplementation(async (url: string) => {
+        if (String(url).includes('/categories')) {
+          return {
+            ok: true,
+            json: async () => [{ id: 10, name: 'Nintendo Switch' }],
+          };
+        }
+        return {
+          ok: true,
+          json: async () => [
+            {
+              id: 901,
+              date_gmt: '2026-11-23T12:00:00',
+              link: 'https://limitedgamenews.com/2026/11/test-lgn/',
+              title: { rendered: 'Cool Indie Game physical release revealed' },
+              excerpt: {
+                rendered:
+                  '<p>Previously digital on Xbox Series X and PS5, now coming to retail.</p>',
+              },
+              categories: [10],
+            },
+          ],
+        };
+      });
+      const lgnRes = await fetchLimitedGameNewsReleases(
+        lgnMockFetch as unknown as typeof fetch,
+      );
+      expect(lgnRes).toHaveLength(1);
+      expect(lgnRes[0].platformId).toBe(26);
     });
   });
 });

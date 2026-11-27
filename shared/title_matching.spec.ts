@@ -1267,12 +1267,18 @@ describe('Title Matching Strategies', () => {
       expect(
         buildCanonicalLinkerMatchKeys('Persona 5 Royal: Steelbook Edition'),
       ).toContain('persona5royal');
+      // Delimited editions strip locally onto the base key without blind single-word peeling
       expect(
         buildCanonicalLinkerMatchKeys('Shantae: Half-Genie Hero Edition'),
-      ).toContain('shantaehalfgenie');
+      ).toContain('shantae');
       expect(
         buildCanonicalLinkerMatchKeys("Yoshi's Crafted Edition"),
-      ).toContain('yoshi');
+      ).not.toContain('yoshi');
+      expect(
+        buildDetailedIgdbMatchVariants("Yoshi's Crafted Edition").map(
+          (v) => v.title,
+        ),
+      ).toContain("Yoshi's");
       expect(
         buildCanonicalLinkerMatchKeys(
           'Pac-Man Championship Edition 2 + Arcade Game Series',
@@ -1553,14 +1559,31 @@ describe('Title Matching Strategies', () => {
       expect(
         buildStructuralTitleCandidates("ONLINE EXCLUSIVE EDTION: 7'scarlet"),
       ).toContain("7'scarlet");
-      expect(buildStructuralTitleCandidates('OFF Bad Human Edition')).toContain(
-        'OFF',
-      );
+      expect(
+        buildStructuralTitleCandidates('Metroid Prime - Best Buy Exclusive'),
+      ).toContain('Metroid Prime');
+      expect(
+        buildStructuralTitleCandidates('Star Ocean - Game [UNBOXING]'),
+      ).toContain('Star Ocean');
+      // Local structural extraction does NOT blindly peel arbitrary unseparated word+Edition phrases
+      expect(buildStructuralTitleCandidates('OFF Bad Human Edition')).toEqual([
+        'OFF Bad Human Edition',
+      ]);
       expect(
         buildStructuralTitleCandidates(
           'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
         ),
+      ).toEqual(['Bubsy in: The Purrfect Collection Im-paw-sible Edition']);
+      expect(
+        buildDetailedIgdbMatchVariants(
+          'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
+        ).map((v) => v.title),
       ).toContain('Bubsy in: The Purrfect Collection');
+      expect(
+        buildDetailedIgdbMatchVariants('Super Soccer Tournament Edition').map(
+          (v) => v.title,
+        ),
+      ).not.toContain('Super Soccer');
       expect(
         extractPhysicalEditionForVariant(
           'Untitled Goose Game - "Lovely Edition"',
@@ -1571,11 +1594,11 @@ describe('Title Matching Strategies', () => {
       });
       expect(
         extractPhysicalEditionForVariant(
-          'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
+          'Sonic Frontiers - Day Zero Edition [Best Buy Exclusive]',
         ),
       ).toEqual({
-        baseTitle: 'Bubsy in: The Purrfect Collection',
-        edition: 'Im-paw-sible Edition',
+        baseTitle: 'Sonic Frontiers',
+        edition: 'Day Zero Edition',
       });
 
       expect(

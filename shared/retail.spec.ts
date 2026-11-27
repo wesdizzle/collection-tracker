@@ -8,6 +8,7 @@ import {
   matchRetailToyProduct,
   parseRetailToyTitle,
   isNonGameRetailTitle,
+  isPositiveGameProductType,
   parseRetailReleaseDate,
   fetchCadToUsdRate,
   fetchVgpDeals,
@@ -1050,6 +1051,64 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
         true,
       );
       expect(isNonGameRetailTitle('The Book of Unwritten Tales 2')).toBe(false);
+
+      // Phase 5 positive taxonomy & merch/vinyl rejection with zero baseline false positives
+      expect(isPositiveGameProductType('Nintendo Switch')).toBe(true);
+      expect(isPositiveGameProductType('Switch Games')).toBe(true);
+      expect(isPositiveGameProductType('')).toBe(true);
+      expect(isPositiveGameProductType('Exclusive', 'Nintendo Switch')).toBe(
+        true,
+      );
+      expect(isPositiveGameProductType('LP Vinyl')).toBe(false);
+      expect(isPositiveGameProductType('T-Shirts')).toBe(false);
+      expect(isPositiveGameProductType('Lapel Pins')).toBe(false);
+      expect(isPositiveGameProductType('Test Equipment')).toBe(false);
+      expect(isPositiveGameProductType('Travel Bag/ Case')).toBe(false);
+      expect(isPositiveGameProductType('Action & Toy Figures')).toBe(false);
+      expect(isPositiveGameProductType('Card Games')).toBe(false);
+      expect(isPositiveGameProductType('Art Print')).toBe(false);
+
+      expect(isNonGameRetailTitle('Celeste 2xLP Soundtrack Vinyl')).toBe(true);
+      expect(isNonGameRetailTitle('Persona 5 180g Audiophile LP')).toBe(true);
+      expect(isNonGameRetailTitle('Original Score Audio CD')).toBe(true);
+      expect(isNonGameRetailTitle('Metroid Empty SteelBook')).toBe(true);
+      expect(isNonGameRetailTitle(' Kirby Nendoroid Doll')).toBe(true);
+      expect(isNonGameRetailTitle('Chrono Box & Contents')).toBe(true);
+
+      // Genuine games containing overlapping nouns remain allowed
+      expect(
+        isNonGameRetailTitle('I am an Air Traffic Controller: Airport Hero'),
+      ).toBe(false);
+      expect(isNonGameRetailTitle('There Is No Game: Wrong Dimension')).toBe(
+        false,
+      );
+      expect(isNonGameRetailTitle('Imagine: Figure Skater')).toBe(false);
+      expect(isNonGameRetailTitle('Pokémon Trading Card Game')).toBe(false);
+      expect(
+        isNonGameRetailTitle('Shin Megami Tensei Trading Card: Card Summoner'),
+      ).toBe(false);
+      expect(isNonGameRetailTitle('Kuni Chan no Game Tengoku')).toBe(false);
+      expect(isNonGameRetailTitle('Football Manager 26 Console')).toBe(false);
+      expect(isNonGameRetailTitle('Hardware: Online Arena')).toBe(false);
+      expect(isNonGameRetailTitle('Scribblenauts Mega Pack')).toBe(false);
+      expect(
+        matchRetailGameProduct(
+          {
+            store: 'VGP',
+            sku: 'steelbook-empty',
+            name: 'Fire Emblem Empty SteelBook - Nintendo Switch',
+            platform: 'Nintendo Switch',
+            productType: 'Nintendo Switch',
+            regularPrice: 14.99,
+            salePrice: 14.99,
+            onSale: false,
+            percentSavings: 0,
+            url: 'https://videogamesplus.ca/products/fe-empty-steelbook',
+            onlineAvailability: true,
+          },
+          [{ stable_id: 99, title: 'Fire Emblem', platform_id: 26 }],
+        ),
+      ).toBeNull();
     });
   });
 });

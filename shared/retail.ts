@@ -35,6 +35,7 @@ export interface RetailDealItem {
   percentSavings: number;
   url: string;
   platform?: string;
+  productType?: string;
   onlineAvailability: boolean;
   categoryHint?: 'game' | 'toy';
   isPreOrder?: boolean;
@@ -345,27 +346,57 @@ export async function fetchCadToUsdRate(
 }
 
 const RETAIL_HARDWARE_AND_ACCESSORY_RE =
-  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:8bitdo|retron|dobe|retrotap|armor3|gamepad|controller|joy-con|joycon|headset|charging\s+(?:station|dock|grip)|charge\s+dock|carrying\s+case|travel\s+(?:case|kit)|storage\s+bag|folding\s+stand|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|(?:hdmi|scart|hdtv|av|component|composite|power|extension|usb(?:-c)?)\s+cable|(?:cartridge|controller|hdmi|ac|av|power|lan|ethernet|bluetooth|wireless)\s+adapter|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|comic\s+book|coloring\s+book|sticker\s+(?:book|set)|seal\s+set|music\s+collection\s+box\s+set|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live(?!\s+arcade\b)|console\s+bundle|hardware|console(?!\s+edition\b)|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|hori\b.*\bcamera|\bpiranha\s+plant\s+camera\b|\busb[- ]?c\s+camera\b|playstation\s+(?:eye|hd\s+camera)|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only|no\s+game(?:\s+included)?|game\s+not\s+included|arcade\s+peripheral|monitor\s+test|controller\s+tester|demonstration\s+cartridge)\b|\((?:hardcover|softcover|paperback|book)\))/i;
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|(?:\(|[-–—]\s*|\b(?:contains|with)\s+)\bno\s+game\b|\b(?:8bitdo|retron|dobe|retrotap|armor3|gamepad|(?<!air\s+traffic\s+|traffic\s+)controller|joy-con|joycon|headset|charging\s+(?:station|dock|grip)|charge\s+dock|carrying\s+case|travel\s+(?:case|kit|bag)|storage\s+bag|folding\s+stand|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|(?:hdmi|scart|hdtv|av|component|composite|power|extension|usb(?:-c)?)\s+cable|(?:cartridge|controller|hdmi|ac|av|power|lan|ethernet|bluetooth|wireless)\s+adapter|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|comic\s+book|(?<!comic\s+)coloring\s+book|sticker\s+(?:book|set)|seal\s+set|music\s+collection\s+box\s+set|vinyl|2xlp|3xlp|180g\s+audiophile|audio\s+cd|soundtrack|original\s+score|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|nendoroid\s+(?:doll|figure|petit|plus|pin)|(?:action|collectible|scale|vinyl|amiibo|pop!)\s+figure|figure\s+only|figurine|statue|acrylic\s+stand|standee|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card(?!\s*(?:game\b|[:\-–—]\s*card\s+summoner\b))|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live(?!\s+arcade\b)|console\s+bundle|(?:console|system|replacement|official|retro)\s+hardware|hardware\s+(?:bundle|kit|pack|unit|console|accessory|accessories|controller)|console\s+(?:bundle|system|hardware|unit|skin|stand|case|bag|cover|only)|(?:retro|mini|classic|plug\s*(?:&|and)\s*play|handheld)\s+console|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|hori\b.*\bcamera|\bpiranha\s+plant\s+camera\b|\busb[- ]?c\s+camera\b|playstation\s+(?:eye|hd\s+camera)|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|empty\s+steelbook|insert\s+only|cover\s+art\s+only|(?:box\s*(?:&|and)\s*contents|contents\s+only|art\s+contents)|no\s+game\s+(?:included|cart(?:ridge)?|disc|card|inside)|game\s+not\s+included|arcade\s+peripheral|monitor\s+test|controller\s+tester|test\s+equipment|demonstration\s+cartridge)\b|\((?:hardcover|softcover|paperback|book)\))/i;
 
 const STOREFRONT_MULTI_BOX_BUNDLE_RE =
-  /(?:\bseries\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack\b|\bpreorder\s+mega\s+pack\b|\b(?:collector(?:'s)?|ultimate|mega|ultra\s+collector(?:'s)?|super\s+meta(?:\s+x?le)?|taito\s+ce|indie\s+(?:action\s+rpg|adventure)(?:\s+le)?|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?)\s+(?:bundle|pack)\b|\b(?:collection|volume\s+\d+\s*(?:[-–—]|&|and)\s*(?:volume\s+)?\d+)\b.*\b(?:complete\s+)?bundle\b|\bcomplete\s+bundle\b)/i;
+  /(?:\bseries\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack\b|\bpreorder\s+mega\s+pack\b|\bmega\s+bundle\b|\b(?:collector(?:'s)?|ultimate|ultra\s+collector(?:'s)?|super\s+meta(?:\s+x?le)?|taito\s+ce|indie\s+(?:action\s+rpg|adventure)(?:\s+le)?|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?)\s+(?:bundle|pack)\b|\b(?:collection|volume\s+\d+\s*(?:[-–—]|&|and)\s*(?:volume\s+)?\d+)\b.*\b(?:complete\s+)?bundle\b|\bcomplete\s+bundle\b)/i;
 
 const HARDWARE_PRODUCT_TYPE_RE =
-  /\b(?:hardware|consoles?|controllers?|gamepads?|headsets?|cables?|adapters?|cameras?|bags?|cases?|accessories|books?|comics?|publications?|apparel|merch(?:andise)?|soundtracks?|vinyl)\b/i;
+  /\b(?:hardware|consoles?|(?<!air\s+traffic\s+|traffic\s+)controllers?|gamepads?|headsets?|cables?|adapters?|cameras?|bags?|cases?|accessories|books?|comics?|publications?|apparel|merch(?:andise)?|soundtracks?|vinyl|2xlp|3xlp|lp\s+vinyl|cassettes?|turntable|slipmats?|art\s*prints?|posters?|lapel\s+pins?|t-?shirts?|hoodies?|plush(?:ies?)?|action\s*(?:&\s*toy\s*)?figures?|figurines?|statues?|card\s+games?|trading\s+cards?|tcg|test\s+equipment|equipment|travel\s+bag|keychains?|desk\s+mats?|standees?|toys?)\b/i;
+
+const POSITIVE_GAME_PRODUCT_TYPE_RE =
+  /\b(?:(?:nintendo\s+)?switch(?:\s*2)?|nsw2?|playstation\s*[1-5]?|ps[1-5]|psp|psv|ps\s*vita|psvr2?|xbox(?:\s*(?:one|series\s*[xs]|360))?|xb1|xsx|x360|wii(?:\s*u)?|3ds|nds|\bds\b|gba|gbc|gb|snes|super\s+nintendo|nes|n64|gamecube|gcn|genesis|mega\s*drive|dreamcast|saturn|atari|turbografx|pc\s*engine|master\s+system|game\s*gear|sega\s*cd|32x|lynx|jaguar|3do|evercade|neo\s*geo|pc|(?:video\s*)?games?|software|physical\s+(?:edition|release|media|games?|cart(?:ridge)?|disc)|(?:standard|limited|collector'?s?|deluxe|special|retro|classic|steelbook|import|ultimate)\s+editions?|box\s+sets?|bundles?|pre-?orders?)\b/i;
 
 /**
- * Returns true if a storefront title or product_type represents non-game
+ * Positive storefront taxonomy validator for product_type + tags.
+ * When a storefront omits product_type, returns true (defers to title + IGDB checks);
+ * when product_type is populated, rejects obvious non-game hardware/merch types and
+ * requires positive physical-game/platform taxonomy in either product_type or tags.
+ */
+export function isPositiveGameProductType(
+  productType?: string | null,
+  tagsText?: string | null,
+): boolean {
+  const cleanType = decodeHtmlEntities(productType || '').trim();
+  const cleanTags = decodeHtmlEntities(tagsText || '').trim();
+  if (!cleanType) return true;
+  if (HARDWARE_PRODUCT_TYPE_RE.test(cleanType)) return false;
+  if (POSITIVE_GAME_PRODUCT_TYPE_RE.test(cleanType)) return true;
+  return Boolean(cleanTags && POSITIVE_GAME_PRODUCT_TYPE_RE.test(cleanTags));
+}
+
+/**
+ * Returns true if a storefront title, product_type, or tags represents non-game
  * hardware/merchandise or a storefront multi-box bundle rather than a single
  * retail release or single physical game cart/disc.
  */
 export function isStorefrontNonGameOrMultiBoxBundle(
   title: string,
   productType?: string | null,
+  tagsText?: string | null,
 ): boolean {
   const cleanTitle = decodeHtmlEntities(title || '');
   const cleanType = decodeHtmlEntities(productType || '');
+  if (!isPositiveGameProductType(cleanType, tagsText)) return true;
   if (HARDWARE_PRODUCT_TYPE_RE.test(cleanType)) return true;
-  if (RETAIL_HARDWARE_AND_ACCESSORY_RE.test(`${cleanTitle} ${cleanType}`)) {
+  const titleForHardwareCheck = cleanTitle
+    .replace(/\s*[-–—]\s*Complete\s+in\s+Box\s+with\s+Game\b.*$/i, '')
+    .trim();
+  if (
+    RETAIL_HARDWARE_AND_ACCESSORY_RE.test(
+      `${titleForHardwareCheck} ${cleanType}`,
+    )
+  ) {
     return true;
   }
   return STOREFRONT_MULTI_BOX_BUNDLE_RE.test(cleanTitle);
@@ -379,8 +410,9 @@ export function isStorefrontNonGameOrMultiBoxBundle(
 export function isNonGameRetailTitle(
   title: string,
   productType?: string | null,
+  tagsText?: string | null,
 ): boolean {
-  return isStorefrontNonGameOrMultiBoxBundle(title, productType);
+  return isStorefrontNonGameOrMultiBoxBundle(title, productType, tagsText);
 }
 
 const MONTH_NAME_MAP: Record<string, string> = {
@@ -527,6 +559,7 @@ function parseVgpProductToRetailItem(
     percentSavings: discountPct,
     url: `https://videogamesplus.ca/products/${prod.handle}`,
     platform: prod.product_type || undefined,
+    productType: prod.product_type || undefined,
     onlineAvailability: bestVar.available,
     categoryHint,
     ...(isPreOrder ? { isPreOrder: true } : {}),
@@ -651,6 +684,7 @@ export async function fetchVgpDeals(
     if (products.length === 0) break;
 
     for (const prod of products) {
+      if (isNonGameRetailTitle(prod.title, prod.product_type)) continue;
       const item = parseVgpProductToRetailItem(prod, cadToUsdRate, true);
       if (item) {
         deals.push(item);
@@ -963,6 +997,7 @@ export async function fetchPnpDeals(
     if (!Array.isArray(products) || products.length === 0) break;
 
     for (const prod of products) {
+      if (isNonGameRetailTitle(prod.name)) continue;
       const item = parsePnpProductToRetailItem(prod, cadToUsdRate, true);
       if (item) {
         deals.push(item);
@@ -1216,8 +1251,12 @@ export function matchRetailGameProduct(
   product: RetailDealItem,
   candidates: CandidateGame[],
 ): number | null {
-  // Guard against matching standalone amiibo/toys to games with the same title
-  if (isStandaloneToyListing(product)) {
+  // Guard against matching standalone amiibo/toys or non-game merch/multi-box bundles to games
+  if (
+    isStandaloneToyListing(product) ||
+    (product.categoryHint !== 'toy' &&
+      isStorefrontNonGameOrMultiBoxBundle(product.name, product.productType))
+  ) {
     return null;
   }
 

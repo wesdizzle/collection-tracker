@@ -15,6 +15,9 @@ import {
   buildGameDetailQuery,
   getGameDetailQueryParams,
   buildGameReleasesByGameIdQuery,
+  buildTargetedCompanionByIgdbIdQuery,
+  buildVersionParentChildrenCompanionQuery,
+  enrichGameDetailWithCompanionsAndVouchers,
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
   ACTIVE_GAMES_PUBLIC_WHERE_CLAUSE,
   CATALOG_GAMES_CHUNK_BOUND_QUERY,
@@ -539,6 +542,124 @@ describe('resolveLocalizedReleaseTitle', () => {
       expect(releasesRow['serial_code']).toBe('SLUS-001');
       expect(releasesRow['title']).toBe('Demo Game Canonical');
       expect(releasesRow['comments']).toBe('Demo Pub');
+
+      // Phase 5 Category B bidirectional version_parent companion queries remain index-backed
+      db.exec(`
+        INSERT INTO games (id, stable_id, title, platform_id, igdb_id, canonical_series, metadata_json)
+        VALUES
+          ('10', 10, 'Bloodstained: Ritual of the Night', 26, 10760, 'Bloodstained', NULL),
+          ('11', 11, 'Bloodstained: Ritual of the Night - Complete Edition', 26, 381623, 'Bloodstained', '{"version_parent_igdb_id":10760,"version_title":"Complete Edition"}');
+        INSERT INTO game_releases (id, game_id, region)
+        VALUES ('10-1', 10, 'USA'), ('11-1', 11, 'USA');
+      `);
+
+      const byIgdbPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN ${buildTargetedCompanionByIgdbIdQuery(null)}`,
+        )
+        .all(10760, 26) as Array<{ detail: string }>;
+      expect(
+        byIgdbPlan.some((p) => /\bSCAN\s+(?:games|g)\b/i.test(p.detail)),
+      ).toBe(false);
+
+      const childrenTitlePlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN ${buildVersionParentChildrenCompanionQuery(null, false)}`,
+        )
+        .all(
+          'bloodstained: ritual of the night',
+          'bloodstained: ritual of the night\uffff',
+          26,
+        ) as Array<{ detail: string }>;
+      expect(
+        childrenTitlePlan.some((p) => /\bSCAN\s+(?:games|g)\b/i.test(p.detail)),
+      ).toBe(false);
+
+      const childrenSeriesPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN ${buildVersionParentChildrenCompanionQuery(null, true)}`,
+        )
+        .all('Bloodstained', 26) as Array<{ detail: string }>;
+      expect(
+        childrenSeriesPlan.some((p) =>
+          /\bSCAN\s+(?:games|g)\b/i.test(p.detail),
+        ),
+      ).toBe(false);
+
+      const parentRows = db
+        .prepare(buildTargetedCompanionByIgdbIdQuery(null))
+        .all(10760, 26) as Array<Record<string, unknown>>;
+      const childGameObj = {
+        id: '11',
+        stable_id: 11,
+        title: 'Bloodstained: Ritual of the Night - Complete Edition',
+        platform_id: 26,
+        igdb_id: 381623,
+        metadata_json:
+          '{"version_parent_igdb_id":10760,"version_title":"Complete Edition"}',
+        region: 'USA',
+        releases: [{ id: '11-1', region: 'USA' }],
+      };
+      enrichGameDetailWithCompanionsAndVouchers(
+        childGameObj,
+        parentRows as unknown as Parameters<
+          typeof enrichGameDetailWithCompanionsAndVouchers
+        >[1],
+      );
+      expect(
+        (
+          childGameObj as {
+            shared_media_releases?: Array<{
+              stable_id?: number;
+              title: string;
+            }>;
+          }
+        ).shared_media_releases,
+      ).toEqual([
+        expect.objectContaining({
+          stable_id: 10,
+          title: 'Bloodstained: Ritual of the Night (Base Release)',
+        }),
+      ]);
+
+      const childRows = db
+        .prepare(buildVersionParentChildrenCompanionQuery(null, false))
+        .all(
+          'bloodstained: ritual of the night',
+          'bloodstained: ritual of the night\uffff',
+          26,
+        ) as Array<Record<string, unknown>>;
+      const parentGameObj = {
+        id: '10',
+        stable_id: 10,
+        title: 'Bloodstained: Ritual of the Night',
+        platform_id: 26,
+        igdb_id: 10760,
+        metadata_json: null,
+        region: 'USA',
+        releases: [{ id: '10-1', region: 'USA' }],
+      };
+      enrichGameDetailWithCompanionsAndVouchers(
+        parentGameObj,
+        childRows as unknown as Parameters<
+          typeof enrichGameDetailWithCompanionsAndVouchers
+        >[1],
+      );
+      expect(
+        (
+          parentGameObj as {
+            shared_media_releases?: Array<{
+              stable_id?: number;
+              title: string;
+            }>;
+          }
+        ).shared_media_releases,
+      ).toEqual([
+        expect.objectContaining({
+          stable_id: 11,
+          title: 'Bloodstained: Ritual of the Night - Complete Edition',
+        }),
+      ]);
     } finally {
       db.close();
     }

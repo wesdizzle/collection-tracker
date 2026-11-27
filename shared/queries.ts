@@ -892,6 +892,57 @@ export function buildTargetedCompanionByTitleQuery(
 export const TARGETED_COMPANION_BY_TITLE_QUERY =
   buildTargetedCompanionByTitleQuery(null);
 
+export function buildTargetedCompanionByIgdbIdQuery(
+  userId?: number | null,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id,
+           g.igdb_id as game_igdb_id, g.metadata_json as game_metadata_json
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE g.igdb_id = ? AND +g.platform_id = ?
+  `;
+}
+
+export function buildVersionParentChildrenCompanionQuery(
+  userId?: number | null,
+  byCanonicalSeries = false,
+): string {
+  const userJoin = userId
+    ? `LEFT JOIN user_game_releases ugr ON ugr.release_id = r.id AND ugr.user_id = ?`
+    : '';
+  const hasMediaCol = userId ? 'COALESCE(ugr.has_media, 0)' : '0';
+  const ownershipCol = userId ? 'COALESCE(ugr.ownership_status, 0)' : '0';
+  const hasCaseCol = userId ? 'COALESCE(ugr.has_case, 0)' : '0';
+  const hasManualCol = userId ? 'COALESCE(ugr.has_manual, 0)' : '0';
+  const scopeClause = byCanonicalSeries
+    ? `g.canonical_series = ? AND +g.platform_id = ?`
+    : `g.title >= ? COLLATE NOCASE AND g.title < ? COLLATE NOCASE AND +g.platform_id = ?`;
+  return `
+    SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
+           ${hasMediaCol} as has_media, ${ownershipCol} as ownership_status, r.release_date,
+           ${hasCaseCol} as has_case, ${hasManualCol} as has_manual,
+           g.title as game_title, g.platform_id,
+           g.igdb_id as game_igdb_id, g.metadata_json as game_metadata_json
+    FROM game_releases r
+    ${userJoin}
+    JOIN games g ON r.game_id = g.stable_id
+    WHERE ${scopeClause}
+      AND g.metadata_json LIKE '%"version_parent_igdb_id":%'
+  `;
+}
+
 export const PLATFORM_RELEASES_FOR_COMPANION_QUERY = `
     SELECT r.id, r.game_id, r.region, r.variants, r.also_released_as, r.rom_name, r.rom_crc,
            0 as has_media, 0 as ownership_status, r.release_date,
@@ -1094,6 +1145,8 @@ export interface CompanionDiscCandidateRow {
   has_manual?: number;
   game_title: string;
   platform_id: number;
+  game_igdb_id?: number | null;
+  game_metadata_json?: string | null;
   disc_label?: string | null;
   is_companion_base_disc?: boolean;
   companion_game_id?: string;
@@ -1150,6 +1203,9 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     title?: string;
     base_title?: string | null;
     platform_id?: number;
+    igdb_id?: number | string | null;
+    canonical_series?: string | null;
+    metadata_json?: string | null;
     region?: string | null;
     variants?: string | null;
     rom_name?: string | null;
@@ -1632,6 +1688,74 @@ export function enrichGameDetailWithCompanionsAndVouchers(
     }
   }
 
+  // 5d. Check bidirectional IGDB version_parent links (Category B expanded follow-up <-> Base game)
+  const gameMeta = parseGameMetadataOnce(game.metadata_json);
+  const gameIgdbId = game.igdb_id ? Number(game.igdb_id) : null;
+  const parentIgdbId = gameMeta?.version_parent_igdb_id
+    ? Number(gameMeta.version_parent_igdb_id)
+    : null;
+  if (
+    parentIgdbId ||
+    (gameIgdbId && Number.isFinite(gameIgdbId) && gameIgdbId > 0)
+  ) {
+    const bestByGameId = new Map<
+      number,
+      { cand: CompanionDiscCandidateRow; title: string; score: number }
+    >();
+    for (const cand of platformReleases) {
+      if (cand.game_id === game.stable_id) continue;
+      if (cand.platform_id !== game.platform_id) continue;
+      let linkTitle: string | null = null;
+      if (
+        parentIgdbId &&
+        cand.game_igdb_id != null &&
+        Number(cand.game_igdb_id) === parentIgdbId
+      ) {
+        linkTitle = `${cand.game_title} (Base Release)`;
+      } else if (gameIgdbId && gameIgdbId > 0) {
+        const candMeta = parseGameMetadataOnce(cand.game_metadata_json);
+        if (
+          candMeta?.version_parent_igdb_id != null &&
+          Number(candMeta.version_parent_igdb_id) === gameIgdbId
+        ) {
+          const vTitle = (candMeta.version_title || '').trim();
+          linkTitle =
+            vTitle &&
+            !cand.game_title.toLowerCase().includes(vTitle.toLowerCase())
+              ? `${cand.game_title} (${vTitle})`
+              : cand.game_title;
+        }
+      }
+      if (!linkTitle) continue;
+      const candScore = scoreCandidate(cand);
+      const prev = bestByGameId.get(cand.game_id);
+      if (!prev || candScore > prev.score) {
+        bestByGameId.set(cand.game_id, {
+          cand,
+          title: linkTitle,
+          score: candScore,
+        });
+      }
+    }
+    for (const { cand, title } of bestByGameId.values()) {
+      if (
+        !sharedLinks.some((s) => s.id === cand.id || s.game_id === cand.game_id)
+      ) {
+        sharedLinks.push({
+          id: cand.id,
+          game_id: cand.game_id,
+          stable_id: cand.game_id,
+          title,
+          region: cand.region,
+          variants: cand.variants,
+          rom_name: cand.rom_name,
+          ownership_status: cand.ownership_status,
+          has_media: cand.has_media,
+        });
+      }
+    }
+  }
+
   if (sharedLinks.length > 0) {
     game.shared_media_releases = sharedLinks;
   }
@@ -2067,6 +2191,8 @@ export interface ParsedGameMetadata {
   alternative_names?: Array<{ name?: string; comment?: string }>;
   game_localizations?: Array<{ region?: number; name?: string }>;
   constituent_games?: ConstituentGameLink[];
+  version_parent_igdb_id?: number;
+  version_title?: string;
 }
 
 export function parseGameMetadataOnce(
@@ -2077,7 +2203,8 @@ export function parseGameMetadataOnce(
   if (
     !metadataJsonOrObj.includes('alternative_names') &&
     !metadataJsonOrObj.includes('game_localizations') &&
-    !metadataJsonOrObj.includes('constituent_games')
+    !metadataJsonOrObj.includes('constituent_games') &&
+    !metadataJsonOrObj.includes('version_parent_igdb_id')
   ) {
     return null;
   }

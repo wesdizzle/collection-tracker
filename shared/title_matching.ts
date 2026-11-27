@@ -842,7 +842,7 @@ const RETAIL_TRAILING_PLATFORM_PATTERN =
   '(?:(?:\\((?:PS[1-5]|PSV|PSVR2?|XB1|XSX|NSW2?)\\)\\s*)?(?:Sony\\s+PlayStation\\s*VR2?|PlayStation\\s*VR2|PSVR2|PlayStation\\s*VR|PSVR|Play(?:Station|sation)\\s*[12345]|PS[12345]|PlayStation\\s*Vita|PS\\s*Vita|Vita|PlayStation\\s*Portable|PSP|New\\s+(?:Nintendo\\s+)?3DS(?:\\s*(?:&|and|/|,)\\s*(?:New\\s+)?2DS)?(?:\\s+Systems)?|Nintendo\\s*Switch\\s*2?|Switch\\s*2?|NSW2?|Nintendo\\s*3DS|3DS|Nintendo\\s*DS|NDS|DS|Wii\\s*U|Nintendo\\s*Wii|Wii|Game\\s*Boy\\s*Color|GBC|Game\\s*Boy\\s*Advance|GBA|Xbox\\s*Series\\s*[XS](?:\\|[XS])?|XSX|Xbox\\s*One|XB1|Xbox\\s*360|Sega\\s*Dreamcast|Dreamcast))';
 
 const RETAIL_MERCH_ADDON_SUFFIX_RE =
-  /\s*(?:\+\s*store\s+exclusive\b.*|\(\s*with\s+exclusive\b[^)]*\)|\s+(?:(?:collector['’]?s?\s+edition\s+)?plushie|special\s+book|book|yunomi\s+cup\s+(?:ce|le)|nendoroid\s+(?:ce|le))\s+bundle\b.*)$/i;
+  /\s*(?:\+\s*(?:store\s+exclusive|exclusive\s+key\s+art|vinyl|soundtrack|ost|art\s*book|enamel\s+pin|pin\s+set|slipcover|poster|plush(?:ie)?)\b.*|\(\s*with\s+exclusive\b[^)]*\)|\s+(?:(?:collector['’]?s?\s+edition\s+)?plushie|special\s+book|book|yunomi\s+cup\s+(?:ce|le)|nendoroid\s+(?:doll|figure|petit|plus|pin)\s*(?:ce|le)?)\s+bundle\b.*)$/i;
 
 /**
  * Strips single-game storefront merchandise add-ons (e.g. "+ Store Exclusive Key Art Stand",
@@ -886,7 +886,7 @@ export function normalizeInvertedArticle(title: string): string {
  * (`UNDER NIGHT IN-BIRTH II [Sys:Celes]`, `D+Vine[Luv]`).
  */
 const METADATA_BRACKET_INNER_RE =
-  /\b(?:free\s*shipping|pre-?order|pre-?owned|used|new|sealed|cib|loose|disc\s+only|import|jpim|multi-?lan(?:g|guage|ugage)?|english|no\s+english|plays\s+in\s+english|bilingual|usa|us|can|esrb?|pegi|pal|eur(?:ope)?|jpn|japan|asia(?:n)?|mse|uae|eu\/na|eu\/us|asim|standard(?:\s+edition)?|retail(?:\s+version|\s+edition)?|extra(?:\s+elite)?\s+edition|limited(?:\s+edition)?|collector'?s?\s+edition|special\s+edition|deluxe\s+edition|retro\s+edition|steelbook|exclusive|backorder|eta\b|only\s+ships|only\s+works|compatible\s+with|requires|cart\s+revision|cart\s+type|game-key\s+card|physical\s+cart|version|limited\s+run|lrg|srg|slg|vgny|strictly\s+limited|super\s+rare|red\s+art|special\s+reserve|premium\s+edition|iam8bit|fangamer|play-asia|ps[1-5]|psv|psvr2?|xb1|xsx|nsw2?|switch(?:\s*2)?|3ds|nds|wii\s*u?|xbox|vita)\b/i;
+  /\b(?:free\s*shipping|pre-?order|pre-?owned|used|new|sealed|cib|loose|disc\s+only|import|jpim|multi-?lan(?:g|guage|ugage)?|multi-?region|english|no\s+english|plays\s+in\s+english|bilingual|usa|us|can|esrb?|pegi|pal|eur(?:ope)?|jpn|japan|asia(?:n)?|mse|uae|eu\/na|eu\/us|asim|standard(?:\s+edition)?|retail(?:\s+version|\s+edition)?|extra(?:\s+elite)?\s+edition|limited(?:\s+edition)?|collector'?s?\s+edition|special\s+edition|deluxe\s+edition|retro\s+edition|steelbook|exclusive|backorder|eta\b|only\s+ships|only\s+works|compatible\s+with|requires|cart\s+revision|cart\s+type|game-key\s+card|physical\s+cart|version|unboxing|limited\s+run|lrg|srg|slg|lgn|limited\s+game\s+news|vgny|strictly\s+limited|super\s+rare|red\s+art|special\s+reserve|premium\s+edition|iam8bit|fangamer|play-asia|ps[1-5]|psv|psvr2?|xb1|xsx|nsw2?|switch(?:\s*2)?(?:\s+physical)?|3ds|nds|wii\s*u?|xbox|vita)\b/i;
 
 const TRAILING_STORE_TAG_RE =
   /\s*(?:[,:\-–—]\s*(?:pal(?:\s+import)?|eur(?:ope)?(?:\s+import)?|uk(?:\s+import)?|jpn?(?:\s+import)?|asia(?:n)?(?:\s+(?:english|import))?|dlc\s+may\s+not\s+be\s+included|brand\s+new|new|used|pre-?owned|cib|loose|complete|sealed|disc\s+only|regular\s+edition|(?:event\s+)?exclusive|retail|various\s+platforms|eu\/na|eu\/us)|\s+(?:pal(?:\s+import)?|eur(?:ope)?(?:\s+import)?|uk(?:\s+import)?|jpn?(?:\s+import)?|asia(?:n)?(?:\s+(?:english|import))?|dlc\s+may\s+not\s+be\s+included|brand\s+new|pre-?owned|eu\/na|eu\/us))\s*$/i;
@@ -960,6 +960,7 @@ export function stripStructuralStoreFraming(
     }
 
     cur = cur
+      .replace(/\b([Ee])dtions?\b/g, '$1dition')
       .replace(/^BACKERS\s*-\s*DE#\d+\s*:\s*/i, '')
       .replace(/\s*-\s*XBOX\s+SMART\s*-\s*SERIES\s+X\s*&\s*XB1\b.*$/i, '')
       .replace(
@@ -971,6 +972,11 @@ export function stripStructuralStoreFraming(
         /\s*[-–—]\s*Pocket\s+(?:Fighting|Casino|Sports|Puzzle)\s+Series\s*$/i,
         '',
       )
+      .replace(
+        /\s*[-–—]\s*(?:VGP|PNP|Best\s+Buy|GameStop|Target|Walmart|Amazon|Play-?Asia)\s+Exclusive(?:\s+Edition)?\s*$/i,
+        '',
+      )
+      .replace(/\s*[-–—]\s*Game(?:\s+Only)?\s*$/i, '')
       .replace(
         new RegExp(
           `(?:\\s*[-–—]\\s*|\\s+for\\s+(?:the\\s+)?)${RETAIL_TRAILING_PLATFORM_PATTERN}(?:\\s*(?:,|\\/|\\||&|\\band\\b)\\s*${RETAIL_TRAILING_PLATFORM_PATTERN})*\\s*$`,
@@ -1051,16 +1057,6 @@ export function buildStructuralTitleCandidates(
     if (edSplit && !edSplit.suffix.startsWith('+')) {
       add(edSplit.base);
     }
-    const twoWordGenericEd = c.match(
-      /^(.{2,}?[^\s:\-–—])\s+["'“”]?((?:[A-Za-z0-9'’.-]+\s+){2}Editions?)["'“”]?$/i,
-    );
-    if (
-      twoWordGenericEd &&
-      !NON_ENGLISH_EDITION_RE.test(twoWordGenericEd[2]) &&
-      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(twoWordGenericEd[1].trim())
-    ) {
-      add(twoWordGenericEd[1].trim());
-    }
     const stripped = stripIgdbEditionWrapper(c, {
       allowBareSpecial: options.allowBareSpecial ?? false,
     });
@@ -1105,12 +1101,24 @@ const SHARED_EDITION_QUALIFIERS: readonly string[] = [
   '(?<!Nintendo\\s)Switch\\s*2',
   'xbox\\s*one',
   'year\\s+(?:one|\\d+)',
-  'day\\s+(?:one|1)',
-  'launch',
+  'day\\s+(?:one|1|zero|0)',
+  'launch(?:\\s+day)?',
+  'first\\s+press',
+  'retro',
+  'classic',
+  'big\\s+box',
+  'vhs',
   'premium',
-  'limited',
+  'limited(?:\\s+run)?',
+  'strictly\\s+limited',
+  'super\\s+rare',
+  'red\\s+art',
+  'fangamer',
   'iam8bit\\s+exclusive',
+  '(?:best\\s+buy|gamestop|walmart|target|amazon|vgp|pnp|store|online)\\s+exclusive',
   'exclusive',
+  'retail',
+  'physical',
   'playstation\\s+hits',
   'nintendo\\s+hits',
   "player'?s?\\s+choice",
@@ -1179,6 +1187,7 @@ export function stripEditionSuffix(title: string): string {
   );
   if (
     delimitedEd &&
+    !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(delimitedEd[1].trim()) &&
     !NON_ENGLISH_EDITION_RE.test(delimitedEd[2]) &&
     !GENERIC_SPACE_EDITION_BLOCKED_RE.test(delimitedEd[2]) &&
     !PLATFORM_EDITION_ONLY_RE.test(delimitedEd[2])
@@ -1292,6 +1301,9 @@ export function stripIgdbEditionWrapper(
     );
     if (
       structuralDelimitedEdition &&
+      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(
+        structuralDelimitedEdition[1].trim(),
+      ) &&
       !NON_ENGLISH_EDITION_RE.test(structuralDelimitedEdition[2])
     ) {
       current = structuralDelimitedEdition[1].trim();
@@ -1614,7 +1626,9 @@ export function buildDetailedIgdbMatchVariants(
         if (s.length >= 3) add(s, true);
       }
     }
-    const singleSplit = splitTitleEditionSuffix(half);
+    const singleSplit = splitTitleEditionSuffix(half, {
+      allowGenericSingleWord: true,
+    });
     if (singleSplit && !singleSplit.suffix.startsWith('+')) {
       add(singleSplit.base, hasTilde);
     }
@@ -1660,7 +1674,7 @@ const GENERIC_1WORD_SPACE_EDITION_RE =
   /^(.{2,}?[^\s:\-–—])\s+["'“”]?([A-Za-z][A-Za-z0-9'’.-]*\s+Editions?)["'“”]?$/i;
 
 const GENERIC_SPACE_EDITION_BLOCKED_RE =
-  /^(?:Championship|Arcade|Pocket|First|Second|Third|Final)\s+Editions?$/i;
+  /^(?:Championship|Arcade|Pocket|First|Second|Third|Final|Home|Console|World|Tour|Tournament|Sports|NetLink|Original|New|International|Pro|Club|Family|Party|Festival|Junior|Kids|Educational|Teacher|Student)\s+Editions?$/i;
 
 const GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE =
   /\b(?:the|a|an|of|for|in|on|at|to|by|with|from|and|or)$/i;
@@ -1684,6 +1698,7 @@ const STANDALONE_CONTENT_EDITION_RE =
 
 function splitTitleEditionSuffix(
   title: string,
+  options: { allowGenericSingleWord?: boolean } = {},
 ): { base: string; suffix: string } | null {
   const trimmed = normalizeTypography(title || '');
   if (!trimmed) return null;
@@ -1712,7 +1727,9 @@ function splitTitleEditionSuffix(
   );
   const knownSpaceMatch = trimmed.match(SPACE_EDITION_RE);
   const rawGenericSpaceMatch =
-    !knownSpaceMatch && !sepSuffixIsKnownEdition
+    options.allowGenericSingleWord &&
+    !knownSpaceMatch &&
+    !sepSuffixIsKnownEdition
       ? trimmed.match(GENERIC_1WORD_SPACE_EDITION_RE)
       : null;
   const validGenericSpaceMatch =
@@ -1743,7 +1760,9 @@ function splitTitleEditionSuffix(
     const suffix = sepEditionMatch[2].trim();
     if (
       suffix.split(/\s+/).length <= 6 &&
-      !NON_ENGLISH_EDITION_RE.test(suffix)
+      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(base) &&
+      !NON_ENGLISH_EDITION_RE.test(suffix) &&
+      !GENERIC_SPACE_EDITION_BLOCKED_RE.test(suffix)
     ) {
       return { base, suffix };
     }
