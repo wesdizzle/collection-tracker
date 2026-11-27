@@ -13076,6 +13076,30 @@ describe('Worker API Logic', () => {
           167,
         ),
       ).toBeNull();
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 136857,
+            name: 'Dark Souls: Artorias of the Abyss Edition',
+            version_parent: { id: 2155, name: 'Dark Souls', platforms: [9] },
+          },
+          9,
+        )?.classification,
+      ).toBe('followup');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 233271,
+            name: 'Coffee Talk: Double Shot Edition',
+            version_parent: {
+              id: 106847,
+              name: 'Coffee Talk',
+              platforms: [48],
+            },
+          },
+          48,
+        ),
+      ).toBeNull();
 
       // 2. Commutative arrival + rolling fold + Category B watched series Seeking & detail shared_media_releases
       const futurePub = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();

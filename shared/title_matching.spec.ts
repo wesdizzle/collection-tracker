@@ -1271,6 +1271,18 @@ describe('Title Matching Strategies', () => {
       expect(
         buildCanonicalLinkerMatchKeys('Shantae: Half-Genie Hero Edition'),
       ).toContain('shantae');
+      // Distinct colon-subtitled entries with trailing editions never collapse onto bare franchise keys (#59630 vs #59631)
+      const tmntSplinteredKeys = buildCanonicalLinkerMatchKeys(
+        'Teenage Mutant Ninja Turtles: Splintered Fate Legendary Edition Nintendo Switch 2 Edition',
+      );
+      const tmntWrathKeys = buildCanonicalLinkerMatchKeys(
+        'Teenage Mutant Ninja Turtles: Wrath of the Mutants Ninja Edition',
+      );
+      expect(tmntSplinteredKeys).not.toContain('teenagemutantninjaturtles');
+      expect(tmntWrathKeys).not.toContain('teenagemutantninjaturtles');
+      expect(tmntSplinteredKeys.some((k) => tmntWrathKeys.includes(k))).toBe(
+        false,
+      );
       expect(
         buildCanonicalLinkerMatchKeys("Yoshi's Crafted Edition"),
       ).not.toContain('yoshi');
@@ -1509,6 +1521,16 @@ describe('Title Matching Strategies', () => {
       expect(cleanTitleForIgdbLookup('SRG #120: Lil Gator Game')).toBe(
         'Lil Gator Game',
       );
+      expect(
+        cleanTitleForIgdbLookup(
+          'Switch Limited Run #131: There Is No Game: Wrong Dimension',
+        ),
+      ).toBe('There Is No Game: Wrong Dimension');
+      expect(
+        buildDetailedIgdbMatchVariants(
+          'Teenage Mutant Ninja Turtles: Splintered Fate Legendary Edition Nintendo Switch 2 Edition',
+        ).map((v) => v.title),
+      ).toContain('Teenage Mutant Ninja Turtles: Splintered Fate');
       expect(
         cleanTitleForIgdbLookup('BATMAN ARKHAM COLLECTION TRIPLE PACK'),
       ).toBe('BATMAN ARKHAM COLLECTION');

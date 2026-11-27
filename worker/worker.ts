@@ -16836,6 +16836,9 @@ function pickHigherOwnershipStatus(a: number, b: number): number {
  * `user_game_releases` ownership precedence (`1 > 3 > 4 > 2 > 0`), `user_games`,
  * `journal_entries`, `price_query_overrides`, `toy_game_compatibility`, and bundles.
  */
+const MULTI_GAME_BUNDLE_TITLE_RE =
+  /\b(?:double\s*(?:pack|shot|bundle|feature)|dual\s*pack|combo\s*pack|\d+[- ]in[- ]1|\d+\s+games?\s+in\s+)\b|\+/i;
+
 export async function mergeDuplicateGameIntoTarget(
   env: Env,
   params: {
@@ -16864,9 +16867,11 @@ export async function mergeDuplicateGameIntoTarget(
     };
   }
   if (
-    !params.allowVersionParentMerge &&
-    isCompilationOrBundleTitle(params.sourceTitle) !==
-      isCompilationOrBundleTitle(params.targetTitle)
+    MULTI_GAME_BUNDLE_TITLE_RE.test(params.sourceTitle) !==
+      MULTI_GAME_BUNDLE_TITLE_RE.test(params.targetTitle) ||
+    (!params.allowVersionParentMerge &&
+      isCompilationOrBundleTitle(params.sourceTitle) !==
+        isCompilationOrBundleTitle(params.targetTitle))
   ) {
     return {
       merged: false,
@@ -18192,9 +18197,10 @@ export async function syncWorkerIgdbSeriesAndCanonical(
         ? igdbFreshMap.get(numericIgdbId)
         : undefined;
     const platIgdbId = platformLookupById.get(game.platform_id)?.igdbId ?? null;
-    const vpClass = fresh?.rawItem
-      ? classifyIgdbVersionParentEdition(fresh.rawItem, platIgdbId)
-      : null;
+    const vpClass =
+      fresh?.rawItem && !MULTI_GAME_BUNDLE_TITLE_RE.test(game.title)
+        ? classifyIgdbVersionParentEdition(fresh.rawItem, platIgdbId)
+        : null;
 
     if (vpClass?.classification === 'packaging') {
       const existingBase = await env.DB.prepare(
@@ -18550,7 +18556,7 @@ const IGDB_VP_VOUCHER_OR_CIAB_RE =
   /\b(?:nscollectors_ciab|code[\s-]+in[\s-]+(?:a[\s-]+)?box|download\s+code\s+only)\b|\bno\s+(?:game|disc|cart(?:ridge)?)\s+(?:included|inside)\b/i;
 
 const IGDB_VP_CATEGORY_B_FOLLOWUP_RE =
-  /\b(?:goty|game\s+of\s+the\s+year|complete|definitive|director'?s?\s+cut|final\s+cut|extended\s+cut|gold\s+edition|ultimate(?:\s+edition)?|royal|golden|vengeance|ancestral|fire\s+fades|iceborne\s+master|komplete|legendary|prepare\s+to\s+die|scholar\s+of\s+the\s+first\s+sin|full\s+package|awesome\s+max|jumbo|aftermath\s+kollection|dark\s+arisen|shadow\s+of\s+the\s+erdtree|phantom\s+liberty|tarnished\s+edition|re-?mars-?tered|international|plus)\b/i;
+  /\b(?:goty|game\s+of\s+the\s+year|complete|definitive|director'?s?\s+cut|final\s+cut|extended\s+cut|gold\s+edition|ultimate(?:\s+edition)?|royal|golden|vengeance|ancestral|fire\s+fades|iceborne\s+master|komplete|legendary|prepare\s+to\s+die|artorias\s+of\s+the\s+abyss|scholar\s+of\s+the\s+first\s+sin|full\s+package|awesome\s+max|jumbo|aftermath\s+kollection|dark\s+arisen|shadow\s+of\s+the\s+erdtree|phantom\s+liberty|tarnished\s+edition|re-?mars-?tered|international|plus)\b/i;
 
 const IGDB_VP_PACKAGING_TIER_RE =
   /\b(?:collector'?s?|limited|special|steelbook|day\s+(?:one|1|zero|0)|launch|first\s+press|retro|classic|big\s+box|vhs|deluxe|super\s+deluxe|ultra\s+deluxe|anniversary|premium|standard|physical|exclusive)\b/i;
@@ -18620,6 +18626,9 @@ export function classifyIgdbVersionParentEdition(
     }
   }
 
+  if (MULTI_GAME_BUNDLE_TITLE_RE.test(candidate.name || '')) {
+    return null;
+  }
   const editionTitle = extractVersionEditionLabel(candidate.name, parentName);
   const combinedLabel = `${candidate.name || ''} ${editionTitle || ''}`;
   if (IGDB_VP_VOUCHER_OR_CIAB_RE.test(combinedLabel)) {

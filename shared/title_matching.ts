@@ -794,7 +794,7 @@ function cleanRawRegionCodes(str: string): string {
 }
 
 const BOUTIQUE_CATALOG_PREFIX_RE =
-  /^(?:LRG|SRG|SLG|RAG|FPG|PEG|Strictly Limited(?:\s+Games)?|Limited Run(?:\s+Games)?|Super Rare(?:\s+Games)?|Red Art(?:\s+Games)?|Special Reserve(?:\s+Games)?|Premium Edition(?:\s+Games)?(?:\s+Series\s+\d+)?)\s*#?\s*\d+(?:\s*(?:&|and|\/|-)\s*#?\s*\d+)?\s*[:-]?\s*/i;
+  /^(?:(?:(?:Nintendo\s+)?Switch(?:\s*2)?|PS[1-5]|PlayStation\s*[1-5]|PS\s*Vita|Vita|3DS|Wii\s*U)\s+)?(?:LRG|SRG|SLG|RAG|FPG|PEG|Strictly Limited(?:\s+Games)?|Limited Run(?:\s+Games)?|Super Rare(?:\s+Games)?|Red Art(?:\s+Games)?|Special Reserve(?:\s+Games)?|Premium Edition(?:\s+Games)?(?:\s+Series\s+\d+)?)\s*#?\s*\d+(?:\s*(?:&|and|\/|-)\s*#?\s*\d+)?\s*[:-]?\s*/i;
 
 /**
  * Strips leading boutique store catalog prefixes (e.g. "LRG #500: ",
@@ -1280,7 +1280,7 @@ export function cleanTitleForIgdbLookup(rawTitle: string): string {
  */
 export function stripIgdbEditionWrapper(
   title: string,
-  options: { allowBareSpecial?: boolean } = {},
+  options: { allowBareSpecial?: boolean; allowDelimitedGeneric?: boolean } = {},
 ): string {
   let current = cleanTitleForIgdbLookup(title);
   if (!current) return '';
@@ -1296,17 +1296,21 @@ export function stripIgdbEditionWrapper(
     ) {
       current = splitEd.base;
     }
-    const structuralDelimitedEdition = current.match(
-      /^(.{3,}?)\s*(?::|\s+[-–—]\s+)\s*((?:[^\s:\-–—]+\s+){0,3}[^\s:\-–—]+\s+Editions?)$/i,
-    );
-    if (
-      structuralDelimitedEdition &&
-      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(
-        structuralDelimitedEdition[1].trim(),
-      ) &&
-      !NON_ENGLISH_EDITION_RE.test(structuralDelimitedEdition[2])
-    ) {
-      current = structuralDelimitedEdition[1].trim();
+    if (options.allowDelimitedGeneric) {
+      const structuralDelimitedEdition = current.match(
+        /^(.{3,}?)\s*(?::|\s+[-–—]\s+)\s*((?:[^\s:\-–—]+\s+){0,3}[^\s:\-–—]+\s+Editions?)$/i,
+      );
+      if (
+        structuralDelimitedEdition &&
+        !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(
+          structuralDelimitedEdition[1].trim(),
+        ) &&
+        !NON_ENGLISH_EDITION_RE.test(structuralDelimitedEdition[2]) &&
+        !GENERIC_SPACE_EDITION_BLOCKED_RE.test(structuralDelimitedEdition[2]) &&
+        !PLATFORM_EDITION_ONLY_RE.test(structuralDelimitedEdition[2])
+      ) {
+        current = structuralDelimitedEdition[1].trim();
+      }
     }
     current = current
       .replace(
@@ -1639,6 +1643,12 @@ export function buildDetailedIgdbMatchVariants(
     const base = stripIgdbEditionWrapper(half, options);
     if (base && base.length >= 2) {
       add(base, hasTilde);
+      const baseSingleSplit = splitTitleEditionSuffix(base, {
+        allowGenericSingleWord: true,
+      });
+      if (baseSingleSplit && !baseSingleSplit.suffix.startsWith('+')) {
+        add(baseSingleSplit.base, hasTilde);
+      }
     }
 
     // Generate A - B <-> B: A swap for single-separator subtitled releases
@@ -1680,7 +1690,7 @@ const GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE =
   /\b(?:the|a|an|of|for|in|on|at|to|by|with|from|and|or)$/i;
 
 const KNOWN_EDITION_PHRASE_RE = new RegExp(
-  `^(?:${EXTRA_SPACE_EDITION_GROUP}\\s+Editions?|(?:Premium|Collector'?s?|Treasure)\\s+Box)$`,
+  `^(?:The\\s+)?(?:${EXTRA_SPACE_EDITION_GROUP}\\s+Editions?|(?:Premium|Collector'?s?|Treasure)\\s+Box)$`,
   'i',
 );
 
@@ -1759,7 +1769,7 @@ function splitTitleEditionSuffix(
     const base = sepEditionMatch[1].trim();
     const suffix = sepEditionMatch[2].trim();
     if (
-      suffix.split(/\s+/).length <= 6 &&
+      (sepSuffixIsKnownEdition || suffix.split(/\s+/).length <= 3) &&
       !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(base) &&
       !NON_ENGLISH_EDITION_RE.test(suffix) &&
       !GENERIC_SPACE_EDITION_BLOCKED_RE.test(suffix)
