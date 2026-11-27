@@ -19,17 +19,6 @@ import {
   isCuratedPsvrDemoDiscTitle,
   isIgnoredFormatRelease,
 } from './source_format.js';
-import { KNOWN_VITA_PHYSICAL_SERIALS } from './vita_physical_serials.js';
-import {
-  isKnownPhysicalModernDiscSerial,
-  KNOWN_PS4_PHYSICAL_DISC_SERIALS,
-  KNOWN_PS5_PHYSICAL_DISC_SERIALS,
-} from './modern_disc_serials.js';
-export {
-  isKnownPhysicalModernDiscSerial,
-  KNOWN_PS4_PHYSICAL_DISC_SERIALS,
-  KNOWN_PS5_PHYSICAL_DISC_SERIALS,
-};
 import {
   VOUCHER_BUNDLES_MISSING_IN_SOURCES,
   findRetailPackInDisc,
@@ -649,20 +638,6 @@ export function detectPhysicalReleaseStatus(options: {
 
   if (serialCode || extractSerialCode(gameTitle)) {
     const code = serialCode || extractSerialCode(gameTitle);
-    if (code && isKnownPhysicalModernDiscSerial(platformId, code)) {
-      reasons.push(
-        `Verified physical optical disc serial code detected in community catalog: ${code}`,
-      );
-      return {
-        physical_status: 'verified_physical',
-        verification_tier: 1,
-        is_physical: true,
-        reasons,
-        matched_releases: [],
-        physical_regions: ['USA', 'Europe', 'Japan', 'World'],
-      };
-    }
-
     reasons.push(`Physical platform serial code detected: ${code}`);
     return {
       physical_status: 'likely_physical',
@@ -772,42 +747,16 @@ export function deduplicateDatReleases(
       if (romName.toLowerCase().endsWith('.psv')) {
         isVerifiedPhysical = 1;
       } else {
-        const cleanSerial = serial
-          ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
-          : '';
-        const isKnownSerial = cleanSerial
-          ? KNOWN_VITA_PHYSICAL_SERIALS.has(cleanSerial)
-          : false;
         const isKnownPublisher = rel.publisher
           ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
               rel.publisher!.toLowerCase().includes(p),
             )
           : false;
-        isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
+        isVerifiedPhysical = isKnownPublisher ? 1 : 0;
       }
     } else if (platformId === 34 || platformId === 35) {
-      // Redump optical Blu-ray dumps (.iso/.cue/.bin) represent pressed physical discs;
-      // only gate non-optical/digital package entries via the legacy serial/publisher allowlist.
-      const isOpticalDiscDump = /\.(?:iso|cue|bin)$/i.test(romName);
-      if (isOpticalDiscDump) {
-        isVerifiedPhysical = 1;
-      } else {
-        const cleanSerial = serial
-          ? serial.replace(/[^A-Z0-9]/g, '').toUpperCase()
-          : '';
-        const isKnownSerial = isKnownPhysicalModernDiscSerial(
-          platformId,
-          cleanSerial,
-        );
-        const isKnownPublisher = rel.publisher
-          ? Array.from(PHYSICAL_PUBLISHERS_ALLOWLIST).some((p) =>
-              rel.publisher!.toLowerCase().includes(p),
-            )
-          : false;
-        if (cleanSerial || rel.publisher) {
-          isVerifiedPhysical = isKnownSerial || isKnownPublisher ? 1 : 0;
-        }
-      }
+      // Redump optical Blu-ray dumps (.iso/.cue/.bin) represent pressed physical discs.
+      isVerifiedPhysical = /\.(?:iso|cue|bin)$/i.test(romName) ? 1 : 0;
     }
 
     if (!releaseMap.has(groupKey)) {

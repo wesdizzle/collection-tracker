@@ -170,6 +170,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
               r.region,
               r.rom_name,
               r.release_date,
+              r.variants,
               r.canonical_release_id,
               ${sourceSelectExpr} AS effective_source,
               CASE WHEN EXISTS (
@@ -188,6 +189,7 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     region: string | null;
     rom_name: string | null;
     release_date: string | null;
+    variants: string | null;
     canonical_release_id: number | null;
     effective_source: string | null;
     is_tracked: number;
@@ -274,13 +276,20 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
     Array<(typeof releaseRows)[number]>
   >();
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   for (const r of releaseRows) {
     if (r.canonical_release_id != null) {
       linkedCanonicalIds.add(r.canonical_release_id);
     }
     const tier = getCanonicalSourceTier(r.effective_source);
     const hasRom = Boolean(r.rom_name);
-    const isVerified = tier > 0 || hasRom;
+    const isCiabRelease =
+      r.effective_source === 'nscollectors_ciab' ||
+      /\b(?:code\s+in\s+a\s+box|ciab)\b/i.test(r.variants || '');
+    const isUpcomingPhysical =
+      Boolean(r.release_date && r.release_date > todayIso) && !isCiabRelease;
+    const isVerified = tier > 0 || hasRom || isUpcomingPhysical;
     const st = ensurePlatStats(r.platform_id);
 
     st.totalReleases++;
@@ -299,7 +308,8 @@ export function generateCoverageReport(db: Database.Database): CoverageReport {
       if (tier === 1) st.tier1Count++;
       else if (tier === 2) st.tier2Count++;
       else if (tier === 3) st.tier3Count++;
-      else if (tier === 4) st.tier4Count++;
+      else if (tier === 4 || (tier === 0 && !hasRom && isUpcomingPhysical))
+        st.tier4Count++;
       else st.romOnlyCount++;
     } else {
       st.unverifiedCount++;

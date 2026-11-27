@@ -20,6 +20,7 @@ import {
   isStorefrontNonGameOrMultiBoxBundle,
 } from './retail.js';
 import {
+  buildStructuralTitleCandidates,
   stripBoutiqueCatalogPrefix,
   stripLgnPlatformPipeTrailer,
 } from './title_matching.js';
@@ -77,6 +78,7 @@ export type BoutiqueStoreName =
   | 'CastleMania'
   | 'Silver Lining Direct'
   | 'First Press Games'
+  | 'Nicalis'
   | 'Limited Game News';
 
 export interface BoutiquePreOrder {
@@ -114,6 +116,7 @@ export const STORE_DEFAULT_REGIONS: Record<BoutiqueStoreName, string> = {
   CastleMania: 'USA',
   'Silver Lining Direct': 'Europe',
   'First Press Games': 'Europe',
+  Nicalis: 'USA',
   'Limited Game News': 'USA',
 };
 
@@ -204,6 +207,12 @@ export const BOUTIQUE_FEED_CONFIGS: BoutiqueFeedConfig[] = [
     baseUrl: 'https://firstpressgames.com',
     type: 'shopify',
   },
+  {
+    store: 'Nicalis',
+    url: 'https://store.nicalis.com/products.json?limit=250',
+    baseUrl: 'https://store.nicalis.com',
+    type: 'shopify',
+  },
 ];
 
 /**
@@ -272,17 +281,49 @@ const BOUTIQUE_PLATFORM_PATTERNS: Array<{ regex: RegExp; id: number }> = [
   { regex: /\b(?:Xbox\s+One|XB1)\b/i, id: 49 },
   { regex: /\b(?:Xbox\s+Series\s+[XS](?:[|/]S)?|XSX)\b/i, id: 50 },
   { regex: /\b(?:Xbox\s+360|X360)\b/i, id: 48 },
+  {
+    regex:
+      /\b(?:ONLY\s+WORKS\s+ON\s+NEW\s+(?:NINTENDO\s+)?3DS(?:\s*(?:&|AND)\s*2DS(?:\s+SYSTEMS)?)?|New\s+(?:Nintendo\s+)?3DS(?:\s+XL|\s+LL)?|N3DS)\b/i,
+    id: 25,
+  },
+  { regex: /\b(?:Nintendo\s+)?3DS\b/i, id: 23 },
   { regex: /\b(?:Sega\s+Genesis|Mega\s+Drive)\b/i, id: 37 },
   { regex: /\b(?:Super\s+Nintendo|SNES)\b/i, id: 15 },
   { regex: /\b(?:Nintendo\s+Entertainment\s+System|NES)\b/i, id: 13 },
   { regex: /\b(?:Game\s+Boy\s+Advance|GBA)\b/i, id: 19 },
-  { regex: /\b(?:Game\s+Boy\s+Color|GBC)\b/i, id: 18 },
+  {
+    regex: /\b(?:Only\s+for\s+Game\s+Boy\s+Color|Game\s+Boy\s+Color|GBC)\b/i,
+    id: 18,
+  },
   { regex: /\b(?:Game\s+Boy|GB)\b/i, id: 14 },
   { regex: /\b(?:Nintendo\s+64|N64)\b/i, id: 17 },
 ];
 
 const BARE_XBOX_PLATFORM_REGEX =
   /\bXbox\b(?!\s*(?:360|One|Series|Live|Game\s*Pass|Design\s*Lab))/i;
+
+const BOUTIQUE_PLATFORM_ALT = `(?:${BOUTIQUE_PLATFORM_PATTERNS.map((p) => p.regex.source).join('|')})`;
+const ANCHORED_CONNECTOR_PLATFORM_SPAN_RE = new RegExp(
+  `(?:\\s*[-–—|/]\\s*|\\s+\\b(?:for|on)\\b\\s+(?:the\\s+)?)${BOUTIQUE_PLATFORM_ALT}(?:\\s*(?:,|\\/|\\||&|\\band\\b)\\s*${BOUTIQUE_PLATFORM_ALT})*(?=\\s*(?:$|[-–—|/]|(?:Collector'?s?|Deluxe|Special|Limited|Standard|Physical|Classic|Retro|Anniversary|Definitive|Exclusive|Steelbook)\\b))`,
+  'i',
+);
+const TRAILING_BARE_PLATFORM_RE = new RegExp(
+  `(?:^|\\s+)${BOUTIQUE_PLATFORM_ALT}(?=\\s*$)`,
+  'i',
+);
+
+const HARDWARE_SUB_PLATFORM_UPGRADES = new Set<string>(['23->25', '14->18']);
+
+function mergeBoutiquePlatformId(
+  current: number | null,
+  candidate: number,
+): number {
+  if (current === null) return candidate;
+  if (HARDWARE_SUB_PLATFORM_UPGRADES.has(`${current}->${candidate}`)) {
+    return candidate;
+  }
+  return current;
+}
 
 /**
  * Extracts platform ID, region, edition, and sanitizes the title from boutique store listing formats.
@@ -334,11 +375,12 @@ export function cleanBoutiqueTitle(
     lowerRaw.includes('preorder') ||
     lowerRaw.includes('pre order');
 
-  // 1. Strip store catalogue prefixes:
-  // e.g. "LRG #500: ", "Limited Run #273: ", "SRG#120 - ", "SLG #45: ", "PRE-ORDER: ", "[PRE-ORDER]"
-  let title = stripBoutiqueCatalogPrefix(rawTitle, {
+  // 1. Strip store catalogue prefixes and trademark symbols before anchored platform scanning
+  let title = stripBoutiqueCatalogPrefix(decodeHtmlEntities(rawTitle), {
     stripPreOrderPrefix: true,
-  });
+  })
+    .replace(/[™®]/g, '')
+    .trim();
 
   // 2. Identify region from parentheticals/brackets or trailing delimiters
   let matchedRegion: string | null = null;
@@ -399,8 +441,9 @@ export function cleanBoutiqueTitle(
   title = title.replace(/[([][^)\]]*[)\]]/g, (bracketContent) => {
     for (const p of BOUTIQUE_PLATFORM_PATTERNS) {
       if (p.regex.test(bracketContent)) {
-        if (!platformId) {
-          platformId = p.id;
+        const nextPid = mergeBoutiquePlatformId(platformId, p.id);
+        if (nextPid !== platformId) {
+          platformId = nextPid;
           ambiguousXbox = false;
         }
         return '';
@@ -417,24 +460,33 @@ export function cleanBoutiqueTitle(
     return bracketContent;
   });
 
-  // If not found in brackets, check remaining title (e.g. " - PS5" or " - Nintendo Switch")
-  if (!platformId) {
+  // Always check remaining title for anchored multi-platform phrases or trailing platform tags
+  // so multi-platform listings ("OMORI for Nintendo Switch and PlayStation 4") never leave
+  // mid-prose residue ("OMORI for and PlayStation 4"), while sub-platform upgrades (23->25, 14->18) hold.
+  for (let pass = 0; pass < 2; pass++) {
+    const connMatch = title.match(ANCHORED_CONNECTOR_PLATFORM_SPAN_RE);
+    const bareMatch = !connMatch
+      ? title.match(TRAILING_BARE_PLATFORM_RE)
+      : null;
+    const matchedSpan = connMatch ?? bareMatch;
+    if (!matchedSpan || matchedSpan.index === undefined) break;
+    const spanText = matchedSpan[0];
     for (const p of BOUTIQUE_PLATFORM_PATTERNS) {
-      if (p.regex.test(title)) {
-        platformId = p.id;
-        title = title.replace(p.regex, '').trim();
-        if (p.id === 49) {
-          // Strip paired Series X|S mention on dual Xbox One / Xbox Series X listings
-          title = title
-            .replace(
-              /\s*[/|,&]?\s*\b(?:Xbox\s+Series\s+[XS](?:[|/]S)?|XSX)\b/gi,
-              '',
-            )
-            .trim();
+      if (p.regex.test(spanText)) {
+        const nextPid = mergeBoutiquePlatformId(platformId, p.id);
+        if (nextPid !== platformId) {
+          platformId = nextPid;
+          ambiguousXbox = false;
         }
         break;
       }
     }
+    title = (
+      title.slice(0, matchedSpan.index) +
+      title.slice(matchedSpan.index + spanText.length)
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   // Fallback for bare "Xbox" (without 360 / One / Series): mark ambiguousXbox for tag/body/catalog resolution
@@ -558,6 +610,59 @@ function extractPlatformFromShopifyText(text: string): {
   return { platformId: null, ambiguousXbox: false };
 }
 
+const BOX_SET_TITLE_RE =
+  /\b(?:deluxe\s+limited\s+edition|box\s+set|anthology|collection\s+box)\b/i;
+
+const BOX_SET_NON_GAME_LINE_RE =
+  /\b(?:soundtrack|vinyl|folio|slipcover|book|artbook|art\s+book|box|case|bag|poster|print|certificate|limited\s+to|cover|sleeve|manual|pin|sticker|patch|keychain|medallion|coin|postcards?|disc(?:s)?\s+for|cartridge(?:s)?\s+for|features?\b|includes?\b|packaging)\b/i;
+
+/**
+ * Dynamically extracts constituent game titles from an explicit HTML `Includes` list
+ * on multi-game boutique box sets (e.g. iam8bit's `Annapurna Interactive Deluxe Limited Edition`)
+ * without hardcoding specific game names. Returns `[]` unless `>= 2` clean game titles are found.
+ */
+export function extractBoxSetConstituentGameTitles(
+  rawTitle: string,
+  bodyHtml?: string | null,
+): string[] {
+  if (!rawTitle || !bodyHtml || !BOX_SET_TITLE_RE.test(rawTitle)) return [];
+  const includesMatch = bodyHtml.match(
+    /(?:games?\s+included|included\s+games|this\s+(?:collection|set)\s+includes|discs?\s+for\s*:)([\s\S]{10,2500})/i,
+  );
+  if (!includesMatch) return [];
+
+  const block = includesMatch[1];
+  const rawItems: string[] = [];
+  for (const m of block.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)) {
+    rawItems.push(m[1]);
+  }
+  if (rawItems.length < 2) return [];
+
+  const titles: string[] = [];
+  const seen = new Set<string>();
+  for (const htmlFrag of rawItems) {
+    const text = decodeHtmlEntities(htmlFrag.replace(/<[^>]+>/g, ' '))
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/^[•\-*\u2022]+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (
+      text.length < 2 ||
+      text.length > 65 ||
+      BOX_SET_NON_GAME_LINE_RE.test(text)
+    ) {
+      continue;
+    }
+    const cand = buildStructuralTitleCandidates(text)[0] ?? text;
+    const key = cand.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      titles.push(cand);
+    }
+  }
+  return titles.length >= 2 ? titles : [];
+}
+
 function parseShopifyBoutiqueItem(
   config: BoutiqueFeedConfig,
   item: ShopifyProductItem,
@@ -565,12 +670,18 @@ function parseShopifyBoutiqueItem(
   const rawTitle = item.title || '';
   if (
     !rawTitle ||
+    isStorefrontNonGameOrMultiBoxBundle(rawTitle, item.product_type) ||
     NON_GAME_REGEXES.some((rx) => rx.test(rawTitle)) ||
     (item.product_type &&
       NON_GAME_REGEXES.some((rx) => rx.test(item.product_type!)))
   ) {
     return [];
   }
+
+  const boxSetTitles = extractBoxSetConstituentGameTitles(
+    rawTitle,
+    item.body_html,
+  );
 
   const baseCleaned = cleanBoutiqueTitle(rawTitle, { requirePlatform: false });
   if (!baseCleaned.isGame || baseCleaned.cleanTitle.length <= 1) {
@@ -698,6 +809,22 @@ function parseShopifyBoutiqueItem(
     variantGroups.delete(50);
   }
 
+  const expandBoxSet = (entries: BoutiquePreOrder[]): BoutiquePreOrder[] => {
+    if (boxSetTitles.length < 2) return entries;
+    const expanded: BoutiquePreOrder[] = [];
+    for (const entry of entries) {
+      boxSetTitles.forEach((constituentTitle, idx) => {
+        expanded.push({
+          ...entry,
+          id: `${entry.id}_box_${idx}`,
+          cleanTitle: constituentTitle,
+          edition: entry.edition || 'Box Set',
+        });
+      });
+    }
+    return expanded;
+  };
+
   if (variantGroups.size > 0) {
     const multiPlatform = variantGroups.size > 1;
     const out: BoutiquePreOrder[] = [];
@@ -726,7 +853,7 @@ function parseShopifyBoutiqueItem(
         publishedAt: item.published_at || item.created_at,
       });
     }
-    return out;
+    return expandBoxSet(out);
   }
 
   // Single-platform fallback: rawTitle platform -> product_type / tags
@@ -750,7 +877,7 @@ function parseShopifyBoutiqueItem(
   );
   const pricing = computePricing(variants);
 
-  return [
+  return expandBoxSet([
     {
       store: config.store,
       id: `${config.store}_${item.id}`,
@@ -771,7 +898,7 @@ function parseShopifyBoutiqueItem(
       isPreOrder: isPre,
       publishedAt: item.published_at || item.created_at,
     },
-  ];
+  ]);
 }
 
 function parseWooBoutiqueItem(

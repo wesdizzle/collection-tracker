@@ -422,6 +422,9 @@ export function parseRetailBackCatalog(
   };
 
   for (const item of snapshot.lgn || []) {
+    if (isNonGameRetailTitle(item.rawTitle || item.cleanTitle || '', null)) {
+      continue;
+    }
     const cleanedTitle = cleanRetailTitle(
       stripBoutiqueCatalogPrefix(
         stripLgnPlatformPipeTrailer(item.cleanTitle || item.rawTitle || ''),
@@ -565,6 +568,18 @@ const EXTRA_BOUTIQUE_BACKCATALOG_CONFIGS: BoutiqueFeedConfig[] = [
   {
     store: 'iam8bit',
     url: 'https://www.iam8bit.com/collections/xbox/products.json?limit=250',
+    baseUrl: 'https://www.iam8bit.com',
+    type: 'shopify',
+  },
+  {
+    store: 'iam8bit',
+    url: 'https://www.iam8bit.com/collections/archive/products.json?limit=250',
+    baseUrl: 'https://www.iam8bit.com',
+    type: 'shopify',
+  },
+  {
+    store: 'iam8bit',
+    url: 'https://www.iam8bit.com/products.json?limit=250',
     baseUrl: 'https://www.iam8bit.com',
     type: 'shopify',
   },

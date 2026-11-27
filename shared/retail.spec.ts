@@ -989,5 +989,67 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
         ),
       ).toBe('Final Fantasy VII Revelation');
     });
+
+    it('upgrades New 3DS and GBC sub-platform listings, matches structural bracket noise, and filters hardware/books', () => {
+      expect(
+        resolveRetailPlatformId(
+          'Nintendo 3DS',
+          'Fire Emblem Warriors - 3DS [ONLY WORKS ON NEW 3DS & 2DS SYSTEMS]',
+        ),
+      ).toBe(25);
+      expect(
+        resolveRetailPlatformId('N3DS', 'Xenoblade Chronicles 3D - N3DS'),
+      ).toBe(25);
+      expect(
+        resolveRetailPlatformId(
+          'Game Boy',
+          'Shantae - Only for Game Boy Color',
+        ),
+      ).toBe(18);
+      expect(
+        cleanRetailTitle(
+          'Fire Emblem Warriors - 3DS [ONLY WORKS ON NEW 3DS & 2DS SYSTEMS]',
+        ),
+      ).toBe('Fire Emblem Warriors');
+
+      const candidates: CandidateGame[] = [
+        { stable_id: 1445, title: 'Fire Emblem Warriors', platform_id: 25 },
+        { stable_id: 9999, title: 'Fire Emblem Warriors', platform_id: 23 },
+      ];
+      expect(
+        matchRetailGameProduct(
+          {
+            store: 'VGP',
+            sku: 'few-n3ds',
+            name: 'Fire Emblem Warriors 3DS [ONLY WORKS ON NEW 3DS & 2DS SYSTEMS] [LIMIT 1 PER HOUSEHOLD]',
+            platform: 'Nintendo 3DS',
+            regularPrice: 39.99,
+            salePrice: 39.99,
+            onSale: false,
+            percentSavings: 0,
+            url: 'https://videogamesplus.ca/products/few-n3ds',
+            onlineAvailability: true,
+          },
+          candidates,
+        ),
+      ).toBe(1445);
+
+      expect(isNonGameRetailTitle('8BitDo Ultimate 2C Wireless Gamepad')).toBe(
+        true,
+      );
+      expect(
+        isNonGameRetailTitle('HORI Piranha Plant Camera for Switch 2'),
+      ).toBe(true);
+      expect(isNonGameRetailTitle('DOBE Charge Dock for Joy-Con 2')).toBe(true);
+      expect(isNonGameRetailTitle('Armor3 Travel Kit for Switch 2')).toBe(true);
+      expect(isNonGameRetailTitle('HD HDTV Cable for Wii')).toBe(true);
+      expect(isNonGameRetailTitle('RetroN 5 Cartridge Adapter')).toBe(true);
+      expect(isNonGameRetailTitle('Collector Vault Box (NO GAME)')).toBe(true);
+      expect(isNonGameRetailTitle('Undertale Art Book (Hardcover)')).toBe(true);
+      expect(isNonGameRetailTitle('Hollow Knight Piano Book', 'Books')).toBe(
+        true,
+      );
+      expect(isNonGameRetailTitle('The Book of Unwritten Tales 2')).toBe(false);
+    });
   });
 });

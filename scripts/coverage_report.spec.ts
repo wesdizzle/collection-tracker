@@ -135,4 +135,37 @@ describe('coverage_report', () => {
       db.close();
     }
   });
+
+  it('treats future non-CIAB releases as verified upcoming while leaving future CIAB releases unverified', () => {
+    const db = new Database(':memory:');
+    try {
+      const schemaSql = fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      db.exec(schemaSql);
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id)
+        VALUES
+          (201, '201', 'Romancing SaGa 3: Destinies United', 26),
+          (202, '202', 'Future Code In A Box', 26);
+
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, source, is_verified_physical)
+        VALUES
+          (10, 26, 'Future Code In A Box', 'futurecodeinabox', 'USA', NULL, 'nscollectors_ciab', 0);
+
+        INSERT INTO game_releases (id, game_id, region, release_date, variants, canonical_release_id)
+        VALUES
+          ('201-1', 201, 'USA', '2099-12-31', NULL, NULL),
+          ('202-1', 202, 'USA', '2099-12-31', 'Code in a Box (Download Only)', 10);
+      `);
+
+      const report = generateCoverageReport(db);
+      expect(report.overall.totalReleases).toBe(2);
+      expect(report.overall.verifiedReleases).toBe(1);
+      expect(report.overall.unverifiedReleases).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
 });

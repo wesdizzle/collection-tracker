@@ -10,10 +10,12 @@
  */
 
 import {
+  buildStructuralTitleCandidates,
+  normalizeTypography,
   stripBoutiqueCatalogPrefix,
   stripLgnPlatformPipeTrailer,
   stripMerchAddonSuffix,
-  stripRetailPreorderAndPlatformTrailer,
+  stripStructuralStoreFraming,
 } from './title_matching.js';
 
 export type RetailStoreName =
@@ -74,9 +76,15 @@ export const RETAIL_TO_TRACKER_PLATFORM: Record<string, number> = {
   'Nintendo Switch 2': 27,
   'Switch 2': 27,
   NSW2: 27,
+  'New Nintendo 3DS': 25,
+  'New 3DS': 25,
+  N3DS: 25,
   'Nintendo 3DS': 23,
   '3DS': 23,
-  N3DS: 23,
+  'Game Boy Color': 18,
+  GBC: 18,
+  'Game Boy': 14,
+  GB: 14,
   'Nintendo DS': 21,
   DS: 21,
   NDS: 21,
@@ -135,6 +143,12 @@ export function decodeHtmlEntities(text: string): string {
     });
 }
 
+const NEW_3DS_EXCLUSIVE_RE =
+  /\b(?:ONLY\s+WORKS\s+ON\s+NEW\s+(?:NINTENDO\s+)?3DS(?:\s*(?:&|AND)\s*2DS(?:\s+SYSTEMS)?)?|New\s+(?:Nintendo\s+)?3DS(?:\s+XL|\s+LL)?|N3DS)\b/i;
+
+const GBC_EXCLUSIVE_RE =
+  /\b(?:Only\s+for\s+Game\s+Boy\s+Color|Game\s+Boy\s+Color)\b|(?:\(|\[|[-–—]\s*|\s)GBC(?:\)|\]|\s|$)/i;
+
 /**
  * Resolves a Collection Tracker platform ID from an explicit platform string or trailing title suffix.
  */
@@ -142,26 +156,27 @@ export function resolveRetailPlatformId(
   platformStr?: string | null,
   rawTitle?: string | null,
 ): number | undefined {
-  if (rawTitle) {
-    const decodedLead = decodeHtmlEntities(rawTitle).trim();
+  const decodedRaw = rawTitle ? decodeHtmlEntities(rawTitle).trim() : '';
+
+  if (decodedRaw) {
     // Game Over / retailer leading prefixes (dual Xbox One + Series X always maps to Xbox One 49)
     if (
-      /^(?:XSX\s+XB1|XB1\s+XSX|XB1|Xbox\s+One)\b/i.test(decodedLead) ||
-      (/\b(Xbox\s*One|XB1)\b/i.test(decodedLead) &&
-        /\b(Xbox\s*Series\s*[XS]|XSX)\b/i.test(decodedLead))
+      /^(?:XSX\s+XB1|XB1\s+XSX|XB1|Xbox\s+One)\b/i.test(decodedRaw) ||
+      (/\b(Xbox\s*One|XB1)\b/i.test(decodedRaw) &&
+        /\b(Xbox\s*Series\s*[XS]|XSX)\b/i.test(decodedRaw))
     ) {
       return 49;
     }
-    if (/^(?:XSX|Xbox\s+Series\s+[XS](?:[|/]S)?)\b/i.test(decodedLead)) {
+    if (/^(?:XSX|Xbox\s+Series\s+[XS](?:[|/]S)?)\b/i.test(decodedRaw)) {
       return 50;
     }
-    if (/^(?:PSV|PS\s*VITA)\b/i.test(decodedLead)) {
+    if (/^(?:PSV|PS\s*VITA)\b/i.test(decodedRaw)) {
       return 33;
     }
-    if (/^PS4\b/i.test(decodedLead)) {
+    if (/^PS4\b/i.test(decodedRaw)) {
       return 34;
     }
-    if (/^PS5\b/i.test(decodedLead)) {
+    if (/^PS5\b/i.test(decodedRaw)) {
       return 35;
     }
   }
@@ -171,7 +186,24 @@ export function resolveRetailPlatformId(
     const direct =
       RETAIL_TO_TRACKER_PLATFORM[platformStr] ??
       CASE_INSENSITIVE_PLATFORM_MAP.get(platNorm);
-    if (direct !== undefined) return direct;
+    if (direct !== undefined) {
+      // Sub-platform hardware exclusivity in product title/tags upgrades generic 3DS->25 and GB->18
+      if (
+        direct === 23 &&
+        (NEW_3DS_EXCLUSIVE_RE.test(decodedRaw) ||
+          NEW_3DS_EXCLUSIVE_RE.test(platformStr))
+      ) {
+        return 25;
+      }
+      if (
+        direct === 14 &&
+        (GBC_EXCLUSIVE_RE.test(decodedRaw) ||
+          GBC_EXCLUSIVE_RE.test(platformStr))
+      ) {
+        return 18;
+      }
+      return direct;
+    }
     // Dual Xbox One / Series X strings always classify as forward-compatible Xbox One (49)
     if (/\b(xbox\s*one|xb1)\b/i.test(platformStr)) {
       return 49;
@@ -181,8 +213,15 @@ export function resolveRetailPlatformId(
     }
   }
 
-  if (rawTitle) {
-    const decoded = decodeHtmlEntities(rawTitle).replace(/[\])\s]+$/, '');
+  if (decodedRaw) {
+    if (NEW_3DS_EXCLUSIVE_RE.test(decodedRaw)) {
+      return 25;
+    }
+    if (GBC_EXCLUSIVE_RE.test(decodedRaw)) {
+      return 18;
+    }
+
+    const decoded = decodedRaw.replace(/[\])\s]+$/, '');
     // Check trailing platform suffixes in title
     if (/\b(Nintendo\s*Switch\s*2|Switch\s*2|NSW2)\b\s*$/i.test(decoded)) {
       return 27;
@@ -231,7 +270,7 @@ export function resolveRetailPlatformId(
     if (/\b(Xbox\s*360|X360)\b\s*$/i.test(decoded)) {
       return 48;
     }
-    if (/\b(Nintendo\s*3DS|3DS|N3DS)\b\s*$/i.test(decoded)) {
+    if (/\b(Nintendo\s*3DS|3DS)\b\s*$/i.test(decoded)) {
       return 23;
     }
     if (/\b(Nintendo\s*DS|NDS|DS)\b\s*$/i.test(decoded)) {
@@ -243,57 +282,29 @@ export function resolveRetailPlatformId(
     if (/\b(Nintendo\s*Wii|Wii)\b\s*$/i.test(decoded)) {
       return 22;
     }
+    if (/\b(Game\s*Boy|GB)\b\s*$/i.test(decoded)) {
+      return 14;
+    }
   }
 
   return undefined;
 }
 
-const RETAIL_TRAILING_CONDITION_OR_IMPORT_RE =
-  /\s*[-–—]\s*(?:PAL(?:\s+IMPORT)?|EUR(?:OPE)?(?:\s+IMPORT)?|UK(?:\s+IMPORT)?|JPN(?:\s+IMPORT)?|ASIA(?:N)?(?:\s+IMPORT)?|DLC\s+MAY\s+NOT\s+BE\s+INCLUDED|NEW|USED|PRE-?OWNED|CIB|LOOSE|COMPLETE|SEALED|DISC\s+ONLY)\s*$/i;
-
 /**
  * Cleans a retailer product title by decoding HTML entities and removing trailing
- * platform suffixes, shipping tags, and edition noise.
+ * platform suffixes, shipping tags, and edition noise using structural framing rules.
  * e.g., "Marvel's Spider-Man: Miles Morales - PlayStation 4" -> "Marvel's Spider-Man: Miles Morales"
  */
 export function cleanRetailTitle(rawTitle: string): string {
   if (!rawTitle) return '';
-  let cleaned = decodeHtmlEntities(rawTitle).trim();
-  cleaned = cleaned.replace(
-    /^(?:XSX\s+XB1|XB1\s+XSX|XB1|XSX|PS4|PS5|PSV)\s*(?:[-–—:]\s*|\s+)/i,
-    '',
+  const decoded = normalizeTypography(decodeHtmlEntities(rawTitle)).trim();
+  const framed = stripStructuralStoreFraming(
+    stripBoutiqueCatalogPrefix(stripLgnPlatformPipeTrailer(decoded), {
+      stripPreOrderPrefix: true,
+    }),
+    { stripAllBrackets: false },
   );
-  cleaned = stripBoutiqueCatalogPrefix(stripLgnPlatformPipeTrailer(cleaned), {
-    stripPreOrderPrefix: true,
-  });
-
-  // Strip common VGP/PNP/Game Over promotional/import trailing tags cleanly
-  for (let i = 0; i < 4; i++) {
-    const next = cleaned.replace(RETAIL_TRAILING_CONDITION_OR_IMPORT_RE, '');
-    if (next === cleaned) break;
-    cleaned = next.trim();
-  }
-
-  cleaned = cleaned
-    .replace(
-      /\s*\((Free\s*Shipping|PRE-ORDER|Pre-Order|Pre-?Owned|Used|New|Sealed|CIB|Loose|Disc\s+Only|Import|JPIM|JP|JPN\s*Import[^)]*|Multi-Lang(?:uage)?[^)]*|English[^)]*|Bilingual|USA|CAN|ESRB|US\/ESRB|PEGI[^)]*|Standard(?:\s*Edition)?|Extra\s*Edition|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|Asia(?:n)?(?:\s*English)?\s*Import[^)]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games|Special\s*Reserve\s*Games|iam8bit|Fangamer|ESR\b[^)]*)\)\s*/gi,
-      ' ',
-    )
-    .replace(
-      /\s*\[(Standard\s*Edition|Standard\/Limited\s*Ed(?:i)?tion|Pre-?Owned|Used|New|Sealed|CIB|Loose|Disc\s+Only|Import|EU\s*Import|PEGI[^\]]*|US\/ESRB|Multi-Lang(?:uage)?[^\]]*|PRE-ORDER|ESRB|Cart\s*Type\s*Not\s*Confirmed|Free\s*Shipping|Retail\s*Version|SteelBook®?\s*Edition|Canadian\s*Exclusive\s*Retailer|Limited\s*Run(?:\s*Games)?(?:\s*#\s*\d+)?|LRG\s*#\s*\d+|Asia(?:n)?(?:\s*English)?\s*Import[^\]]*|Play-Asia\s*Exclusive|Strictly\s*Limited(?:\s*Games)?(?:\s*#\s*\d+)?|Super\s*Rare\s*Games(?:\s*#\s*\d+)?|Red\s*Art\s*Games[^\]]*|Special\s*Reserve\s*Games[^\]]*|iam8bit[^\]]*|Fangamer[^\]]*|ESR\b[^\]]*)\]\s*/gi,
-      ' ',
-    )
-    .replace(/\s*[-–—]\s*\((?:PS4|PS5|PSV|PSVR2?|XB1|XSX|NSW2?)\)\s*$/i, '');
-
-  cleaned = stripMerchAddonSuffix(
-    stripRetailPreorderAndPlatformTrailer(cleaned),
-  );
-  for (let i = 0; i < 4; i++) {
-    const next = cleaned.replace(RETAIL_TRAILING_CONDITION_OR_IMPORT_RE, '');
-    if (next === cleaned) break;
-    cleaned = next.trim();
-  }
-  return cleaned;
+  return stripMerchAddonSuffix(framed);
 }
 
 /**
@@ -334,13 +345,13 @@ export async function fetchCadToUsdRate(
 }
 
 const RETAIL_HARDWARE_AND_ACCESSORY_RE =
-  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:controller|joy-con|joycon|headset|charging\s+station|charging\s+dock|carrying\s+case|travel\s+case|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|hdmi\s+cable|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live(?!\s+arcade\b)|console\s+bundle|hardware|console(?!\s+edition\b)|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only)\b)/i;
+  /(?:(?:^|\s)[-–—]\s*hw(?:\s*[-–—]|\s|$)|\bsystem\s*(?:[-–—]\s*)?hw\b|\b(?:8bitdo|retron|dobe|retrotap|armor3|gamepad|controller|joy-con|joycon|headset|charging\s+(?:station|dock|grip)|charge\s+dock|carrying\s+case|travel\s+(?:case|kit)|storage\s+bag|folding\s+stand|protective\s+case|replacement\s+case|screen\s+protector|thumb\s+grip|memory\s+card|microsd|express\s+card|storage\s+expansion\s+card|(?:hdmi|scart|hdtv|av|component|composite|power|extension|usb(?:-c)?)\s+cable|(?:cartridge|controller|hdmi|ac|av|power|lan|ethernet|bluetooth|wireless)\s+adapter|ac\s+adapter|power\s+supply|strategy\s+guide|official\s+guide|artbook|art\s+book|comic\s+book|coloring\s+book|sticker\s+(?:book|set)|seal\s+set|music\s+collection\s+box\s+set|vinyl|soundtrack|ost|original\s+soundtrack|plush|plushie(?!\s+bundle\b)|figure|statue|acrylic\s+stand|keychain|lanyard|t-shirt|hoodie|apparel|poster|booster\s+box|booster\s+pack|trading\s+card|tcg|gift\s+card|eshop\s+card|playstation\s+store|xbox\s+live(?!\s+arcade\b)|console\s+bundle|hardware|console(?!\s+edition\b)|dualSense|pro\s+controller|wireless\s+controller|media\s+remote|chatpad|kinect\s+sensor|hori\b.*\bcamera|\bpiranha\s+plant\s+camera\b|\busb[- ]?c\s+camera\b|playstation\s+(?:eye|hd\s+camera)|steering\s+wheel|arcade\s+stick|flight\s+stick|guitar\s+controller|console\s+skin|controller\s+skin|faceplate|manual\s+only|case\s+only|box\s+only|insert\s+only|cover\s+art\s+only|no\s+game(?:\s+included)?|game\s+not\s+included|arcade\s+peripheral|monitor\s+test|controller\s+tester|demonstration\s+cartridge)\b|\((?:hardcover|softcover|paperback|book)\))/i;
 
 const STOREFRONT_MULTI_BOX_BUNDLE_RE =
   /(?:\bseries\s+\d+\s+(?:["'“”]?(?:standard|retro|get\s+everything|playstation)(?:\s*&\s*(?:standard|retro))?["'“”]?\s+)*mega\s+pack\b|\bpreorder\s+mega\s+pack\b|\b(?:collector(?:'s)?|ultimate|mega|ultra\s+collector(?:'s)?|super\s+meta(?:\s+x?le)?|taito\s+ce|indie\s+(?:action\s+rpg|adventure)(?:\s+le)?|couch\s+co-?op\s+fun(?:\s+(?:collector|le))?)\s+(?:bundle|pack)\b|\b(?:collection|volume\s+\d+\s*(?:[-–—]|&|and)\s*(?:volume\s+)?\d+)\b.*\b(?:complete\s+)?bundle\b|\bcomplete\s+bundle\b)/i;
 
 const HARDWARE_PRODUCT_TYPE_RE =
-  /\b(?:hardware|consoles?|controllers?|headsets?|accessories|apparel|merch(?:andise)?|soundtracks?|vinyl)\b/i;
+  /\b(?:hardware|consoles?|controllers?|gamepads?|headsets?|cables?|adapters?|cameras?|bags?|cases?|accessories|books?|comics?|publications?|apparel|merch(?:andise)?|soundtracks?|vinyl)\b/i;
 
 /**
  * Returns true if a storefront title or product_type represents non-game
@@ -1223,13 +1234,19 @@ export function matchRetailGameProduct(
     }
   }
 
-  // 2. Title + Platform match
+  // 2. Title + Platform match across structural title candidates
   const platformId = resolveRetailPlatformId(product.platform, product.name);
 
-  const cleanedProductTitle = cleanRetailTitle(product.name);
-  const normProductTitle = normalizeTitle(cleanedProductTitle);
+  const productKeys = new Set<string>();
+  for (const candidateTitle of [
+    cleanRetailTitle(product.name),
+    ...buildStructuralTitleCandidates(product.name),
+  ]) {
+    const norm = normalizeTitle(candidateTitle);
+    if (norm) productKeys.add(norm);
+  }
 
-  if (!normProductTitle) return null;
+  if (productKeys.size === 0) return null;
 
   for (const candidate of candidates) {
     // If platform is resolved, require platform match
@@ -1238,7 +1255,7 @@ export function matchRetailGameProduct(
     }
 
     const normCandidateTitle = normalizeTitle(candidate.title);
-    if (normProductTitle === normCandidateTitle) {
+    if (productKeys.has(normCandidateTitle)) {
       return candidate.stable_id;
     }
   }

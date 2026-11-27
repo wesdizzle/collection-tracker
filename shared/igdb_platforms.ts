@@ -15,6 +15,25 @@ export const LEGACY_PLATFORM_CONSOLIDATION: Record<number, number> = {
   52: 35, // PlayStation VR2 -> PlayStation 5
 };
 
+/**
+ * Hardware-revision cartridge platforms whose physical releases are backward/forward
+ * compatible or commonly grouped under the parent console on retail storefronts
+ * (`Nintendo 3DS` 23 <-> `New Nintendo 3DS` 25, `Game Boy` 14 <-> `Game Boy Color` 18).
+ */
+export const HARDWARE_REVISION_SIBLING_MAP: Record<number, number> = {
+  23: 25,
+  25: 23,
+  14: 18,
+  18: 14,
+};
+
+/** Returns the paired hardware-revision sibling platform ID, if any. */
+export function getHardwareRevisionSiblingPlatformId(
+  platformId: number,
+): number | null {
+  return HARDWARE_REVISION_SIBLING_MAP[platformId] ?? null;
+}
+
 /** Maps IGDB platform IDs to Collection Tracker base platform IDs. */
 export const IGDB_PLATFORM_TO_TRACKER_PLATFORM: Record<number, number> = {
   48: 34, // PlayStation 4

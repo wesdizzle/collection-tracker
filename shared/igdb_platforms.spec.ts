@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getHardwareRevisionSiblingPlatformId,
   getIgdbCompanionPlatformIds,
   getIgdbQueryPlatformIds,
+  HARDWARE_REVISION_SIBLING_MAP,
   IGDB_PLATFORM_TO_TRACKER_PLATFORM,
   LEGACY_PLATFORM_CONSOLIDATION,
   mapIgdbPlatformIdToTrackerPlatformId,
@@ -17,6 +19,16 @@ describe('igdb_platforms compatibility layer', () => {
     expect(normalizeLegacyPlatformId(52)).toBe(35);
     expect(normalizeLegacyPlatformId(53)).toBe(53); // Famicom remains intact
     expect(normalizeLegacyPlatformId(34)).toBe(34);
+    expect(HARDWARE_REVISION_SIBLING_MAP).toEqual({
+      23: 25,
+      25: 23,
+      14: 18,
+      18: 14,
+    });
+    expect(getHardwareRevisionSiblingPlatformId(23)).toBe(25);
+    expect(getHardwareRevisionSiblingPlatformId(25)).toBe(23);
+    expect(getHardwareRevisionSiblingPlatformId(14)).toBe(18);
+    expect(getHardwareRevisionSiblingPlatformId(26)).toBeNull();
   });
 
   it('expands outbound IGDB queries for PS4/PS5, Jaguar/CD, Neo Geo AES/MVS/X, and New 3DS', () => {

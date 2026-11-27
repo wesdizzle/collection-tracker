@@ -2195,6 +2195,24 @@ describe('Worker API Logic', () => {
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (input) => {
           const url = String(input);
+          if (url.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (url.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 261001,
+                    name: 'Crow Country',
+                    platforms: [130],
+                    url: 'https://www.igdb.com/games/crow-country',
+                  },
+                ],
+              },
+            ]);
+          }
           if (url.includes('limitedgamenews.com/wp-json/wp/v2/posts')) {
             return {
               ok: true,
@@ -5248,7 +5266,7 @@ describe('Worker API Logic', () => {
 
         const newGame = db
           .prepare(
-            "SELECT stable_id, title FROM games WHERE title = 'F-Zero 99 Physical Edition'",
+            "SELECT stable_id, title FROM games WHERE title = 'F-Zero 99'",
           )
           .get() as {
           stable_id: number;
@@ -9650,6 +9668,24 @@ describe('Worker API Logic', () => {
               headers: { 'Content-Type': 'application/json' },
             });
           }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 991002,
+                    name: 'Switch Manifest Test Game',
+                    platforms: [130],
+                    url: 'https://www.igdb.com/games/switch-manifest-test-game',
+                  },
+                ],
+              },
+            ]);
+          }
           if (
             urlStr.includes('videogamesplus.ca/collections/sales/products.json')
           ) {
@@ -10058,10 +10094,30 @@ describe('Worker API Logic', () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (input) => {
-          if (
-            typeof input === 'string' &&
-            input.includes('limitedrungames.com')
-          ) {
+          const url = String(input);
+          if (url.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (url.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 26278,
+                    name: 'Celeste',
+                    alternative_names: [
+                      { name: 'Celeste: Deluxe Anniversary' },
+                    ],
+                    platforms: [130],
+                    collections: [{ name: 'Celeste' }],
+                    url: 'https://www.igdb.com/games/celeste',
+                  },
+                ],
+              },
+            ]);
+          }
+          if (url.includes('limitedrungames.com')) {
             return {
               ok: true,
               json: async () => mockShopify,
@@ -10073,14 +10129,8 @@ describe('Worker API Logic', () => {
           } as unknown as Response;
         });
 
-      const igdbEnv: Env = {
-        ...mockEnv,
-        TWITCH_CLIENT_ID: undefined,
-        TWITCH_CLIENT_SECRET: undefined,
-      };
-
       try {
-        const result = await syncWorkerBoutiquePreOrders(igdbEnv);
+        const result = await syncWorkerBoutiquePreOrders(mockEnv);
         expect(result.ingestedCount).toBe(1);
 
         const ingestedGame = db
@@ -10211,7 +10261,26 @@ describe('Worker API Logic', () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation(async (input) => {
-          if (String(input).includes('limitedrungames.com')) {
+          const urlStr = String(input);
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 890101,
+                    name: 'Unmatched Brand New Preorder',
+                    platforms: [130],
+                    url: 'https://www.igdb.com/games/unmatched-brand-new-preorder',
+                  },
+                ],
+              },
+            ]);
+          }
+          if (urlStr.includes('limitedrungames.com')) {
             return new Response(JSON.stringify(mockShopify), { status: 200 });
           }
           return new Response(JSON.stringify({ products: [] }), {
@@ -10245,7 +10314,7 @@ describe('Worker API Logic', () => {
       }
     });
 
-    it('syncWorkerRetailDeals auto-ingests unmatched physical retail games with a valid barcode and skips items without IGDB or barcode', async () => {
+    it('syncWorkerRetailDeals enforces positive IGDB identity gate even with barcodes while rejecting unlinked storefront items', async () => {
       const mockVgp = {
         products: [
           {
@@ -10276,7 +10345,7 @@ describe('Worker API Logic', () => {
                 sku: '6600222',
                 price: '29.99',
                 compare_at_price: '39.99',
-                barcode: '',
+                barcode: '099988877766',
                 available: true,
               },
             ],
@@ -10286,13 +10355,40 @@ describe('Worker API Logic', () => {
 
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
-        .mockImplementation(async (input) => {
+        .mockImplementation(async (input, init) => {
           const urlStr = String(input);
           if (urlStr.includes('open.er-api.com')) {
             return new Response(JSON.stringify({ rates: { USD: 0.75 } }), {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
             });
+          }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            const body = String(init?.body || '');
+            const out: Array<{ name: string; result: unknown[] }> = [];
+            for (const m of body.matchAll(
+              /query games "(q\d+)" \{([^}]+)\}/g,
+            )) {
+              if (m[2].includes('"Xenoblade"')) {
+                out.push({
+                  name: m[1],
+                  result: [
+                    {
+                      id: 317200,
+                      name: 'Xenoblade Chronicles X: Definitive Edition',
+                      platforms: [130],
+                      url: 'https://www.igdb.com/games/xenoblade-x-de',
+                    },
+                  ],
+                });
+              } else {
+                out.push({ name: m[1], result: [] });
+              }
+            }
+            return Response.json(out);
           }
           if (
             urlStr.includes('videogamesplus.ca/collections/sales/products.json')
@@ -10459,6 +10555,24 @@ describe('Worker API Logic', () => {
               status: 200,
               headers: { 'Content-Type': 'application/json' },
             });
+          }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 305152,
+                    name: 'Metroid Prime 4: Beyond',
+                    platforms: [508],
+                    url: 'https://www.igdb.com/games/metroid-prime-4-beyond',
+                  },
+                ],
+              },
+            ]);
           }
           if (
             urlStr.includes(
@@ -12534,22 +12648,65 @@ describe('Worker API Logic', () => {
         INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source) VALUES
           (100, 26, 'Telemetry Cursor Row', 'telemetrycursorrow', 'USA', 1, 'dat'),
           (500, 26, 'Taito CE Bundle', 'taitocebundle', 'USA', 1, 'retail_catalog'),
-          (501, 26, 'Real Game - Nintendo Switch', 'realgamenintendoswitch', 'USA', 1, 'retail_catalog');
+          (501, 26, 'Real Game - Nintendo Switch', 'realgamenintendoswitch', 'USA', 1, 'retail_catalog'),
+          (5010, 26, 'Unlinked Storefront Junk', 'unlinkedstorefrontjunk', 'USA', 1, 'retail_catalog');
         INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '100');
       `);
 
-      // Sparse max ID 501 vs cursor 100 = 401 sparse delta, but actual verified rows > 100 = 2
+      // Sparse max ID 5010 vs cursor 100 = 4910 sparse delta, actual verified rows > 100 = 3
       const paidStatus = await getBroadCatalogSeedStatus(mockEnv);
       expect(paidStatus.canonicalTailer.dailyWriteBudget).toBe(120000);
-      expect(paidStatus.canonicalTailer.pendingCanonicalRows).toBe(2);
+      expect(paidStatus.canonicalTailer.pendingCanonicalRows).toBe(3);
 
-      // Tailer skips Taito CE Bundle (retail_catalog) and cleans Real Game - Nintendo Switch -> Real Game
+      // Tailer skips Taito CE Bundle + unlinked retail_catalog without IGDB, while ingesting IGDB-matched Real Game
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (url.includes('api.igdb.com/v4/multiquery')) {
+            const body = String(init?.body || '');
+            const out: Array<{ name: string; result: unknown[] }> = [];
+            for (const m of body.matchAll(
+              /query games "(q\d+)" \{([^}]+)\}/g,
+            )) {
+              if (m[2].includes('"Real"') && m[2].includes('"Game"')) {
+                out.push({
+                  name: m[1],
+                  result: [
+                    {
+                      id: 777501,
+                      name: 'Real Game',
+                      platforms: [130],
+                      url: 'https://www.igdb.com/games/real-game',
+                    },
+                  ],
+                });
+              } else {
+                out.push({ name: m[1], result: [] });
+              }
+            }
+            return Response.json(out);
+          }
+          return new Response('Forbidden', { status: 403 });
+        }),
+      );
       const tailRes = await syncWorkerBroadCatalogPopulation(mockEnv);
+      vi.unstubAllGlobals();
       expect(tailRes.ingestedGames).toBe(1);
       expect(
         db
           .prepare(
             `SELECT title FROM games WHERE platform_id = 26 AND title LIKE '%Taito%'`,
+          )
+          .get(),
+      ).toBeUndefined();
+      expect(
+        db
+          .prepare(
+            `SELECT title FROM games WHERE platform_id = 26 AND title LIKE '%Unlinked%'`,
           )
           .get(),
       ).toBeUndefined();
@@ -12564,7 +12721,7 @@ describe('Worker API Logic', () => {
       // Paid tier runs canonical_tailer on additional cron slot hours (e.g. 05 UTC) when rows are pending
       db.exec(`
         INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, is_verified_physical, source) VALUES
-          (502, 26, 'Second Tailer Game (USA)', 'secondtailergame', 'USA', 1, 'dat');
+          (5020, 26, 'Second Tailer Game (USA)', 'secondtailergame', 'USA', 1, 'dat');
       `);
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       vi.stubGlobal(
@@ -12598,6 +12755,202 @@ describe('Worker API Logic', () => {
       } finally {
         logSpy.mockRestore();
         vi.unstubAllGlobals();
+      }
+    });
+
+    it('matches Phase 4 Tier 2d expanded editions, Tier 3d reverse unique subtitle, version_parent fallback, New 3DS sibling alert suppression, and verifyExistingGameReleasesWithCanonical', async () => {
+      // 1. Tier 2d expanded console edition ("Slay the Princess" -> "Slay the Princess: The Pristine Cut", game_type 10)
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 88001,
+              name: 'Slay the Princess: The Pristine Cut',
+              platforms: [130],
+              game_type: 10,
+            },
+          ],
+          normalizeTitleForMatching('Slay the Princess'),
+          130,
+          { rawTitle: 'Slay the Princess' },
+        )?.id,
+      ).toBe(88001);
+
+      // 2. Tier 3d reverse unique subtitle ("9th Dawn III: Shadow of Erthil" -> "9th Dawn III")
+      expect(
+        selectStrictIgdbMatch(
+          [
+            {
+              id: 88002,
+              name: '9th Dawn III',
+              platforms: [130],
+              game_type: 0,
+            },
+          ],
+          normalizeTitleForMatching('9th Dawn III: Shadow of Erthil'),
+          130,
+          { rawTitle: '9th Dawn III: Shadow of Erthil' },
+        )?.id,
+      ).toBe(88002);
+
+      // 3. Hardware-revision sibling suppression (Owned on New 3DS 25 suppresses 3DS 23 Watched Series alert & Seeking)
+      db.prepare(
+        `INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES
+          (23, 'nintendo-3ds', 'Nintendo 3DS', 37),
+          (25, 'new-nintendo-3ds', 'New Nintendo 3DS', 137)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO users (id, username, home_region) VALUES (9, 'sibling-watcher', 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+         VALUES (9, 'series', 'Fire Emblem', 2, 'home', 0)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, igdb_id, canonical_series)
+         VALUES
+           (1445, '1445', 'Fire Emblem Warriors', 25, 28172, 'Fire Emblem'),
+           (29901, '29901', 'Fire Emblem Warriors', 23, 28172, 'Fire Emblem')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region)
+         VALUES ('1445-1', 1445, 'USA'), ('29901-1', 29901, 'USA')`,
+      ).run();
+      db.prepare(
+        `INSERT INTO user_game_releases (user_id, release_id, ownership_status)
+         VALUES (9, '1445-1', 1)`,
+      ).run();
+
+      const addedForSibling = await evaluateTrackingRulesForNewGames(mockEnv, [
+        {
+          stableId: 29901,
+          platformId: 23,
+          canonicalSeries: 'Fire Emblem',
+          seriesTrackable: true,
+          title: 'Fire Emblem Warriors',
+          releases: [{ id: '29901-1', region: 'USA' }],
+        },
+      ]);
+      expect(addedForSibling).toBe(0);
+      expect(
+        db
+          .prepare(
+            `SELECT 1 FROM user_game_releases WHERE user_id = 9 AND release_id = '29901-1'`,
+          )
+          .get(),
+      ).toBeUndefined();
+
+      // 4. version_parent metadata fallback via IGDB search mock in syncWorkerRetailDeals + verifyExistingGameReleasesWithCanonical
+      db.prepare(
+        `INSERT INTO games (stable_id, id, title, platform_id, igdb_id)
+         VALUES (62366, '62366', 'Verified Unlinked Retail Target', 26, 991001)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO game_releases (id, game_id, region, canonical_release_id, verified_source)
+         VALUES ('62366-1', 62366, 'USA', NULL, NULL)`,
+      ).run();
+
+      const dealFetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input, init) => {
+          const urlStr = String(input);
+          if (urlStr.includes('open.er-api.com')) {
+            return Response.json({ rates: { USD: 0.75 } });
+          }
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            const body = String(init?.body || '');
+            const out: Array<{ name: string; result: unknown[] }> = [];
+            for (const m of body.matchAll(
+              /query games "(q\d+)" \{([^}]+)\}/g,
+            )) {
+              if (m[2].includes('"Collectors"') || m[2].includes('"Parent"')) {
+                out.push({
+                  name: m[1],
+                  result: [
+                    {
+                      id: 889901,
+                      name: 'Version Parent Collectors Edition',
+                      platforms: [130],
+                      version_parent: {
+                        cover: { image_id: 'cov_vp_1' },
+                        first_release_date: 1700000000,
+                      },
+                    },
+                  ],
+                });
+              } else {
+                out.push({ name: m[1], result: [] });
+              }
+            }
+            return Response.json(out);
+          }
+          if (
+            urlStr.includes('videogamesplus.ca/collections/sales/products.json')
+          ) {
+            return Response.json({
+              products: [
+                {
+                  id: 91001,
+                  title: 'Verified Unlinked Retail Target - Nintendo Switch',
+                  handle: 'verified-unlinked-target',
+                  product_type: 'Nintendo Switch',
+                  variants: [
+                    {
+                      id: 910011,
+                      price: '29.99',
+                      compare_at_price: '49.99',
+                      available: true,
+                    },
+                  ],
+                },
+                {
+                  id: 91002,
+                  title: 'Version Parent Collectors Edition - Nintendo Switch',
+                  handle: 'version-parent-ce',
+                  product_type: 'Nintendo Switch',
+                  variants: [
+                    {
+                      id: 910021,
+                      price: '39.99',
+                      compare_at_price: '59.99',
+                      available: true,
+                    },
+                  ],
+                },
+              ],
+            });
+          }
+          if (urlStr.includes('pnpgamesonline.com')) {
+            return Response.json([]);
+          }
+          return Response.json({ products: [] });
+        });
+      try {
+        await syncWorkerRetailDeals(mockEnv);
+        const linkedRel = db
+          .prepare(
+            `SELECT canonical_release_id, verified_source FROM game_releases WHERE id = '62366-1'`,
+          )
+          .get() as {
+          canonical_release_id: number | null;
+          verified_source: string | null;
+        };
+        expect(linkedRel.canonical_release_id).toBeGreaterThan(0);
+        expect(linkedRel.verified_source).toBe('retail_catalog');
+
+        const vpGame = db
+          .prepare(
+            `SELECT image_url FROM games WHERE igdb_id = 889901 AND platform_id = 26`,
+          )
+          .get() as { image_url: string | null };
+        expect(vpGame?.image_url).toBe(
+          'https://images.igdb.com/igdb/image/upload/t_cover_big/cov_vp_1.jpg',
+        );
+      } finally {
+        dealFetchSpy.mockRestore();
       }
     });
   });

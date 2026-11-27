@@ -21,6 +21,7 @@ import {
   resolveCanonicalDisplayTitle,
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
+  buildStructuralTitleCandidates,
   parseComboCartConstituentTitles,
 } from './title_matching.js';
 
@@ -1527,6 +1528,85 @@ describe('Title Matching Strategies', () => {
       ).toEqual([]);
       expect(parseComboCartConstituentTitles('Ratchet & Clank')).toEqual([]);
       expect(parseComboCartConstituentTitles('Sonic & Knuckles')).toEqual([]);
+    });
+
+    it('handles structural storefront candidates, generic edition wrappers, quotes, and expanded combo patterns', () => {
+      expect(
+        buildStructuralTitleCandidates(
+          'Fire Emblem Warriors - 3DS [ONLY WORKS ON NEW 3DS & 2DS SYSTEMS]',
+        ),
+      ).toContain('Fire Emblem Warriors');
+      expect(
+        buildStructuralTitleCandidates(
+          'Pokemon Moon [LIMIT 1 PER HOUSEHOLD] - 3DS',
+        ),
+      ).toContain('Pokemon Moon');
+      expect(
+        buildStructuralTitleCandidates('UNDER NIGHT IN-BIRTH II [Sys:Celes]'),
+      ).toEqual([
+        'UNDER NIGHT IN-BIRTH II [Sys:Celes]',
+        'UNDER NIGHT IN-BIRTH II',
+      ]);
+      expect(buildStructuralTitleCandidates('D+Vine[Luv]')[0]).toBe(
+        'D+Vine[Luv]',
+      );
+      expect(
+        buildStructuralTitleCandidates("ONLINE EXCLUSIVE EDTION: 7'scarlet"),
+      ).toContain("7'scarlet");
+      expect(buildStructuralTitleCandidates('OFF Bad Human Edition')).toContain(
+        'OFF',
+      );
+      expect(
+        buildStructuralTitleCandidates(
+          'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
+        ),
+      ).toContain('Bubsy in: The Purrfect Collection');
+      expect(
+        extractPhysicalEditionForVariant(
+          'Untitled Goose Game - "Lovely Edition"',
+        ),
+      ).toEqual({
+        baseTitle: 'Untitled Goose Game',
+        edition: 'Lovely Edition',
+      });
+      expect(
+        extractPhysicalEditionForVariant(
+          'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
+        ),
+      ).toEqual({
+        baseTitle: 'Bubsy in: The Purrfect Collection',
+        edition: 'Im-paw-sible Edition',
+      });
+
+      expect(
+        parseComboCartConstituentTitles(
+          'Giana Sisters 1&2 Complete Edition (Switch)',
+        ),
+      ).toEqual(['Giana Sisters', 'Giana Sisters 2']);
+      expect(
+        parseComboCartConstituentTitles(
+          'Athena 1+2 Helion Collection [Limited Edition]',
+        ),
+      ).toEqual(['Athena', 'Athena 2']);
+      expect(
+        parseComboCartConstituentTitles('Trine 1, 2, & 3 Collection'),
+      ).toEqual(['Trine', 'Trine 2', 'Trine 3']);
+      expect(
+        parseComboCartConstituentTitles(
+          'COGEN: Sword of Rewind & Gunvolt Chronicles: Luminous Avenger iX 2 Double Pack',
+        ),
+      ).toEqual([
+        'COGEN: Sword of Rewind',
+        'Gunvolt Chronicles: Luminous Avenger iX 2',
+      ]);
+      expect(
+        parseComboCartConstituentTitles(
+          'Shin chan: "Me and the Professor on Summer Vacation" & "Shiro of Coal Town" Double Pack',
+        ),
+      ).toEqual([
+        'Shin chan: Me and the Professor on Summer Vacation',
+        'Shin chan: Shiro of Coal Town',
+      ]);
     });
   });
 });

@@ -228,6 +228,7 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
         'CastleMania',
         'Silver Lining Direct',
         'First Press Games',
+        'Nicalis',
       ]);
       expect(storeNames).not.toContain('VGP');
       expect(storeNames).not.toContain('PNP Games');
@@ -667,6 +668,54 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
       );
       expect(items).toHaveLength(1);
       expect(items[0].cleanTitle).toBe('Valid Physical Title');
+    });
+
+    it('handles multi-platform prose phrases, New 3DS upgrades, and multi-game box set Includes parsing', async () => {
+      const omori = cleanBoutiqueTitle(
+        'OMORI for Nintendo Switch and PlayStation 4',
+      );
+      expect(omori.cleanTitle).toBe('OMORI');
+      expect(omori.platformId).toBe(26);
+      expect(omori.isGame).toBe(true);
+
+      const few = cleanBoutiqueTitle(
+        'Fire Emblem Warriors 3DS [ONLY WORKS ON NEW 3DS AND 2DS SYSTEMS]',
+      );
+      expect(few.cleanTitle).toBe('Fire Emblem Warriors');
+      expect(few.platformId).toBe(25);
+      expect(few.isGame).toBe(true);
+
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          products: [
+            {
+              id: 88801,
+              title: 'Annapurna Interactive Deluxe Limited Edition',
+              handle: 'annapurna-deluxe',
+              product_type: 'PlayStation 4',
+              body_html:
+                '<p>This collection includes:</p><ul><li>Gorogoa (Jason Roberts)</li><li>Telling Lies (Sam Barlow)</li><li>Custom Exclusive Folio Case</li><li>Downloadable Soundtrack</li></ul>',
+              variants: [{ title: 'PlayStation 4', price: '199.99' }],
+            },
+          ],
+        }),
+      });
+      const res = await fetchBoutiquePreOrders(
+        mockFetch as unknown as typeof fetch,
+        [
+          {
+            store: 'iam8bit',
+            url: 'https://www.iam8bit.com/collections/games/products.json?limit=250',
+            baseUrl: 'https://www.iam8bit.com',
+            type: 'shopify',
+          },
+        ],
+      );
+      expect(res.map((r) => [r.cleanTitle, r.platformId])).toEqual([
+        ['Gorogoa', 34],
+        ['Telling Lies', 34],
+      ]);
     });
   });
 });

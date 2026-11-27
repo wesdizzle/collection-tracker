@@ -17,10 +17,12 @@ import {
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
   normalizeTitleForMatching,
+  stripEditionSuffix,
   titlesMatch,
   gameMatchesReleaseWithAlternatives,
   isCompilationOrBundleTitle,
 } from '../../shared/title_matching.js';
+export { stripEditionSuffix };
 import { cleanTitleWithoutParentheticals } from '../../shared/canonical_releases.js';
 import { getRomGroupingKey } from '../../shared/queries.js';
 import { BOX_SET_ROM_GROUPING_MAP } from '../../shared/special_labels.js';
@@ -112,30 +114,6 @@ function writeReconcileSqlChunks(
   flushChunk();
 
   return chunkPaths;
-}
-
-/**
- * Strips common edition suffixes, subtitles, and DLC add-on phrases from titles
- * so base releases can match their canonical cartridge dumps.
- */
-export function stripEditionSuffix(title: string): string {
-  return title
-    .replace(
-      /:\s*(crewmate|definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy|hd|plus|\d+th anniversary)\s*edition/gi,
-      '',
-    )
-    .replace(
-      /\s*-\s*(crewmate|definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy|hd|plus)\s*edition/gi,
-      '',
-    )
-    .replace(
-      /\s+(definitive|deluxe|special|collector'?s?|anniversary|remastered|legacy)\s+edition/gi,
-      '',
-    )
-    .replace(/:\s*deluxe$/i, '')
-    .replace(/\s*\+\s*the hidden treasure of area zero/gi, '')
-    .replace(/\s*\+\s*booster course pass/gi, '')
-    .trim();
 }
 
 /**
@@ -1163,10 +1141,19 @@ export function reconcileGameReleasesWithCanonical(
     // canonical_releases table may be unpopulated in test mocks
   }
 
+  let hasGameMetadataJson = false;
+  try {
+    const gamesCols = db.pragma('table_info(games)') as Array<{ name: string }>;
+    hasGameMetadataJson = gamesCols.some((c) => c.name === 'metadata_json');
+  } catch {
+    // Minimal test mocks
+  }
+
   // Query releases that need ROM names
   const candidateQuery = `
-    SELECT gr.id, gr.game_id, g.id as game_slug, g.platform_id, g.title, gr.region, gr.variants,
-           gr.rom_name, gr.rom_crc, gr.canonical_release_id
+    SELECT gr.id, gr.game_id, g.id as game_slug, g.platform_id, g.title,
+           ${hasGameMetadataJson ? 'g.metadata_json' : 'NULL AS metadata_json'},
+           gr.region, gr.variants, gr.rom_name, gr.rom_crc, gr.canonical_release_id
     FROM game_releases gr
     JOIN games g ON gr.game_id = g.stable_id
     WHERE gr.rom_name IS NULL
@@ -1180,6 +1167,7 @@ export function reconcileGameReleasesWithCanonical(
     game_slug: string;
     platform_id: number;
     title: string;
+    metadata_json: string | null;
     region: string | null;
     variants: string | null;
     rom_name: string | null;
@@ -1443,33 +1431,43 @@ export function reconcileGameReleasesWithCanonical(
         }
       }
 
-      // Strategy 5: Linker key fallback (safe sequel compatibility + shared base/add-on key)
+      // Strategy 5: Linker key fallback across game title + IGDB localized/alternative names
       if ((!cand || cand.length === 0) && lMap) {
-        const relKeys = buildCanonicalLinkerMatchKeys(rel.title);
-        const relKeysSet = new Set(relKeys);
+        const metaAltTitles = parseMetadataAlternatives(rel.metadata_json, null)
+          .map((a) => a.name)
+          .filter((n) => n.length >= 2);
+        const queryTitles = [rel.title, ...metaAltTitles];
         const seenLinker = new Set<(typeof allDatReleases)[number]>();
         const linkerCands: typeof allDatReleases = [];
-        for (const lk of relKeys) {
-          for (const c of lMap.get(lk) || []) {
-            if (seenLinker.has(c)) continue;
-            seenLinker.add(c);
-            if (!areCanonicalTitlesSequelCompatible(rel.title, c.raw_title)) {
-              continue;
-            }
-            const candKeys = buildCanonicalLinkerMatchKeys(c.raw_title);
-            if (
-              candKeys.some((ck) => relKeysSet.has(ck)) ||
-              isRomValidForGame(
-                { title: rel.title, platform_id: rel.platform_id },
-                {
-                  raw_title: c.raw_title,
-                  rom_name: c.rom_name,
-                  region: c.region,
-                  also_released_as: c.also_released_as,
-                },
-              )
-            ) {
-              linkerCands.push(c);
+        for (const qTitle of queryTitles) {
+          const qKeys = buildCanonicalLinkerMatchKeys(qTitle);
+          const qKeysSet = new Set(qKeys);
+          for (const lk of qKeys) {
+            for (const c of lMap.get(lk) || []) {
+              if (seenLinker.has(c)) continue;
+              if (!areCanonicalTitlesSequelCompatible(qTitle, c.raw_title)) {
+                continue;
+              }
+              const candKeys = buildCanonicalLinkerMatchKeys(c.raw_title);
+              if (
+                candKeys.some((ck) => qKeysSet.has(ck)) ||
+                isRomValidForGame(
+                  {
+                    title: rel.title,
+                    platform_id: rel.platform_id,
+                    metadata_json: rel.metadata_json,
+                  },
+                  {
+                    raw_title: c.raw_title,
+                    rom_name: c.rom_name,
+                    region: c.region,
+                    also_released_as: c.also_released_as,
+                  },
+                )
+              ) {
+                seenLinker.add(c);
+                linkerCands.push(c);
+              }
             }
           }
         }

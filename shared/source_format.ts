@@ -693,7 +693,7 @@ export function isIgnoredFormatRelease(
     (platformId !== 33 && combined.includes('[b]')) ||
     combined.includes('[bios]') ||
     /\bboot\s+rom\b/i.test(combined) ||
-    /\b(?:test\s+cartridge|64dd\s+hardware\s+test|aging\s+(?:cassette|cartridge|program|ver\.?)|snsp\s+aging|atari\s+pam\b|development\s+card|lcd\s+tester|production\s+test\s+program|kid\s+vid\s+voice\s+module|nitro-eva|ntr\s+aging)\b/i.test(
+    /\b(?:test\s+cartridge|64dd\s+hardware\s+test|aging\s+(?:cassette|cartridge|program|ver\.?)|snsp\s+aging|atari\s+pam\b|development\s+card|lcd\s+tester|production\s+test\s+program|kid\s+vid\s+voice\s+module|nitro-eva|ntr\s+aging|monitor\s+test|controller\s+tester|demonstration\s+cartridge|arcade\s+peripheral)\b/i.test(
       combined,
     )
   ) {

@@ -956,53 +956,45 @@ describe('Canonical Releases & Physical Verification Engine', () => {
   });
 
   describe('Modern Optical Disc Physical Verification (PS4 & PS5)', () => {
-    it('should elevate PS4 retail games with verified CUSA disc serials to Tier 1 verified_physical', () => {
-      const res = detectPhysicalReleaseStatus({
+    it('should elevate PS4/PS5 retail games only when verified in canonical_releases and classify serial-only hints as Tier 2 likely_physical', () => {
+      const canonicalPs4: CanonicalRelease[] = [
+        {
+          platform_id: 34,
+          raw_title: "Marvel's Spider-Man",
+          normalized_title: 'marvelsspiderman',
+          region: 'USA',
+          variants: null,
+          rom_name: "Marvel's Spider-Man (USA).iso",
+          rom_crc: '12345678',
+          serial_code: 'CUSA-02299',
+          source: 'dat',
+          is_verified_physical: 1,
+        },
+      ];
+      const verifiedRes = detectPhysicalReleaseStatus({
         platformId: 34, // PS4
         gameTitle: "Marvel's Spider-Man",
         serialCode: 'CUSA-02299',
-        canonicalReleases: [],
+        canonicalReleases: canonicalPs4,
       });
+      expect(verifiedRes.physical_status).toBe('verified_physical');
+      expect(verifiedRes.verification_tier).toBe(1);
+      expect(verifiedRes.is_physical).toBe(true);
 
-      expect(res.physical_status).toBe('verified_physical');
-      expect(res.verification_tier).toBe(1);
-      expect(res.is_physical).toBe(true);
-      expect(
-        res.reasons.some((r) =>
-          r.includes('Verified physical optical disc serial'),
-        ),
-      ).toBe(true);
-    });
-
-    it('should elevate PS5 retail games with verified PPSA disc serials to Tier 1 verified_physical', () => {
-      const res = detectPhysicalReleaseStatus({
+      const serialOnlyRes = detectPhysicalReleaseStatus({
         platformId: 35, // PS5
         gameTitle: "Marvel's Spider-Man: Miles Morales",
         serialCode: 'PPSA-01411',
         canonicalReleases: [],
       });
-
-      expect(res.physical_status).toBe('verified_physical');
-      expect(res.verification_tier).toBe(1);
-      expect(res.is_physical).toBe(true);
+      expect(serialOnlyRes.physical_status).toBe('likely_physical');
+      expect(serialOnlyRes.verification_tier).toBe(2);
+      expect(serialOnlyRes.is_physical).toBe(true);
       expect(
-        res.reasons.some((r) =>
-          r.includes('Verified physical optical disc serial'),
+        serialOnlyRes.reasons.some((r) =>
+          r.includes('Physical platform serial code detected'),
         ),
       ).toBe(true);
-    });
-
-    it('should fall back to Tier 2 likely_physical for unknown/unverified serial codes', () => {
-      const res = detectPhysicalReleaseStatus({
-        platformId: 34, // PS4
-        gameTitle: 'Some Digital PSN Release',
-        serialCode: 'CUSA-99999',
-        canonicalReleases: [],
-      });
-
-      expect(res.physical_status).toBe('likely_physical');
-      expect(res.verification_tier).toBe(2);
-      expect(res.is_physical).toBe(true);
     });
 
     it('should not allow non-Latin subtitle alternative names to falsely match 2013 reboot disc on PS3', () => {

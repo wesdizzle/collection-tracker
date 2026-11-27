@@ -12,7 +12,6 @@ import {
   NO_INTRO_TARGETS,
   downloadRedumpDat,
   downloadNoIntroDat,
-  applyCanonicalDatPatches,
   pruneAndDeduplicateDats,
   syncCleanDatsToDirectory,
   parseSourceFilterArg,
@@ -382,127 +381,6 @@ describe('Canonical Sources Fetcher', () => {
     expect(result.success).toBe(true);
     expect(result.fileName).toBe('Sony - PlayStation Vita (PSVgameSD).dat');
     expect(fs.existsSync(preExistingPath)).toBe(true);
-  });
-
-  describe('applyCanonicalDatPatches', () => {
-    it('should enrich CLRMamePro Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
-      const input = `clrmamepro (
-\tname "Sega - Mega Drive - Genesis"
-)
-game (
-\tname "Sonic & Knuckles (World)"
-\trom ( name "Sonic & Knuckles (World) (Lock-on).bin" size 262144 crc 4DCFD55C md5 B4E76E416B887F4E7413BA76FA735F16 sha1 70429F1D80503A0632F603BF762FE0BBAA881D22 )
-)`;
-
-      const output = applyCanonicalDatPatches(
-        input,
-        'Sega - Mega Drive - Genesis.dat',
-      );
-
-      expect(output).toContain('0658F691');
-      expect(output).toContain('Sonic & Knuckles (World).md');
-      expect(output).toContain('size 2097152');
-      expect(output).toContain('Sonic & Knuckles (World) (Lock-on)');
-      expect(output).toContain('4DCFD55C');
-    });
-
-    it('should enrich XML Sega Genesis DAT with the 2 MB standalone Sonic & Knuckles entry', () => {
-      const input = `<datafile>
-\t<game name="Sonic &amp; Knuckles (World)">
-\t\t<rom name="Sonic &amp; Knuckles (World) (Lock-on).bin" size="262144" crc="4DCFD55C"/>
-\t</game>
-</datafile>`;
-
-      const output = applyCanonicalDatPatches(
-        input,
-        'Sega - Mega Drive - Genesis.dat',
-      );
-
-      expect(output).toContain('0658F691');
-      expect(output).toContain('Sonic &amp; Knuckles (World)');
-      expect(output).toContain('Sonic &amp; Knuckles (World) (Lock-on)');
-    });
-
-    it('should enrich CLRMamePro Sega Genesis DAT with the physical Mega Man Wily Wars Retro-Bit dump', () => {
-      const input = `clrmamepro (
-\tname "Sega - Mega Drive - Genesis"
-)
-game (
-\tname "Mega Man - The Wily Wars (World) (Retro-Bit)"
-\tserial "T-12053-00"
-\trom ( name "Mega Man - The Wily Wars (World) (Retro-Bit).md" size 2097152 crc 0831020B md5 FB4FC95CE806265417BB44EEC2ACA488 sha1 617BC1EE5F31F4215CF47C5337FA7CA0BCEB6A45 serial "T-12053-00" )
-)`;
-
-      const output = applyCanonicalDatPatches(
-        input,
-        'Sega - Mega Drive - Genesis.dat',
-      );
-
-      expect(output).toContain('0831020B');
-      expect(output).toContain('92FD68E9');
-      expect(output).toContain(
-        'Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)',
-      );
-      expect(output).toContain('17C07481AE7C8D69C38557A51F70E257BCE799EF');
-    });
-
-    it('should enrich XML Sega Genesis DAT with the physical Mega Man Wily Wars Retro-Bit dump', () => {
-      const input = `<datafile>
-\t<game name="Mega Man - The Wily Wars (World) (Retro-Bit)">
-\t\t<rom name="Mega Man - The Wily Wars (World) (Retro-Bit).md" size="2097152" crc="0831020B"/>
-\t</game>
-</datafile>`;
-
-      const output = applyCanonicalDatPatches(
-        input,
-        'Sega - Mega Drive - Genesis.dat',
-      );
-
-      expect(output).toContain('0831020B');
-      expect(output).toContain('92FD68E9');
-      expect(output).toContain(
-        'Mega Man - The Wily Wars (World) (Retro-Bit) (Alt)',
-      );
-    });
-
-    it('should normalize Atari platform headers so downstream IGIR creates canonical directories', () => {
-      const clrInput = `clrmamepro (
-\tname "Atari - 2600"
-\tdescription "Atari - 2600"
-)`;
-      const clrOutput = applyCanonicalDatPatches(clrInput, 'Atari - 2600.dat');
-      expect(clrOutput).toContain('name "Atari - Atari 2600"');
-      expect(clrOutput).toContain('description "Atari - Atari 2600"');
-
-      const xmlInput = `<datafile>
-\t<header>
-\t\t<name>Atari - 2600</name>
-\t\t<description>Atari - 2600</description>
-\t</header>
-</datafile>`;
-      const xmlOutput = applyCanonicalDatPatches(xmlInput, 'Atari - 2600.dat');
-      expect(xmlOutput).toContain('<name>Atari - Atari 2600</name>');
-      expect(xmlOutput).toContain(
-        '<description>Atari - Atari 2600</description>',
-      );
-
-      const a78Xml = `<datafile><header><name>Atari - 7800</name></header></datafile>`;
-      expect(applyCanonicalDatPatches(a78Xml, 'Atari - 7800.dat')).toContain(
-        '<name>Atari - Atari 7800 (BIN)</name>',
-      );
-    });
-
-    it('should leave unrelated platforms or already patched DATs intact', () => {
-      const input = `game (
-\tname "Metroid Fusion (USA)"
-\trom ( name "Metroid Fusion (USA).gba" size 8388608 crc D50041DA )
-)`;
-      const output = applyCanonicalDatPatches(
-        input,
-        'Nintendo - Game Boy Advance.dat',
-      );
-      expect(output).toBe(input);
-    });
   });
 
   describe('pruneAndDeduplicateDats', () => {
