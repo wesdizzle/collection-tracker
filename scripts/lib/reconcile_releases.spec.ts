@@ -24,12 +24,31 @@ describe('reconcile_releases', () => {
       ).toBe('Xenoblade Chronicles');
       expect(
         stripEditionSuffix('Mario Kart 8 Deluxe + Booster Course Pass'),
+      ).toBe('Mario Kart 8 Deluxe + Booster Course Pass');
+      const catalogSet = new Set([
+        'Mario Kart 8 Deluxe',
+        'Pokémon Scarlet',
+        'Sonic Mania',
+        'Team Sonic Racing',
+      ]);
+      expect(
+        stripEditionSuffix('Mario Kart 8 Deluxe + Booster Course Pass', {
+          hasEntity: (cand) => catalogSet.has(cand),
+        }),
       ).toBe('Mario Kart 8 Deluxe');
       expect(
         stripEditionSuffix(
           'Pokémon Scarlet + The Hidden Treasure of Area Zero',
+          {
+            hasEntity: (cand) => catalogSet.has(cand),
+          },
         ),
       ).toBe('Pokémon Scarlet');
+      expect(
+        stripEditionSuffix('Sonic Mania + Team Sonic Racing', {
+          hasEntity: (cand) => catalogSet.has(cand),
+        }),
+      ).toBe('Sonic Mania + Team Sonic Racing');
     });
 
     it('should preserve standard titles without edition markers', () => {
@@ -603,6 +622,69 @@ describe('reconcile_releases', () => {
         expect(rel4189.canonical_release_id).toBe(901);
         expect(rel4205.canonical_release_id).toBe(902);
         expect(rel4999.canonical_release_id).toBeNull();
+      } finally {
+        db.close();
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('blocks base games from claiming edition canonical releases owned by an edition game and blocks standalone games from sharing canonical_release_id', () => {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'reconcile-exclusivity-'),
+      );
+      const dbPath = path.join(tmpDir, 'test.db');
+      const sqlOut = path.join(tmpDir, 'exclusivity.sql');
+      const db = new Database(dbPath);
+      const schemaSql = fs.readFileSync(
+        path.resolve(process.cwd(), 'migrations', 'schema.sql'),
+        'utf8',
+      );
+      db.exec(schemaSql);
+      db.exec(`
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id) VALUES
+          (7001, '7001', 'Overcooked!', 26, 70001),
+          (7002, '7002', 'Overcooked: Gourmet Edition', 26, 70002),
+          (7003, '7003', 'Slime Rancher', 26, 70003),
+          (7004, '7004', 'Slime Rancher: Deluxe Edition', 26, 70004);
+        INSERT INTO game_releases (id, game_id, region) VALUES
+          ('7001-1', 7001, 'USA'),
+          ('7002-1', 7002, 'USA'),
+          ('7003-1', 7003, 'USA'),
+          ('7004-1', 7004, 'USA');
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_name, rom_crc, source, is_verified_physical) VALUES
+          (8001, 26, 'Overcooked: Gourmet Edition', '${normalizeTitleForMatching('Overcooked: Gourmet Edition')}', 'USA', 'Overcooked - Gourmet Edition (USA).xci', '1122aabb', 'dat', 1),
+          (8002, 26, 'Slime Rancher', '${normalizeTitleForMatching('Slime Rancher')}', 'USA', 'Slime Rancher (USA).xci', '3344ccdd', 'dat', 1);
+      `);
+
+      try {
+        const res = reconcileGameReleasesWithCanonical(db, {
+          sqlOutputPath: sqlOut,
+        });
+        expect(res.reconciledCount).toBe(2);
+        const rel7001 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '7001-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        const rel7002 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '7002-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        const rel7003 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '7003-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        const rel7004 = db
+          .prepare(
+            "SELECT canonical_release_id FROM game_releases WHERE id = '7004-1'",
+          )
+          .get() as { canonical_release_id: number | null };
+        expect(rel7001.canonical_release_id).toBeNull();
+        expect(rel7002.canonical_release_id).toBe(8001);
+        expect(rel7003.canonical_release_id).toBe(8002);
+        expect(rel7004.canonical_release_id).toBeNull();
       } finally {
         db.close();
         fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -595,4 +595,56 @@ describe('syncCanonicalSources (Multi-Source Adapter Integration)', () => {
       'UPDATE game_releases SET canonical_release_id = NULL',
     );
   });
+
+  it('prevents standalone non-bundle games from sharing one canonical_release_id or claiming edition titles owned by another game', async () => {
+    const nsDir = path.join(sourcesDir, 'nscollectors');
+    fs.mkdirSync(nsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nsDir, 'sw1_master.csv'),
+      [
+        'Title,Publisher,Region,Release Date',
+        'Slime Rancher,Monomi Park,NA,Nov 30 2021',
+        'Overcooked: Gourmet Edition,Team17,NA,Feb 13 2018',
+      ].join('\n'),
+      'utf8',
+    );
+
+    db.exec(`
+      INSERT INTO games (stable_id, id, title, platform_id, igdb_id)
+      VALUES
+        (5001, '5001', 'Slime Rancher', 26, 70003),
+        (5002, '5002', 'Slime Rancher: Deluxe Edition', 26, 70004),
+        (5003, '5003', 'Overcooked!', 26, 70001),
+        (5004, '5004', 'Overcooked: Gourmet Edition', 26, 70002);
+      INSERT INTO game_releases (id, game_id, region)
+      VALUES
+        ('5001-1', 5001, 'USA'),
+        ('5002-1', 5002, 'USA'),
+        ('5003-1', 5003, 'USA'),
+        ('5004-1', 5004, 'USA');
+    `);
+
+    await syncCanonicalSources({
+      db,
+      sources: ['nscollectors'],
+      sourcesDir,
+      dryRun: false,
+      skipReconcile: true,
+      sqlOutputPath,
+    });
+
+    const getCanId = (id: string) =>
+      (
+        db
+          .prepare(
+            'SELECT canonical_release_id FROM game_releases WHERE id = ?',
+          )
+          .get(id) as { canonical_release_id: number | null }
+      ).canonical_release_id;
+
+    expect(getCanId('5001-1')).not.toBeNull();
+    expect(getCanId('5002-1')).toBeNull();
+    expect(getCanId('5003-1')).toBeNull();
+    expect(getCanId('5004-1')).not.toBeNull();
+  });
 });

@@ -25,6 +25,7 @@ import { fileURLToPath } from 'url';
 import { parseDatFile } from './lib/dat_parser.js';
 import { findDatFilesForPlatform, PlatformRecord } from './lib/dat_cache.js';
 import {
+  CanonicalLinkingExclusivityGuard,
   CanonicalRelease,
   deduplicateDatReleases,
   getCanonicalSourcePriority,
@@ -1431,9 +1432,38 @@ export async function syncCanonicalSources(
             }
           }
 
+          const gamesColsSync = new Set(
+            (db.pragma('table_info(games)') as Array<{ name: string }>).map(
+              (c) => c.name,
+            ),
+          );
+          const hasSyncIgdb = gamesColsSync.has('igdb_id');
+          const hasSyncBundle = gamesColsSync.has('bundle_parent_id');
+
+          const syncPlatformGames = db
+            .prepare(
+              `SELECT stable_id, platform_id, title,
+                      ${hasSyncIgdb ? 'igdb_id' : 'NULL AS igdb_id'},
+                      ${hasSyncBundle ? 'bundle_parent_id' : 'NULL AS bundle_parent_id'}
+               FROM games
+               WHERE platform_id IN (${ph})`,
+            )
+            .all(...Array.from(syncedNonDatPlatforms)) as Array<{
+            stable_id: number;
+            platform_id: number;
+            title: string;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
+          }>;
+          const exclusivityGuard = new CanonicalLinkingExclusivityGuard(
+            syncPlatformGames,
+          );
+
           const unlinkedReleases = db
             .prepare(
-              `SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.barcode, g.title, g.platform_id
+              `SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.barcode, g.title, g.platform_id,
+                      ${hasSyncIgdb ? 'g.igdb_id' : 'NULL AS igdb_id'},
+                      ${hasSyncBundle ? 'g.bundle_parent_id' : 'NULL AS bundle_parent_id'}
                FROM game_releases gr
                JOIN games g ON g.stable_id = gr.game_id
                WHERE gr.canonical_release_id IS NULL
@@ -1447,20 +1477,34 @@ export async function syncCanonicalSources(
             barcode: string | null;
             title: string;
             platform_id: number;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
           }>;
 
           const usedCanonicalByGame = new Map<number, Set<number>>();
           for (const existingLink of db
             .prepare(
-              `SELECT gr.game_id, gr.canonical_release_id
+              `SELECT gr.game_id, gr.canonical_release_id, gr.variants,
+                      g.platform_id, g.title,
+                      ${hasSyncIgdb ? 'g.igdb_id' : 'NULL AS igdb_id'},
+                      ${hasSyncBundle ? 'g.bundle_parent_id' : 'NULL AS bundle_parent_id'},
+                      cr.raw_title AS cr_raw_title, cr.rom_name AS cr_rom_name
                FROM game_releases gr
                JOIN games g ON g.stable_id = gr.game_id
+               LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
                WHERE gr.canonical_release_id IS NOT NULL
                  AND g.platform_id IN (${ph})`,
             )
             .all(...Array.from(syncedNonDatPlatforms)) as Array<{
             game_id: number;
             canonical_release_id: number;
+            variants: string | null;
+            platform_id: number;
+            title: string;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
+            cr_raw_title: string | null;
+            cr_rom_name: string | null;
           }>) {
             let set = usedCanonicalByGame.get(existingLink.game_id);
             if (!set) {
@@ -1468,6 +1512,22 @@ export async function syncCanonicalSources(
               usedCanonicalByGame.set(existingLink.game_id, set);
             }
             set.add(existingLink.canonical_release_id);
+            exclusivityGuard.recordExistingLink(
+              {
+                stable_id: existingLink.game_id,
+                platform_id: existingLink.platform_id,
+                title: existingLink.title,
+                igdb_id: existingLink.igdb_id,
+                bundle_parent_id: existingLink.bundle_parent_id,
+              },
+              {
+                id: existingLink.canonical_release_id,
+                platform_id: existingLink.platform_id,
+                raw_title: existingLink.cr_raw_title,
+                rom_name: existingLink.cr_rom_name,
+                variants: existingLink.variants,
+              },
+            );
           }
 
           const linkStmt = isDryRun
@@ -1493,6 +1553,13 @@ export async function syncCanonicalSources(
                 );
 
           for (const gr of unlinkedReleases) {
+            const gameDescriptor = {
+              stable_id: gr.game_id,
+              platform_id: gr.platform_id,
+              title: gr.title,
+              igdb_id: gr.igdb_id,
+              bundle_parent_id: gr.bundle_parent_id,
+            };
             const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
             const seenCand = new Set<LinkCandidateRow>();
             const candidates: LinkCandidateRow[] = [];
@@ -1515,6 +1582,16 @@ export async function syncCanonicalSources(
                   continue;
                 }
                 if (gr.region && !regionsOverlap(gr.region, cand.region)) {
+                  continue;
+                }
+                if (
+                  !exclusivityGuard.canClaim(gameDescriptor, {
+                    id: cand.id > 0 ? cand.id : null,
+                    platform_id: cand.platform_id,
+                    raw_title: cand.raw_title,
+                    variants: cand.variants,
+                  })
+                ) {
                   continue;
                 }
                 candidates.push(cand);
@@ -1551,7 +1628,13 @@ export async function syncCanonicalSources(
 
             const best = candidates.find(
               (c) =>
-                !(c.id > 0 && usedCanonicalByGame.get(gr.game_id)?.has(c.id)),
+                !(c.id > 0 && usedCanonicalByGame.get(gr.game_id)?.has(c.id)) &&
+                exclusivityGuard.canClaim(gameDescriptor, {
+                  id: c.id > 0 ? c.id : null,
+                  platform_id: c.platform_id,
+                  raw_title: c.raw_title,
+                  variants: c.variants,
+                }),
             );
             if (!best) continue;
             if (best.id > 0) {
@@ -1561,6 +1644,12 @@ export async function syncCanonicalSources(
                 usedCanonicalByGame.set(gr.game_id, set);
               }
               set.add(best.id);
+              exclusivityGuard.markClaimed(gameDescriptor, {
+                id: best.id,
+                platform_id: best.platform_id,
+                raw_title: best.raw_title,
+                variants: best.variants,
+              });
             }
             if (linkStmt) {
               if (hasDenormalizedCols) {

@@ -23,6 +23,8 @@ import {
   buildCanonicalLinkerMatchKeys,
   buildStructuralTitleCandidates,
   parseComboCartConstituentTitles,
+  generateEditionSplitCandidates,
+  resolveEditionSplitWithCatalog,
 } from './title_matching.js';
 
 describe('Title Normalization', () => {
@@ -1626,11 +1628,31 @@ describe('Title Matching Strategies', () => {
           'Bubsy in: The Purrfect Collection Im-paw-sible Edition',
         ).map((v) => v.title),
       ).toContain('Bubsy in: The Purrfect Collection');
+      // Standalone titles whose final words happen to match `<Word> Edition` stay intact
+      // when verified against catalog entities via resolveEditionSplitWithCatalog
       expect(
-        buildDetailedIgdbMatchVariants('Super Soccer Tournament Edition').map(
-          (v) => v.title,
+        generateEditionSplitCandidates('Super Soccer Tournament Edition').map(
+          (c) => c.base,
         ),
-      ).not.toContain('Super Soccer');
+      ).toContain('Super Soccer');
+      expect(
+        resolveEditionSplitWithCatalog(
+          'Super Soccer Tournament Edition',
+          (cand) =>
+            cand === 'Super Soccer Tournament Edition' ||
+            cand === 'Super Soccer',
+        ),
+      ).toBeNull();
+      expect(
+        resolveEditionSplitWithCatalog(
+          'OFF Bad Human Edition',
+          (cand) => cand === 'OFF',
+        ),
+      ).toEqual({
+        base: 'OFF',
+        suffix: 'Bad Human Edition',
+        kind: 'space',
+      });
       expect(
         extractPhysicalEditionForVariant(
           'Untitled Goose Game - "Lovely Edition"',
@@ -1677,6 +1699,65 @@ describe('Title Matching Strategies', () => {
         'Shin chan: Me and the Professor on Summer Vacation',
         'Shin chan: Shiro of Coal Town',
       ]);
+
+      // Entity-verified '+' DLC vs 2-game combos and brand-agnostic slash shared prefixes
+      const knownStandaloneGames = new Set([
+        'Mario Kart 8 Deluxe',
+        'Sonic Mania',
+        'Team Sonic Racing',
+        'Star Wars Jedi Outcast',
+        'Star Wars Jedi Academy',
+        'Batman',
+        'Lego Batman',
+        'Lego Superman',
+      ]);
+      expect(
+        parseComboCartConstituentTitles(
+          'Mario Kart 8 Deluxe + Booster Course Pass',
+          { hasStandaloneGame: (cand) => knownStandaloneGames.has(cand) },
+        ),
+      ).toEqual([]);
+      expect(
+        parseComboCartConstituentTitles('Sonic Mania + Team Sonic Racing', {
+          hasStandaloneGame: (cand) => knownStandaloneGames.has(cand),
+        }),
+      ).toEqual(['Sonic Mania', 'Team Sonic Racing']);
+      expect(
+        parseComboCartConstituentTitles('Star Wars Jedi Outcast/Jedi Academy', {
+          hasStandaloneGame: (cand) => knownStandaloneGames.has(cand),
+        }),
+      ).toEqual(['Star Wars Jedi Outcast', 'Star Wars Jedi Academy']);
+      expect(
+        parseComboCartConstituentTitles('Lego Batman/Superman', {
+          hasStandaloneGame: (cand) => knownStandaloneGames.has(cand),
+        }),
+      ).toEqual(['Lego Batman', 'Lego Superman']);
+
+      // Base titles must never swallow standalone delimited edition/GOTY releases
+      expect(
+        titlesMatch(
+          'Overcooked!',
+          'Overcooked! - Gourmet Edition',
+          'Overcooked! - Gourmet Edition (Europe)',
+          130,
+        ),
+      ).toBe(false);
+      expect(
+        titlesMatch(
+          'Dishonored',
+          'Dishonored - Definitive Edition',
+          'Dishonored - Definitive Edition (USA)',
+          48,
+        ),
+      ).toBe(false);
+      expect(
+        titlesMatch(
+          'Batman: Arkham City',
+          'Batman: Arkham City - Game of the Year Edition',
+          'Batman: Arkham City - Game of the Year Edition (USA)',
+          48,
+        ),
+      ).toBe(false);
     });
   });
 });

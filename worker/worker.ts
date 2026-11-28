@@ -88,6 +88,7 @@ import {
 } from '../shared/source_format';
 import {
   CANONICAL_BUNDLES,
+  CanonicalLinkingExclusivityGuard,
   deduplicateDatReleases,
   detectPhysicalReleaseStatus,
   findCanonicalBundle,
@@ -11471,7 +11472,41 @@ async function verifyExistingGameReleasesWithCanonical(
   return false;
 }
 
-async function resolveTier4PositiveIdentity(
+async function resolveComboConstituentTitlesForPlatform(
+  env: Env,
+  platformId: number,
+  rawTitle: string,
+): Promise<string[]> {
+  if (!/[+/&]|\band\b/i.test(rawTitle)) {
+    return parseComboCartConstituentTitles(rawTitle);
+  }
+  try {
+    const platGamesRes = await env.DB.prepare(
+      'SELECT title FROM games WHERE platform_id = ?',
+    )
+      .bind(platformId)
+      .all<{ title: string }>();
+    const platNormTitles = new Set(
+      (platGamesRes.results || [])
+        .map((r) => normalizeTitleForMatching(r.title))
+        .filter(Boolean),
+    );
+    if (platNormTitles.size > 0) {
+      const entityMatched = parseComboCartConstituentTitles(rawTitle, {
+        hasStandaloneGame: (cand) =>
+          platNormTitles.has(normalizeTitleForMatching(cand)),
+      });
+      if (entityMatched.length >= 2) {
+        return entityMatched;
+      }
+    }
+  } catch {
+    // Graceful fallback on minimal test schemas
+  }
+  return parseComboCartConstituentTitles(rawTitle);
+}
+
+export async function resolveTier4PositiveIdentity(
   env: Env,
   params: {
     igdbMeta: IgdbGameMeta | null;
@@ -11488,7 +11523,11 @@ async function resolveTier4PositiveIdentity(
   if (params.igdbMeta?.igdb_id && params.igdbMeta.igdb_id > 0) {
     return { igdbMeta: params.igdbMeta, comboConstituentsJson: null };
   }
-  const constituentTitles = parseComboCartConstituentTitles(params.rawTitle);
+  const constituentTitles = await resolveComboConstituentTitlesForPlatform(
+    env,
+    params.platformId,
+    params.rawTitle,
+  );
   if (constituentTitles.length >= 2) {
     const constituents = await resolveComboCartConstituentsFromDbOrIgdb(
       env,
@@ -13071,19 +13110,29 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
 
   // Count matched Switch games and materialize any missing regional revisions into game_releases
   const gamesRes = await env.DB.prepare(
-    'SELECT stable_id, id, title, platform_id FROM games WHERE platform_id IN (26, 27)',
+    'SELECT stable_id, id, title, platform_id, igdb_id, bundle_parent_id FROM games WHERE platform_id IN (26, 27)',
   ).all<{
     stable_id: number;
     id: string;
     title: string;
     platform_id: number;
+    igdb_id: number | null;
+    bundle_parent_id: number | null;
   }>();
+  const switchGames = gamesRes.results || [];
+  const switchExclusivityGuard = new CanonicalLinkingExclusivityGuard(
+    switchGames,
+  );
+  const switchGameById = new Map(switchGames.map((g) => [g.stable_id, g]));
 
   const canonicalByPlatformNorm = new Set<string>();
   for (const cr of canonicalReleases) {
     canonicalByPlatformNorm.add(`${cr.platform_id}::${cr.normalized_title}`);
     const strippedCr = normalizeTitleForMatching(
-      stripEditionSuffix(cr.raw_title),
+      stripEditionSuffix(cr.raw_title, {
+        hasEntity: (cand) =>
+          switchExclusivityGuard.hasEntity(cr.platform_id, cand),
+      }),
     );
     if (strippedCr) {
       canonicalByPlatformNorm.add(`${cr.platform_id}::${strippedCr}`);
@@ -13092,9 +13141,14 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
 
   const gameStatements: D1PreparedStatement[] = [];
   let verifiedGames = 0;
-  for (const g of gamesRes.results || []) {
+  for (const g of switchGames) {
     const norm = normalizeTitleForMatching(g.title);
-    const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(g.title));
+    const strippedNorm = normalizeTitleForMatching(
+      stripEditionSuffix(g.title, {
+        hasEntity: (cand) =>
+          switchExclusivityGuard.hasEntity(g.platform_id, cand),
+      }),
+    );
     if (
       canonicalByPlatformNorm.has(`${g.platform_id}::${norm}`) ||
       canonicalByPlatformNorm.has(`${g.platform_id}::${strippedNorm}`)
@@ -13119,40 +13173,62 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         source: string;
       }>(),
       env.DB.prepare(
-        'SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.canonical_release_id FROM game_releases gr JOIN games g ON g.stable_id = gr.game_id WHERE g.platform_id IN (26, 27)',
+        `SELECT gr.id, gr.game_id, gr.region, gr.variants, gr.canonical_release_id,
+                cr.raw_title AS cr_raw_title
+         FROM game_releases gr
+         JOIN games g ON g.stable_id = gr.game_id
+         LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
+         WHERE g.platform_id IN (26, 27)`,
       ).all<{
         id: string;
         game_id: number;
         region: string | null;
         variants: string | null;
         canonical_release_id: number | null;
+        cr_raw_title: string | null;
       }>(),
     ]);
 
-    const canonicalByKey = new Map<
+    const canonicalByExactKey = new Map<
+      string,
+      Array<(typeof allCanonicalRes.results)[0]>
+    >();
+    const canonicalByStrippedKey = new Map<
       string,
       Array<(typeof allCanonicalRes.results)[0]>
     >();
     const pushCanonicalKey = (
+      targetMap: Map<string, Array<(typeof allCanonicalRes.results)[0]>>,
       key: string,
       cr: (typeof allCanonicalRes.results)[0],
     ) => {
-      let list = canonicalByKey.get(key);
+      let list = targetMap.get(key);
       if (!list) {
         list = [];
-        canonicalByKey.set(key, list);
+        targetMap.set(key, list);
       }
       if (!list.some((existing) => existing.id === cr.id)) {
         list.push(cr);
       }
     };
     for (const cr of allCanonicalRes.results || []) {
-      pushCanonicalKey(`${cr.platform_id}::${cr.normalized_title}`, cr);
+      pushCanonicalKey(
+        canonicalByExactKey,
+        `${cr.platform_id}::${cr.normalized_title}`,
+        cr,
+      );
       const strippedCrNorm = normalizeTitleForMatching(
-        stripEditionSuffix(cr.raw_title),
+        stripEditionSuffix(cr.raw_title, {
+          hasEntity: (cand) =>
+            switchExclusivityGuard.hasEntity(cr.platform_id, cand),
+        }),
       );
       if (strippedCrNorm && strippedCrNorm !== cr.normalized_title) {
-        pushCanonicalKey(`${cr.platform_id}::${strippedCrNorm}`, cr);
+        pushCanonicalKey(
+          canonicalByStrippedKey,
+          `${cr.platform_id}::${strippedCrNorm}`,
+          cr,
+        );
       }
     }
 
@@ -13180,6 +13256,15 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
           existingCanonicalIdsByGame.set(gr.game_id, canSet);
         }
         canSet.add(gr.canonical_release_id);
+        const ownerGame = switchGameById.get(gr.game_id);
+        if (ownerGame) {
+          switchExclusivityGuard.recordExistingLink(ownerGame, {
+            id: gr.canonical_release_id,
+            platform_id: ownerGame.platform_id,
+            raw_title: gr.cr_raw_title,
+            variants: gr.variants,
+          });
+        }
       }
       if (gr.canonical_release_id || gr.variants) {
         const vList = verifiedByGame.get(gr.game_id) || [];
@@ -13196,16 +13281,25 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
       }
     }
 
-    for (const g of gamesRes.results || []) {
+    for (const g of switchGames) {
       const norm = normalizeTitleForMatching(g.title);
       const strippedNorm = normalizeTitleForMatching(
-        stripEditionSuffix(g.title),
+        stripEditionSuffix(g.title, {
+          hasEntity: (cand) =>
+            switchExclusivityGuard.hasEntity(g.platform_id, cand),
+        }),
       );
+      const exactCrs =
+        canonicalByExactKey.get(`${g.platform_id}::${norm}`) || [];
       const rawCrs =
-        canonicalByKey.get(`${g.platform_id}::${norm}`) ||
-        canonicalByKey.get(`${g.platform_id}::${strippedNorm}`) ||
-        [];
+        exactCrs.length > 0
+          ? exactCrs
+          : canonicalByStrippedKey.get(`${g.platform_id}::${norm}`) ||
+            canonicalByExactKey.get(`${g.platform_id}::${strippedNorm}`) ||
+            canonicalByStrippedKey.get(`${g.platform_id}::${strippedNorm}`) ||
+            [];
       const crs = rawCrs
+        .filter((cr) => switchExclusivityGuard.canClaim(g, cr))
         .slice()
         .sort((a, b) => (a.variants || '').localeCompare(b.variants || ''));
       for (const cr of crs) {
@@ -13215,6 +13309,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
           existingCanonicalIdsByGame.set(g.stable_id, usedCanSet);
         }
         if (usedCanSet.has(cr.id)) continue;
+        if (!switchExclusivityGuard.canClaim(g, cr)) continue;
         const reg = cr.region || 'World';
         if (reg === 'World') continue;
         const targetVar = (cr.variants || 'Standard').trim();
@@ -13239,6 +13334,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         ) {
           const [claimed] = unlinkedList.splice(unlinkedIdx, 1);
           usedCanSet.add(cr.id);
+          switchExclusivityGuard.markClaimed(g, cr);
           verifiedList.push({
             region: claimed.region || reg,
             variants: cr.variants,
@@ -13271,6 +13367,7 @@ export async function syncWorkerSwitchRevisions(env: Env): Promise<{
         }
 
         usedCanSet.add(cr.id);
+        switchExclusivityGuard.markClaimed(g, cr);
         verifiedList.push({ region: reg, variants: cr.variants });
         verifiedByGame.set(g.stable_id, verifiedList);
         let idSet = existingRelIdsByGame.get(g.stable_id);
@@ -13684,19 +13781,25 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
   }
 
   const gamesRes = await env.DB.prepare(
-    'SELECT stable_id, id, title, platform_id, igdb_id FROM games WHERE platform_id IN (26, 27)',
+    'SELECT stable_id, id, title, platform_id, igdb_id, bundle_parent_id FROM games WHERE platform_id IN (26, 27)',
   ).all<{
     stable_id: number;
     id: string;
     title: string;
     platform_id: number;
-    igdb_id?: number | null;
+    igdb_id: number | null;
+    bundle_parent_id: number | null;
   }>();
+  const nsGames = gamesRes.results || [];
+  const nsExclusivityGuard = new CanonicalLinkingExclusivityGuard(nsGames);
+  const nsGameById = new Map(nsGames.map((g) => [g.stable_id, g]));
 
   const existingRelsRes = await env.DB.prepare(
-    `SELECT r.id, r.game_id, r.region, r.variants, r.canonical_release_id, r.verified_source
+    `SELECT r.id, r.game_id, r.region, r.variants, r.canonical_release_id, r.verified_source,
+            cr.raw_title AS cr_raw_title
      FROM game_releases r
      JOIN games g ON g.stable_id = r.game_id
+     LEFT JOIN canonical_releases cr ON cr.id = r.canonical_release_id
      WHERE g.platform_id IN (26, 27)`,
   ).all<{
     id: string;
@@ -13705,6 +13808,7 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     variants: string | null;
     canonical_release_id: number | null;
     verified_source: string | null;
+    cr_raw_title: string | null;
   }>();
 
   const existingRelsByGame = new Map<
@@ -13722,14 +13826,26 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
     const arr = existingRelsByGame.get(rel.game_id) || [];
     arr.push(rel);
     existingRelsByGame.set(rel.game_id, arr);
+    if (rel.canonical_release_id != null) {
+      const ownerGame = nsGameById.get(rel.game_id);
+      if (ownerGame) {
+        nsExclusivityGuard.recordExistingLink(ownerGame, {
+          id: rel.canonical_release_id,
+          platform_id: ownerGame.platform_id,
+          raw_title: rel.cr_raw_title,
+          variants: rel.variants,
+        });
+      }
+    }
   }
 
+  const exactGameByPlatformNorm = new Map<string, number>();
   const existingGameByPlatformNorm = new Map<string, number>();
   const existingGameByPlatformIgdb = new Map<
     string,
     { stable_id: number; title: string }
   >();
-  for (const g of gamesRes.results || []) {
+  for (const g of nsGames) {
     if (g.igdb_id && Number(g.igdb_id) > 0) {
       const igdbKey = `${g.platform_id}::${g.igdb_id}`;
       if (!existingGameByPlatformIgdb.has(igdbKey)) {
@@ -13740,10 +13856,17 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
       }
     }
     const norm = normalizeTitleForMatching(g.title);
+    if (norm && !exactGameByPlatformNorm.has(`${g.platform_id}::${norm}`)) {
+      exactGameByPlatformNorm.set(`${g.platform_id}::${norm}`, g.stable_id);
+    }
     if (norm && !existingGameByPlatformNorm.has(`${g.platform_id}::${norm}`)) {
       existingGameByPlatformNorm.set(`${g.platform_id}::${norm}`, g.stable_id);
     }
-    const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(g.title));
+    const strippedNorm = normalizeTitleForMatching(
+      stripEditionSuffix(g.title, {
+        hasEntity: (cand) => nsExclusivityGuard.hasEntity(g.platform_id, cand),
+      }),
+    );
     if (
       strippedNorm &&
       !existingGameByPlatformNorm.has(`${g.platform_id}::${strippedNorm}`)
@@ -13766,15 +13889,36 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
   for (const entry of entries) {
     const cr = entry.release;
     const strippedNorm = normalizeTitleForMatching(
-      stripEditionSuffix(cr.raw_title),
+      stripEditionSuffix(cr.raw_title, {
+        hasEntity: (cand) => nsExclusivityGuard.hasEntity(cr.platform_id, cand),
+      }),
     );
-    const existingStableId =
-      existingGameByPlatformNorm.get(
-        `${cr.platform_id}::${cr.normalized_title}`,
-      ) ??
-      (strippedNorm
-        ? existingGameByPlatformNorm.get(`${cr.platform_id}::${strippedNorm}`)
-        : undefined);
+    const exactMatchId = exactGameByPlatformNorm.get(
+      `${cr.platform_id}::${cr.normalized_title}`,
+    );
+    let existingStableId = exactMatchId;
+    if (existingStableId === undefined) {
+      const fallbackId =
+        existingGameByPlatformNorm.get(
+          `${cr.platform_id}::${cr.normalized_title}`,
+        ) ??
+        (strippedNorm
+          ? existingGameByPlatformNorm.get(`${cr.platform_id}::${strippedNorm}`)
+          : undefined);
+      if (fallbackId !== undefined) {
+        const fallbackGame = nsGameById.get(fallbackId);
+        if (
+          fallbackGame &&
+          !nsExclusivityGuard.isEditionOwnedByAnotherGame(
+            fallbackGame,
+            cr.raw_title,
+            cr.platform_id,
+          )
+        ) {
+          existingStableId = fallbackId;
+        }
+      }
+    }
     if (existingStableId !== undefined) {
       matchedGames++;
       if (entry.releaseDate && !matchedDatesToFill.has(existingStableId)) {
@@ -13784,7 +13928,17 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
         const canonId = canonicalIdMap.get(
           `${cr.platform_id}::${cr.normalized_title}::${cr.region || 'World'}::${cr.source}::${cr.variants || ''}`,
         );
-        if (canonId != null) {
+        const targetGame = nsGameById.get(existingStableId);
+        if (
+          canonId != null &&
+          targetGame &&
+          nsExclusivityGuard.canClaim(targetGame, {
+            id: canonId,
+            platform_id: cr.platform_id,
+            raw_title: cr.raw_title,
+            variants: cr.variants,
+          })
+        ) {
           const rels = existingRelsByGame.get(existingStableId) || [];
           const unlinked = rels.find(
             (r) =>
@@ -13794,6 +13948,12 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
           if (unlinked) {
             unlinked.canonical_release_id = canonId;
             unlinked.verified_source = cr.source;
+            nsExclusivityGuard.markClaimed(targetGame, {
+              id: canonId,
+              platform_id: cr.platform_id,
+              raw_title: cr.raw_title,
+              variants: cr.variants,
+            });
             linkedReleases++;
             linkOrUpgradeStmts.push(
               env.DB.prepare(
@@ -13805,7 +13965,14 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
                      publisher = COALESCE(publisher, ?),
                      variants = COALESCE(variants, ?),
                      release_date = COALESCE(release_date, ?)
-                 WHERE id = ?`,
+                 WHERE id = ?
+                   AND canonical_release_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM game_releases gr2
+                     WHERE gr2.game_id = game_releases.game_id
+                       AND gr2.canonical_release_id = ?
+                       AND gr2.id != game_releases.id
+                   )`,
               ).bind(
                 canonId,
                 cr.source,
@@ -13815,6 +13982,7 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
                 cr.variants ?? null,
                 entry.releaseDate ?? null,
                 unlinked.id,
+                canonId,
               ),
             );
           } else if (cr.source === 'nscollectors') {
@@ -13827,6 +13995,12 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
             if (upcomingRel) {
               upcomingRel.canonical_release_id = canonId;
               upcomingRel.verified_source = 'nscollectors';
+              nsExclusivityGuard.markClaimed(targetGame, {
+                id: canonId,
+                platform_id: cr.platform_id,
+                raw_title: cr.raw_title,
+                variants: cr.variants,
+              });
               upgradedReleases++;
               linkOrUpgradeStmts.push(
                 env.DB.prepare(
@@ -13941,13 +14115,32 @@ export async function syncWorkerNsCollectors(env: Env): Promise<{
         const existingTarget = existingGameByPlatformIgdb.get(
           `${cr.platform_id}::${igdbMeta.igdb_id}`,
         );
+        const existingTargetMeta = existingTarget
+          ? nsGameById.get(existingTarget.stable_id)
+          : undefined;
         if (existingTarget) {
           const targetRels =
             existingRelsByGame.get(existingTarget.stable_id) || [];
           const alreadyHasCanon = targetRels.some(
             (r) => r.canonical_release_id === canonicalId,
           );
-          if (!alreadyHasCanon) {
+          const canClaimForTarget =
+            !existingTargetMeta ||
+            nsExclusivityGuard.canClaim(existingTargetMeta, {
+              id: canonicalId,
+              platform_id: cr.platform_id,
+              raw_title: cr.raw_title,
+              variants: effectiveVariants,
+            });
+          if (!alreadyHasCanon && canClaimForTarget) {
+            if (existingTargetMeta) {
+              nsExclusivityGuard.markClaimed(existingTargetMeta, {
+                id: canonicalId,
+                platform_id: cr.platform_id,
+                raw_title: cr.raw_title,
+                variants: effectiveVariants,
+              });
+            }
             const relSlug = nextSequentialReleaseId(
               existingTarget.stable_id,
               targetRels.map((r) => r.id),
@@ -14498,7 +14691,7 @@ export async function syncWorkerDats(
   };
 }
 
-interface WorkerCanonicalMergeRow {
+export interface WorkerCanonicalMergeRow {
   id: number;
   platform_id: number;
   raw_title: string;
@@ -14516,7 +14709,7 @@ interface WorkerCanonicalMergeRow {
  * Shared hierarchy-aware canonical merge and sequel-guarded unlinked `game_releases`
  * linker for online Worker verification crons (`syncWorkerPs5Db`, `syncWorkerSerialStation`).
  */
-async function applyWorkerCanonicalHierarchyMerge(
+export async function applyWorkerCanonicalHierarchyMerge(
   env: Env,
   incoming: CanonicalRelease[],
   initialExisting: WorkerCanonicalMergeRow[],
@@ -14878,34 +15071,68 @@ async function applyWorkerCanonicalHierarchyMerge(
     writesUsed + 7 <= options.maxWriteBudget
   ) {
     const platPh = options.touchedPlatforms.map(() => '?').join(',');
-    const [unlinkedRes, existingLinkedRes] = await Promise.all([
-      env.DB.prepare(
-        `SELECT gr.id, gr.game_id, gr.region, gr.variants, g.title, g.platform_id
+    const [unlinkedRes, existingLinkedRes, touchedGamesRes] = await Promise.all(
+      [
+        env.DB.prepare(
+          `SELECT gr.id, gr.game_id, gr.region, gr.variants, g.title, g.platform_id,
+                g.igdb_id, g.bundle_parent_id
          FROM game_releases gr
          JOIN games g ON g.stable_id = gr.game_id
          WHERE gr.canonical_release_id IS NULL
            AND g.platform_id IN (${platPh})`,
-      )
-        .bind(...options.touchedPlatforms)
-        .all<{
-          id: string;
-          game_id: number;
-          region: string | null;
-          variants: string | null;
-          title: string;
-          platform_id: number;
-        }>(),
-      env.DB.prepare(
-        `SELECT gr.game_id, gr.canonical_release_id
+        )
+          .bind(...options.touchedPlatforms)
+          .all<{
+            id: string;
+            game_id: number;
+            region: string | null;
+            variants: string | null;
+            title: string;
+            platform_id: number;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
+          }>(),
+        env.DB.prepare(
+          `SELECT gr.game_id, gr.canonical_release_id, gr.variants,
+                g.platform_id, g.title, g.igdb_id, g.bundle_parent_id,
+                cr.raw_title AS cr_raw_title, cr.rom_name AS cr_rom_name
          FROM game_releases gr
          JOIN games g ON g.stable_id = gr.game_id
+         LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
          WHERE gr.canonical_release_id IS NOT NULL
            AND g.platform_id IN (${platPh})`,
-      )
-        .bind(...options.touchedPlatforms)
-        .all<{ game_id: number; canonical_release_id: number }>(),
-    ]);
+        )
+          .bind(...options.touchedPlatforms)
+          .all<{
+            game_id: number;
+            canonical_release_id: number;
+            variants: string | null;
+            platform_id: number;
+            title: string;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
+            cr_raw_title: string | null;
+            cr_rom_name: string | null;
+          }>(),
+        env.DB.prepare(
+          `SELECT stable_id, platform_id, title, igdb_id, bundle_parent_id
+         FROM games
+         WHERE platform_id IN (${platPh})`,
+        )
+          .bind(...options.touchedPlatforms)
+          .all<{
+            stable_id: number;
+            platform_id: number;
+            title: string;
+            igdb_id: number | null;
+            bundle_parent_id: number | null;
+          }>(),
+      ],
+    );
 
+    const catExclusivityGuard = new CanonicalLinkingExclusivityGuard(
+      touchedGamesRes.results || [],
+    );
     const usedCanonicalByGame = new Map<number, Set<number>>();
     for (const row of existingLinkedRes.results || []) {
       let set = usedCanonicalByGame.get(row.game_id);
@@ -14914,12 +15141,35 @@ async function applyWorkerCanonicalHierarchyMerge(
         usedCanonicalByGame.set(row.game_id, set);
       }
       set.add(row.canonical_release_id);
+      catExclusivityGuard.recordExistingLink(
+        {
+          stable_id: row.game_id,
+          platform_id: row.platform_id,
+          title: row.title,
+          igdb_id: row.igdb_id,
+          bundle_parent_id: row.bundle_parent_id,
+        },
+        {
+          id: row.canonical_release_id,
+          platform_id: row.platform_id,
+          raw_title: row.cr_raw_title,
+          rom_name: row.cr_rom_name,
+          variants: row.variants,
+        },
+      );
     }
 
     const linkStmts: D1PreparedStatement[] = [];
     for (const gr of unlinkedRes.results || []) {
       if (writesUsed + 7 > options.maxWriteBudget) break;
       const usedForGame = usedCanonicalByGame.get(gr.game_id);
+      const grDesc = {
+        stable_id: gr.game_id,
+        platform_id: gr.platform_id,
+        title: gr.title,
+        igdb_id: gr.igdb_id,
+        bundle_parent_id: gr.bundle_parent_id,
+      };
       const lookupKeys = buildCanonicalLinkerMatchKeys(gr.title);
       const seenCand = new Set<WorkerCanonicalMergeRow>();
       const candidates: WorkerCanonicalMergeRow[] = [];
@@ -14940,6 +15190,9 @@ async function applyWorkerCanonicalHierarchyMerge(
             continue;
           }
           if (gr.region && !regionsOverlap(gr.region, cand.region)) {
+            continue;
+          }
+          if (!catExclusivityGuard.canClaim(grDesc, cand)) {
             continue;
           }
           candidates.push(cand);
@@ -14974,6 +15227,7 @@ async function applyWorkerCanonicalHierarchyMerge(
         usedCanonicalByGame.set(gr.game_id, gameSet);
       }
       gameSet.add(best.id);
+      catExclusivityGuard.markClaimed(grDesc, best);
       linkStmts.push(
         env.DB.prepare(
           `UPDATE game_releases
@@ -18011,7 +18265,11 @@ export async function syncWorkerUnmatchedIgdbRetry(
   for (const game of rows) {
     if (igdbMetaMap.has(String(game.stable_id))) continue;
     if (writesUsedToday + tickWritesUsed + 8 > dailyWriteBudget) break;
-    const constituentTitles = parseComboCartConstituentTitles(game.title);
+    const constituentTitles = await resolveComboConstituentTitlesForPlatform(
+      env,
+      game.platform_id,
+      game.title,
+    );
     if (constituentTitles.length < 2) continue;
     const plat = platformById.get(game.platform_id);
     if (!plat) continue;
@@ -21429,6 +21687,11 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     bundle_parent_id: number | null;
   }
 
+  const existingGamesList = existingGamesRes.results || [];
+  const broadExclusivityGuard = new CanonicalLinkingExclusivityGuard(
+    existingGamesList,
+  );
+  const exactGameByPlatformNorm = new Map<string, ExistingCatalogGameMeta>();
   const existingGameByPlatformNorm = new Map<string, ExistingCatalogGameMeta>();
   const existingGamesByPlatformLinkerKey = new Map<
     string,
@@ -21437,7 +21700,7 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
   const existingGameByPlatformIgdb = new Map<string, ExistingCatalogGameMeta>();
   const existingGameByPlatformCrc = new Map<string, ExistingCatalogGameMeta>();
   const maxSortByPlatform = new Map<number, number>();
-  for (const g of existingGamesRes.results || []) {
+  for (const g of existingGamesList) {
     const meta: ExistingCatalogGameMeta = {
       stable_id: g.stable_id,
       id: g.id,
@@ -21456,14 +21719,22 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
     ) {
       existingGameByPlatformIgdb.set(`${g.platform_id}::${g.igdb_id}`, meta);
     }
-    const strippedNorm = normalizeTitleForMatching(stripEditionSuffix(g.title));
+    const norm = normalizeTitleForMatching(g.title);
+    if (norm && !exactGameByPlatformNorm.has(`${g.platform_id}::${norm}`)) {
+      exactGameByPlatformNorm.set(`${g.platform_id}::${norm}`, meta);
+    }
+    const strippedNorm = normalizeTitleForMatching(
+      stripEditionSuffix(g.title, {
+        hasEntity: (cand) =>
+          broadExclusivityGuard.hasEntity(g.platform_id, cand),
+      }),
+    );
     if (
       strippedNorm &&
       !existingGameByPlatformNorm.has(`${g.platform_id}::${strippedNorm}`)
     ) {
       existingGameByPlatformNorm.set(`${g.platform_id}::${strippedNorm}`, meta);
     }
-    const norm = normalizeTitleForMatching(g.title);
     if (norm) {
       existingGameByPlatformNorm.set(`${g.platform_id}::${norm}`, meta);
     }
@@ -21492,7 +21763,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       for (const cand of bucket) {
         if (
           areCanonicalTitlesSequelCompatible(rawTitle, cand.title) &&
-          isCompilationOrBundleTitle(cand.title) === isComp
+          isCompilationOrBundleTitle(cand.title) === isComp &&
+          !broadExclusivityGuard.isEditionOwnedByAnotherGame(
+            cand,
+            rawTitle,
+            platformId,
+          )
         ) {
           matches.set(cand.stable_id, cand);
         }
@@ -21688,14 +21964,40 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
 
     const groupKey = `${group.platform_id}::${group.normalized_title}`;
     const igdbMeta = igdbMetaByGroup.get(groupKey) || null;
-    let existingGame =
-      existingGameByPlatformNorm.get(groupKey) ||
-      findExistingGameByIncomingLinkerKeys(group.platform_id, group.raw_title);
+    let existingGame = exactGameByPlatformNorm.get(groupKey) || null;
+    if (!existingGame) {
+      const fallbackCand =
+        existingGameByPlatformNorm.get(groupKey) ||
+        findExistingGameByIncomingLinkerKeys(
+          group.platform_id,
+          group.raw_title,
+        );
+      if (
+        fallbackCand &&
+        !broadExclusivityGuard.isEditionOwnedByAnotherGame(
+          fallbackCand,
+          group.raw_title,
+          group.platform_id,
+        )
+      ) {
+        existingGame = fallbackCand;
+      }
+    }
     if (!existingGame && igdbMeta?.igdb_id) {
-      existingGame =
+      const igdbCand =
         existingGameByPlatformIgdb.get(
           `${group.platform_id}::${igdbMeta.igdb_id}`,
         ) || null;
+      if (
+        igdbCand &&
+        !broadExclusivityGuard.isEditionOwnedByAnotherGame(
+          igdbCand,
+          group.raw_title,
+          group.platform_id,
+        )
+      ) {
+        existingGame = igdbCand;
+      }
     }
     if (
       !existingGame &&
@@ -21703,7 +22005,8 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       siblingPlatformId !== null
     ) {
       const siblingKey = `${siblingPlatformId}::${group.normalized_title}`;
-      existingGame =
+      const sibCand =
+        exactGameByPlatformNorm.get(siblingKey) ||
         existingGameByPlatformNorm.get(siblingKey) ||
         findExistingGameByIncomingLinkerKeys(
           siblingPlatformId,
@@ -21714,6 +22017,16 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
               `${siblingPlatformId}::${igdbMeta.igdb_id}`,
             ) || null
           : null);
+      if (
+        sibCand &&
+        !broadExclusivityGuard.isEditionOwnedByAnotherGame(
+          sibCand,
+          group.raw_title,
+          group.platform_id,
+        )
+      ) {
+        existingGame = sibCand;
+      }
     }
     if (!existingGame && !isCompilationOrBundleTitle(group.raw_title)) {
       for (const cr of canonicalRels) {
@@ -21726,7 +22039,12 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           crcMatch &&
           (!igdbMeta?.igdb_id ||
             !crcMatch.igdb_id ||
-            igdbMeta.igdb_id === crcMatch.igdb_id)
+            igdbMeta.igdb_id === crcMatch.igdb_id) &&
+          !broadExclusivityGuard.isEditionOwnedByAnotherGame(
+            crcMatch,
+            cr.raw_title || group.raw_title,
+            group.platform_id,
+          )
         ) {
           existingGame = crcMatch;
           break;
@@ -21754,6 +22072,65 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
           canonical_release_id: number | null;
         }>();
       const existingRels = existingRelRes.results || [];
+      for (const er of existingRels) {
+        if (er.canonical_release_id != null) {
+          broadExclusivityGuard.recordExistingLink(existingGame, {
+            id: er.canonical_release_id,
+            platform_id: existingGame.platform_id,
+            variants: er.variants,
+            rom_name: er.rom_name,
+          });
+        }
+      }
+      const candIdsToCheck = canonicalRels
+        .map((c) => c.id)
+        .filter((id) => id > 0);
+      if (candIdsToCheck.length > 0) {
+        for (let i = 0; i < candIdsToCheck.length; i += 80) {
+          const chunk = candIdsToCheck.slice(i, i + 80);
+          const candPh = chunk.map(() => '?').join(',');
+          const externalHolders = await env.DB.prepare(
+            `SELECT gr.game_id, gr.canonical_release_id, gr.variants,
+                    g.platform_id, g.title, g.igdb_id, g.bundle_parent_id,
+                    cr.raw_title AS cr_raw_title, cr.rom_name AS cr_rom_name
+             FROM game_releases gr
+             JOIN games g ON g.stable_id = gr.game_id
+             LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
+             WHERE gr.canonical_release_id IN (${candPh})
+               AND gr.game_id != ?`,
+          )
+            .bind(...chunk, existingGame.stable_id)
+            .all<{
+              game_id: number;
+              canonical_release_id: number;
+              variants: string | null;
+              platform_id: number;
+              title: string;
+              igdb_id: number | null;
+              bundle_parent_id: number | null;
+              cr_raw_title: string | null;
+              cr_rom_name: string | null;
+            }>();
+          for (const h of externalHolders.results || []) {
+            broadExclusivityGuard.recordExistingLink(
+              {
+                stable_id: h.game_id,
+                platform_id: h.platform_id,
+                title: h.title,
+                igdb_id: h.igdb_id,
+                bundle_parent_id: h.bundle_parent_id,
+              },
+              {
+                id: h.canonical_release_id,
+                platform_id: h.platform_id,
+                raw_title: h.cr_raw_title,
+                rom_name: h.cr_rom_name,
+                variants: h.variants,
+              },
+            );
+          }
+        }
+      }
       const existingCanonicalIds = new Set(
         existingRels
           .map((r) => r.canonical_release_id)
@@ -21779,12 +22156,26 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
       for (const cr of canonicalRels) {
         if (cr.id <= currentCursor) continue;
         if (existingCanonicalIds.has(cr.id)) continue;
+        if (
+          !broadExclusivityGuard.canClaim(existingGame, {
+            id: cr.id,
+            platform_id: group.platform_id,
+            raw_title: cr.raw_title,
+            rom_name: cr.rom_name,
+            variants: cr.variants,
+            packin_host_normalized_title: cr.packin_host_normalized_title,
+          })
+        ) {
+          continue;
+        }
         const crCrc = (cr.rom_crc || '').trim().toUpperCase();
         if (crCrc && existingCrcs.has(crCrc)) continue;
         const crReg = (cr.region || 'USA').trim();
         const effectiveVariant =
           cr.variants ||
-          extractPhysicalEditionForVariant(cr.raw_title).edition ||
+          (broadExclusivityGuard.hasEntity(group.platform_id, cr.raw_title)
+            ? null
+            : extractPhysicalEditionForVariant(cr.raw_title).edition) ||
           igdbMeta?.resolved_variant_label ||
           null;
         const crVar = (effectiveVariant || 'Standard').trim();
@@ -21797,6 +22188,14 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         if (unlinkedIdx >= 0) {
           const [claimed] = unlinkedRels.splice(unlinkedIdx, 1);
           existingCanonicalIds.add(cr.id);
+          broadExclusivityGuard.markClaimed(existingGame, {
+            id: cr.id,
+            platform_id: group.platform_id,
+            raw_title: cr.raw_title,
+            rom_name: cr.rom_name,
+            variants: effectiveVariant,
+            packin_host_normalized_title: cr.packin_host_normalized_title,
+          });
           verifiedOrNamedRels.push({
             ...claimed,
             region: claimed.region || crReg,
@@ -21820,6 +22219,14 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         if (alreadyCovered) continue;
 
         existingCanonicalIds.add(cr.id);
+        broadExclusivityGuard.markClaimed(existingGame, {
+          id: cr.id,
+          platform_id: group.platform_id,
+          raw_title: cr.raw_title,
+          rom_name: cr.rom_name,
+          variants: effectiveVariant,
+          packin_host_normalized_title: cr.packin_host_normalized_title,
+        });
         verifiedOrNamedRels.push({
           id: `pending-${cr.id}`,
           region: crReg,
@@ -22001,9 +22408,13 @@ export async function syncWorkerBroadCatalogPopulation(env: Env): Promise<{
         ? cleanRetailTitle(preferredRel.raw_title || group.raw_title) ||
           cleanCanonicalDisplayTitle(preferredRel.raw_title || group.raw_title)
         : cleanCanonicalDisplayTitle(preferredRel.raw_title || group.raw_title);
-    const sourceTitle =
-      extractPhysicalEditionForVariant(rawDisplaySrc).baseTitle ||
-      rawDisplaySrc;
+    const sourceTitle = broadExclusivityGuard.hasEntity(
+      group.platform_id,
+      rawDisplaySrc,
+    )
+      ? rawDisplaySrc
+      : extractPhysicalEditionForVariant(rawDisplaySrc).baseTitle ||
+        rawDisplaySrc;
     const displayTitle = resolveCanonicalDisplayTitle(
       sourceTitle,
       igdbMeta?.name,

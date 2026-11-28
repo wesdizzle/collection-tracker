@@ -16,6 +16,7 @@ import { getLocalDatabase } from './db.js';
 import {
   areCanonicalTitlesSequelCompatible,
   buildCanonicalLinkerMatchKeys,
+  generateEditionSplitCandidates,
   normalizeTitleForMatching,
   stripEditionSuffix,
   titlesMatch,
@@ -23,7 +24,10 @@ import {
   isCompilationOrBundleTitle,
 } from '../../shared/title_matching.js';
 export { stripEditionSuffix };
-import { cleanTitleWithoutParentheticals } from '../../shared/canonical_releases.js';
+import {
+  CanonicalLinkingExclusivityGuard,
+  cleanTitleWithoutParentheticals,
+} from '../../shared/canonical_releases.js';
 import { getRomGroupingKey } from '../../shared/queries.js';
 import { BOX_SET_ROM_GROUPING_MAP } from '../../shared/special_labels.js';
 
@@ -403,31 +407,40 @@ const NON_ENGLISH_ROM_TAG_RE =
   /\((?:Japan|Germany|France|Spain|Italy|Korea|China|Asia|Russia)\)/i;
 
 const AUDIT_EXTRA_BUNDLE_TITLE_RE = /\b(?:action\s+pack|bundle|saga)\b/i;
-const SHARED_EDITION_DISC_RE =
-  /[:\-–]?\s*(?:game of the year edition|goty edition|gold edition|gourmet edition|next level edition|ultimate edition|treasure trove|connected)\b/gi;
 
 function isLegitimateSharedEditionDisc(
   gameTitle: string,
   romName: string | null | undefined,
+  isEditionOwnedByAnother?: (cleanTitle: string) => boolean,
 ): boolean {
   if (!romName) return false;
   if (/\((?:Bonus Disc|Tokusei Disc|Kakuchou Disc)\)/i.test(romName)) {
     return false;
   }
   const romClean = extractCleanRomTitle(romName);
-  SHARED_EDITION_DISC_RE.lastIndex = 0;
-  const gameHasEd = SHARED_EDITION_DISC_RE.test(gameTitle);
-  SHARED_EDITION_DISC_RE.lastIndex = 0;
-  const romHasEd = SHARED_EDITION_DISC_RE.test(romClean);
-  if (!gameHasEd && !romHasEd) return false;
-  const strippedGame = gameTitle.replace(SHARED_EDITION_DISC_RE, '').trim();
-  const strippedRom = romClean.replace(SHARED_EDITION_DISC_RE, '').trim();
-  return Boolean(
-    strippedGame &&
-    strippedRom &&
-    normalizeTitleForMatching(strippedGame) ===
-      normalizeTitleForMatching(strippedRom),
-  );
+  if (!romClean) return false;
+  if (isEditionOwnedByAnother?.(romClean)) {
+    return false;
+  }
+  const gameNorm = normalizeTitleForMatching(gameTitle);
+  const romNorm = normalizeTitleForMatching(romClean);
+  if (!gameNorm || !romNorm) return false;
+  if (gameNorm === romNorm) return true;
+  if (
+    generateEditionSplitCandidates(romClean).some(
+      (c) => normalizeTitleForMatching(c.base) === gameNorm,
+    )
+  ) {
+    return true;
+  }
+  if (
+    generateEditionSplitCandidates(gameTitle).some(
+      (c) => normalizeTitleForMatching(c.base) === romNorm,
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -512,7 +525,76 @@ export function auditAndRepairCorruptedRoms(
     cr_also_released_as: string | null;
   }>;
 
-  // Build per-game existing canonical/CRC sets and per-platform game lists for Rule 2
+  // Build per-game existing canonical/CRC sets and per-platform game lists for Rule 2 & exclusivity
+  const allGames = db
+    .prepare(
+      `SELECT stable_id, title, platform_id,
+              ${hasGameIgdbId ? 'igdb_id' : 'NULL AS igdb_id'},
+              ${hasGameBundle ? 'bundle_parent_id' : 'NULL AS bundle_parent_id'}
+       FROM games
+       ${options.platformId !== undefined ? 'WHERE platform_id = ' + Number(options.platformId) : ''}`,
+    )
+    .all() as Array<{
+    stable_id: number;
+    title: string;
+    platform_id: number;
+    igdb_id: number | null;
+    bundle_parent_id: number | null;
+  }>;
+
+  const gamesByPlatform = new Map<number, typeof allGames>();
+  for (const g of allGames) {
+    let list = gamesByPlatform.get(g.platform_id);
+    if (!list) {
+      list = [];
+      gamesByPlatform.set(g.platform_id, list);
+    }
+    list.push(g);
+  }
+
+  const exclusivityGuard = new CanonicalLinkingExclusivityGuard(allGames);
+  const allLinkedAuditRows = db
+    .prepare(
+      `SELECT gr.game_id, gr.canonical_release_id, g.platform_id, g.title,
+              ${hasGameIgdbId ? 'g.igdb_id' : 'NULL AS igdb_id'},
+              ${hasGameBundle ? 'g.bundle_parent_id' : 'NULL AS bundle_parent_id'},
+              cr.raw_title AS cr_raw_title, cr.rom_name AS cr_rom_name, gr.variants
+       FROM game_releases gr
+       JOIN games g ON g.stable_id = gr.game_id
+       LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
+       WHERE gr.canonical_release_id IS NOT NULL
+         ${options.platformId !== undefined ? 'AND g.platform_id = ' + Number(options.platformId) : ''}`,
+    )
+    .all() as Array<{
+    game_id: number;
+    canonical_release_id: number;
+    platform_id: number;
+    title: string;
+    igdb_id: number | null;
+    bundle_parent_id: number | null;
+    cr_raw_title: string | null;
+    cr_rom_name: string | null;
+    variants: string | null;
+  }>;
+  for (const lr of allLinkedAuditRows) {
+    exclusivityGuard.recordExistingLink(
+      {
+        stable_id: lr.game_id,
+        platform_id: lr.platform_id,
+        title: lr.title,
+        igdb_id: lr.igdb_id,
+        bundle_parent_id: lr.bundle_parent_id,
+      },
+      {
+        id: lr.canonical_release_id,
+        platform_id: lr.platform_id,
+        raw_title: lr.cr_raw_title,
+        rom_name: lr.cr_rom_name,
+        variants: lr.variants,
+      },
+    );
+  }
+
   const usedCanonicalIdsByGame = new Map<number, Set<number>>();
   const usedCrcsByGame = new Map<number, Set<string>>();
   for (const row of populatedRows) {
@@ -535,30 +617,6 @@ export function auditAndRepairCorruptedRoms(
     }
   }
 
-  const allGames = db
-    .prepare(
-      `SELECT stable_id, title, platform_id,
-              ${hasGameIgdbId ? 'igdb_id' : 'NULL AS igdb_id'}
-       FROM games
-       ${options.platformId !== undefined ? 'WHERE platform_id = ' + Number(options.platformId) : ''}`,
-    )
-    .all() as Array<{
-    stable_id: number;
-    title: string;
-    platform_id: number;
-    igdb_id: number | null;
-  }>;
-
-  const gamesByPlatform = new Map<number, typeof allGames>();
-  for (const g of allGames) {
-    let list = gamesByPlatform.get(g.platform_id);
-    if (!list) {
-      list = [];
-      gamesByPlatform.set(g.platform_id, list);
-    }
-    list.push(g);
-  }
-
   const isRowCompilation = (row: (typeof populatedRows)[number]): boolean => {
     const rawRom = (row.cr_raw_title || row.rom_name || '').trim();
     return (
@@ -567,7 +625,20 @@ export function auditAndRepairCorruptedRoms(
       AUDIT_EXTRA_BUNDLE_TITLE_RE.test(row.game_title) ||
       (rawRom !== '' && isCompilationOrBundleTitle(rawRom)) ||
       (row.rom_name ? /\(Demo\)/i.test(row.rom_name) : false) ||
-      isLegitimateSharedEditionDisc(row.game_title, row.rom_name)
+      isLegitimateSharedEditionDisc(
+        row.game_title,
+        row.rom_name,
+        (cleanRomTitle) =>
+          exclusivityGuard.isEditionOwnedByAnotherGame(
+            {
+              stable_id: row.game_id,
+              platform_id: row.platform_id,
+              title: row.game_title,
+              igdb_id: row.igdb_id,
+            },
+            cleanRomTitle,
+          ),
+      )
     );
   };
 
@@ -696,7 +767,9 @@ export function auditAndRepairCorruptedRoms(
 
     const normFull = normalizeTitleForMatching(row.game_title);
     const normStripped = normalizeTitleForMatching(
-      stripEditionSuffix(row.game_title),
+      stripEditionSuffix(row.game_title, {
+        hasEntity: (cand) => exclusivityGuard.hasEntity(row.platform_id, cand),
+      }),
     );
     const candidates = findCanonicalStmt.all(
       row.platform_id,
@@ -717,10 +790,27 @@ export function auditAndRepairCorruptedRoms(
     const usedCanonIds = usedCanonicalIdsByGame.get(row.game_id);
     const usedCrcs = usedCrcsByGame.get(row.game_id);
     const currentCrcLower = (row.rom_crc || '').trim().toLowerCase();
+    const auditGameDescriptor = {
+      stable_id: row.game_id,
+      platform_id: row.platform_id,
+      title: row.game_title,
+      igdb_id: row.igdb_id,
+      bundle_parent_id: row.bundle_parent_id,
+    };
 
     const validCandidates = candidates.filter((cand) => {
       if (!cand.rom_name) return false;
       if (cand.id !== row.canonical_release_id && usedCanonIds?.has(cand.id)) {
+        return false;
+      }
+      if (
+        !exclusivityGuard.canClaim(auditGameDescriptor, {
+          id: cand.id === row.canonical_release_id ? null : cand.id,
+          platform_id: row.platform_id,
+          raw_title: cand.raw_title,
+          rom_name: cand.rom_name,
+        })
+      ) {
         return false;
       }
       const candCrcLower = (cand.rom_crc || '').trim().toLowerCase();
@@ -743,6 +833,12 @@ export function auditAndRepairCorruptedRoms(
     if (best && best.rom_name) {
       repairedCount++;
       usedCanonIds?.add(best.id);
+      exclusivityGuard.markClaimed(auditGameDescriptor, {
+        id: best.id,
+        platform_id: row.platform_id,
+        raw_title: best.raw_title,
+        rom_name: best.rom_name,
+      });
       if (best.rom_crc) {
         usedCrcs?.add(best.rom_crc.trim().toLowerCase());
       }
@@ -918,6 +1014,88 @@ export function reconcileGameReleasesWithCanonical(
     // Platforms table lacks parent_platform_id column in simplified test mocks
   }
 
+  let hasReconcileGameIgdb = false;
+  let hasReconcileGameBundle = false;
+  try {
+    const gCols = new Set(
+      (db.pragma('table_info(games)') as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+    hasReconcileGameIgdb = gCols.has('igdb_id');
+    hasReconcileGameBundle = gCols.has('bundle_parent_id');
+  } catch {
+    // Minimal test mocks
+  }
+
+  const reconcileGames = db
+    .prepare(
+      `SELECT stable_id, platform_id, title,
+              ${hasReconcileGameIgdb ? 'igdb_id' : 'NULL AS igdb_id'},
+              ${hasReconcileGameBundle ? 'bundle_parent_id' : 'NULL AS bundle_parent_id'}
+       FROM games
+       ${options.platformId ? 'WHERE platform_id IN (' + [Number(options.platformId), parentPlatformMap.get(Number(options.platformId))].filter((x): x is number => x !== undefined).join(', ') + ')' : ''}`,
+    )
+    .all() as Array<{
+    stable_id: number;
+    platform_id: number;
+    title: string;
+    igdb_id: number | null;
+    bundle_parent_id: number | null;
+  }>;
+  const reconcileGameById = new Map(
+    reconcileGames.map((g) => [g.stable_id, g]),
+  );
+  const reconcileExclusivityGuard = new CanonicalLinkingExclusivityGuard(
+    reconcileGames,
+    parentPlatformMap,
+  );
+  try {
+    const linkedRows = db
+      .prepare(
+        `SELECT gr.game_id, gr.canonical_release_id, gr.variants,
+                g.platform_id, g.title,
+                ${hasReconcileGameIgdb ? 'g.igdb_id' : 'NULL AS igdb_id'},
+                ${hasReconcileGameBundle ? 'g.bundle_parent_id' : 'NULL AS bundle_parent_id'},
+                cr.raw_title AS cr_raw_title, cr.rom_name AS cr_rom_name
+         FROM game_releases gr
+         JOIN games g ON g.stable_id = gr.game_id
+         LEFT JOIN canonical_releases cr ON cr.id = gr.canonical_release_id
+         WHERE gr.canonical_release_id IS NOT NULL`,
+      )
+      .all() as Array<{
+      game_id: number;
+      canonical_release_id: number;
+      variants: string | null;
+      platform_id: number;
+      title: string;
+      igdb_id: number | null;
+      bundle_parent_id: number | null;
+      cr_raw_title: string | null;
+      cr_rom_name: string | null;
+    }>;
+    for (const lr of linkedRows) {
+      reconcileExclusivityGuard.recordExistingLink(
+        {
+          stable_id: lr.game_id,
+          platform_id: lr.platform_id,
+          title: lr.title,
+          igdb_id: lr.igdb_id,
+          bundle_parent_id: lr.bundle_parent_id,
+        },
+        {
+          id: lr.canonical_release_id,
+          platform_id: lr.platform_id,
+          raw_title: lr.cr_raw_title,
+          rom_name: lr.cr_rom_name,
+          variants: lr.variants,
+        },
+      );
+    }
+  } catch {
+    // canonical_releases table may be absent in minimal test mocks
+  }
+
   // Sync existing game_releases metadata (canonical_release_id, rom_name, rom_crc, also_released_as, variants) from canonical_releases
   try {
     const grTableInfoPre = db.pragma('table_info(game_releases)') as Array<{
@@ -1030,9 +1208,24 @@ export function reconcileGameReleasesWithCanonical(
           ) as typeof match | undefined;
         }
 
+        const grDesc = reconcileGameById.get(gr.game_id) ?? {
+          stable_id: gr.game_id,
+          platform_id: gr.platform_id,
+          title: gr.title,
+          igdb_id: null,
+          bundle_parent_id: gr.bundle_parent_id,
+        };
+
         if (
           match &&
           !isCanonicalUsedOnGameStmt.get(gr.game_id, match.id, gr.id) &&
+          reconcileExclusivityGuard.canClaim(grDesc, {
+            id: match.id,
+            platform_id: match.platform_id,
+            raw_title: match.raw_title,
+            rom_name: match.rom_name,
+            variants: match.variants,
+          }) &&
           isRomValidForGame(
             {
               title: gr.title,
@@ -1048,6 +1241,13 @@ export function reconcileGameReleasesWithCanonical(
             },
           )
         ) {
+          reconcileExclusivityGuard.markClaimed(grDesc, {
+            id: match.id,
+            platform_id: match.platform_id,
+            raw_title: match.raw_title,
+            rom_name: match.rom_name,
+            variants: match.variants,
+          });
           const matchSource = match.source || 'dat';
           if (!isDryRun) {
             if (hasGrDenormPre && hasGrAlsoPre) {
@@ -1389,6 +1589,26 @@ export function reconcileGameReleasesWithCanonical(
       ? datByPlatformLinkerKey.get(parentId)
       : undefined;
 
+    const relGameDesc = reconcileGameById.get(rel.game_id) ?? {
+      stable_id: rel.game_id,
+      platform_id: rel.platform_id,
+      title: rel.title,
+      igdb_id: null,
+      bundle_parent_id: null,
+    };
+
+    const filterOwnedByOther = (
+      list?: typeof allDatReleases,
+    ): typeof allDatReleases | undefined =>
+      list?.filter(
+        (c) =>
+          !reconcileExclusivityGuard.isEditionOwnedByAnotherGame(
+            relGameDesc,
+            c.raw_title,
+            c.platform_id,
+          ),
+      );
+
     // Helper to search a specific norm + linker map
     const searchMap = (
       map?: Map<string, typeof allDatReleases>,
@@ -1397,28 +1617,35 @@ export function reconcileGameReleasesWithCanonical(
       if (!map) return undefined;
       // Strategy 1: Exact normalized title match
       const norm = normalizeTitleForMatching(rel.title);
-      let cand = map.get(norm);
+      let cand = filterOwnedByOther(map.get(norm));
 
       // Strategy 2: Clean parentheticals
       if (!cand || cand.length === 0) {
         const clean = cleanTitleWithoutParentheticals(rel.title);
         if (clean !== rel.title) {
-          cand = map.get(normalizeTitleForMatching(clean));
+          cand = filterOwnedByOther(map.get(normalizeTitleForMatching(clean)));
         }
       }
 
       // Strategy 3: Strip common edition suffixes
       if (!cand || cand.length === 0) {
-        const stripped = stripEditionSuffix(rel.title);
+        const stripped = stripEditionSuffix(rel.title, {
+          hasEntity: (candTitle) =>
+            reconcileExclusivityGuard.hasEntity(rel.platform_id, candTitle),
+        });
         if (stripped !== rel.title) {
-          cand = map.get(normalizeTitleForMatching(stripped));
+          cand = filterOwnedByOther(
+            map.get(normalizeTitleForMatching(stripped)),
+          );
         }
       }
 
       // Strategy 4: Subtitle prefix splitting (e.g. Job Simulator: The 2050 Archives -> Job Simulator)
       if ((!cand || cand.length === 0) && rel.title.includes(':')) {
         const prefix = rel.title.split(':')[0].trim();
-        const rawCands = map.get(normalizeTitleForMatching(prefix));
+        const rawCands = filterOwnedByOther(
+          map.get(normalizeTitleForMatching(prefix)),
+        );
         if (rawCands && rawCands.length > 0) {
           cand = rawCands.filter((c) =>
             titlesMatch(
@@ -1445,6 +1672,15 @@ export function reconcileGameReleasesWithCanonical(
           for (const lk of qKeys) {
             for (const c of lMap.get(lk) || []) {
               if (seenLinker.has(c)) continue;
+              if (
+                reconcileExclusivityGuard.isEditionOwnedByAnotherGame(
+                  relGameDesc,
+                  c.raw_title,
+                  c.platform_id,
+                )
+              ) {
+                continue;
+              }
               if (!areCanonicalTitlesSequelCompatible(qTitle, c.raw_title)) {
                 continue;
               }
@@ -1493,6 +1729,7 @@ export function reconcileGameReleasesWithCanonical(
     const availableCandidates = candidates.filter((c) => {
       if (usedSet.has(c.rom_name)) return false;
       if (usedCanonSet.has(c.id)) return false;
+      if (!reconcileExclusivityGuard.canClaim(relGameDesc, c)) return false;
       if (c.rom_crc && usedCrcSet.has(c.rom_crc.toLowerCase())) {
         if (
           !rel.rom_crc ||
@@ -1542,6 +1779,7 @@ export function reconcileGameReleasesWithCanonical(
     usedRomsByGameId.set(rel.game_id, usedSet);
     usedCanonSet.add(best.id);
     usedCanonicalIdsByGameId.set(rel.game_id, usedCanonSet);
+    reconcileExclusivityGuard.markClaimed(relGameDesc, best);
     if (best.rom_crc) {
       usedCrcSet.add(best.rom_crc.toLowerCase());
       usedCrcsByGameId.set(rel.game_id, usedCrcSet);
@@ -1628,12 +1866,16 @@ export function reconcileGameReleasesWithCanonical(
             !usedSet.has(c.rom_name) &&
             c.region === best.region &&
             c.variants === best.variants &&
-            getRomGroupingKey(c.rom_name) === bestGroupKey,
+            getRomGroupingKey(c.rom_name) === bestGroupKey &&
+            reconcileExclusivityGuard.canClaim(relGameDesc, c),
         )
         .sort((a, b) => a.rom_name.localeCompare(b.rom_name));
 
       for (const sibling of siblingDiscs) {
         usedSet.add(sibling.rom_name);
+        usedCanonSet.add(sibling.id);
+        usedCanonicalIdsByGameId.set(rel.game_id, usedCanonSet);
+        reconcileExclusivityGuard.markClaimed(relGameDesc, sibling);
         const siblingId = allocateSeqReleaseId(rel.game_id);
         const sibSource = sibling.source || 'dat';
         if (hasGrDenormMain) {
@@ -1682,10 +1924,16 @@ export function reconcileGameReleasesWithCanonical(
 
     // If this game hosts retail pack-in demo/bonus discs, automatically ensure they exist under this game!
     const packInDiscs = availableCandidates.filter(
-      (c) => c.packin_host_normalized_title && !usedSet.has(c.rom_name),
+      (c) =>
+        c.packin_host_normalized_title &&
+        !usedSet.has(c.rom_name) &&
+        reconcileExclusivityGuard.canClaim(relGameDesc, c),
     );
     for (const packIn of packInDiscs) {
       usedSet.add(packIn.rom_name);
+      usedCanonSet.add(packIn.id);
+      usedCanonicalIdsByGameId.set(rel.game_id, usedCanonSet);
+      reconcileExclusivityGuard.markClaimed(relGameDesc, packIn);
       const packInId = allocateSeqReleaseId(rel.game_id);
       const packSource = packIn.source || 'dat';
       if (hasGrDenormMain) {
@@ -1737,13 +1985,18 @@ export function reconcileGameReleasesWithCanonical(
       s !== null ? `'${s.replace(/'/g, "''")}'` : 'NULL';
     const catalogGames = db
       .prepare(
-        `SELECT stable_id, id as slug, title, platform_id FROM games WHERE 1=1 ${options.platformId ? 'AND platform_id = ' + Number(options.platformId) : ''}`,
+        `SELECT stable_id, id as slug, title, platform_id,
+                ${hasReconcileGameIgdb ? 'igdb_id' : 'NULL AS igdb_id'},
+                ${hasReconcileGameBundle ? 'bundle_parent_id' : 'NULL AS bundle_parent_id'}
+         FROM games WHERE 1=1 ${options.platformId ? 'AND platform_id = ' + Number(options.platformId) : ''}`,
       )
       .all() as Array<{
       stable_id: number;
       slug: string;
       title: string;
       platform_id: number;
+      igdb_id: number | null;
+      bundle_parent_id: number | null;
     }>;
 
     for (const g of catalogGames) {
@@ -1765,6 +2018,7 @@ export function reconcileGameReleasesWithCanonical(
       for (const c of cands) {
         if (usedSet.has(c.rom_name) || platUsedSet.has(c.rom_name)) continue;
         if (usedCanonSet.has(c.id)) continue;
+        if (!reconcileExclusivityGuard.canClaim(g, c)) continue;
         const crcNorm = c.rom_crc ? c.rom_crc.toLowerCase() : null;
         if (
           crcNorm &&
@@ -1796,6 +2050,7 @@ export function reconcileGameReleasesWithCanonical(
         usedRomsByGameId.set(g.stable_id, usedSet);
         usedCanonSet.add(c.id);
         usedCanonicalIdsByGameId.set(g.stable_id, usedCanonSet);
+        reconcileExclusivityGuard.markClaimed(g, c);
         platUsedSet.add(c.rom_name);
         usedRomsByPlatformId.set(g.platform_id, platUsedSet);
         if (crcNorm) {

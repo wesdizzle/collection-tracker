@@ -14,6 +14,7 @@ import {
 } from './auth';
 import worker, {
   Env,
+  type WorkerCanonicalMergeRow,
   CATALOG_CHUNKS_DIRTY_KEY,
   DAILY_CATALOG_WRITE_BUDGET,
   FREE_TIER_TAILER_SLICE_LIMIT,
@@ -30,6 +31,7 @@ import worker, {
   R2_BACKUP_CANONICAL_MANIFEST_KEY,
   X_CATALOG_PARTIAL_HEADER,
   X_CATALOG_CHUNK_SIZE_HEADER,
+  applyWorkerCanonicalHierarchyMerge,
   buildIgdbSearchTokens,
   classifyIgdbVersionParentEdition,
   fetchIgdbMetadataForTitles,
@@ -51,6 +53,7 @@ import worker, {
   resolveAmiiboRegionsAndMetadata,
   resolveCatalogManifest,
   resolveComboCartConstituentsFromDbOrIgdb,
+  resolveTier4PositiveIdentity,
   resolveWorkerPlanTier,
   selectStrictIgdbMatch,
   syncOrResolveOidcUser,
@@ -13404,6 +13407,106 @@ describe('Worker API Logic', () => {
       expect(journals).toEqual([
         { item_id: '9101', merchant: 'eBay' },
         { item_id: '9102', merchant: 'Amazon' },
+      ]);
+    });
+
+    it('enforces exclusive edition ownership and global canonical_release_id exclusivity across Worker canonical sync and resolves entity-verified slash combo carts', async () => {
+      db.exec(`
+        INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES (26, 'switch', 'Nintendo Switch', 130);
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id) VALUES
+          (9201, '9201', 'Overcooked!', 26, 20001),
+          (9202, '9202', 'Overcooked: Gourmet Edition', 26, 20002),
+          (9203, '9203', 'Slime Rancher', 26, 20003),
+          (9204, '9204', 'Slime Rancher: Deluxe Edition', 26, 20004),
+          (9205, '9205', 'Lego Batman', 26, 20005),
+          (9206, '9206', 'Lego Superman', 26, 20006),
+          (9207, '9207', 'Lego Batman/Superman', 26, NULL);
+        INSERT INTO game_releases (id, game_id, region) VALUES
+          ('9201-1', 9201, 'USA'),
+          ('9202-1', 9202, 'USA'),
+          ('9203-1', 9203, 'USA'),
+          ('9204-1', 9204, 'USA');
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, source, is_verified_physical) VALUES
+          (9501, 26, 'Overcooked: Gourmet Edition', '${normalizeTitleForMatching('Overcooked: Gourmet Edition')}', 'USA', 'nscollectors', 1),
+          (9502, 26, 'Slime Rancher', '${normalizeTitleForMatching('Slime Rancher')}', 'USA', 'nscollectors', 1);
+      `);
+
+      const initialExisting = db
+        .prepare(
+          'SELECT id, platform_id, raw_title, normalized_title, region, variants, serial_code, barcode, publisher, source, is_verified_physical FROM canonical_releases WHERE platform_id = 26',
+        )
+        .all() as WorkerCanonicalMergeRow[];
+
+      await applyWorkerCanonicalHierarchyMerge(
+        mockEnv,
+        [
+          {
+            platform_id: 26,
+            raw_title: 'Overcooked: Gourmet Edition',
+            normalized_title: normalizeTitleForMatching(
+              'Overcooked: Gourmet Edition',
+            ),
+            region: 'USA',
+            variants: null,
+            rom_name: null,
+            rom_crc: null,
+            serial_code: null,
+            barcode: null,
+            publisher: 'Team17',
+            source: 'nscollectors',
+            is_verified_physical: 1,
+          },
+          {
+            platform_id: 26,
+            raw_title: 'Slime Rancher',
+            normalized_title: normalizeTitleForMatching('Slime Rancher'),
+            region: 'USA',
+            variants: null,
+            rom_name: null,
+            rom_crc: null,
+            serial_code: null,
+            barcode: null,
+            publisher: 'Monomi Park',
+            source: 'nscollectors',
+            is_verified_physical: 1,
+          },
+        ],
+        initialExisting,
+        {
+          touchedPlatforms: [26],
+          maxWriteBudget: 500,
+          loadPostInsertRows: async () => [],
+        },
+      );
+
+      const getCanId = (relId: string) =>
+        (
+          db
+            .prepare(
+              'SELECT canonical_release_id FROM game_releases WHERE id = ?',
+            )
+            .get(relId) as { canonical_release_id: number | null }
+        ).canonical_release_id;
+
+      expect(getCanId('9201-1')).toBeNull();
+      expect(getCanId('9202-1')).toBe(9501);
+      expect(getCanId('9203-1')).toBe(9502);
+      expect(getCanId('9204-1')).toBeNull();
+
+      // Verify entity-verified slash combo cart resolution via resolveTier4PositiveIdentity
+      const comboResolved = await resolveTier4PositiveIdentity(mockEnv, {
+        igdbMeta: null,
+        rawTitle: 'Lego Batman/Superman',
+        platformId: 26,
+        platIgdbId: 130,
+      });
+      expect(comboResolved?.comboConstituentsJson).toBeTruthy();
+      const parsedCombo = JSON.parse(comboResolved!.comboConstituentsJson!) as {
+        constituent_games: Array<{ stable_id: number; title: string }>;
+      };
+      expect(parsedCombo.constituent_games.map((g) => g.title)).toEqual([
+        'Lego Batman',
+        'Lego Superman',
       ]);
     });
   });

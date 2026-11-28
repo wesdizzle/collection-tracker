@@ -1,5 +1,3 @@
-import { isTrueEditionOrRevisionVariant } from './source_format.js';
-
 /**
  * @file title_matching.ts
  * @description Refined title normalization and matching utility library.
@@ -191,7 +189,7 @@ export function titlesMatch(
 ): boolean {
   const PRE_SPLIT_HISTORICAL_DAT_REDIRECTS: Record<string, string> = {
     'final fantasy x/x-2 hd remaster':
-      'final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
+      'final fantasy x - hd remaster / final fantasy x-2 - hd remaster / final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
     'the amazing spider-man vs. the kingpin':
       'spider-man / spider-man vs. the kingpin / the amazing spider-man vs. the kingpin',
     "x-men: gamesmaster's legacy": "x-men - gamemaster's legacy",
@@ -505,21 +503,7 @@ function matchAlternative(
     .filter(Boolean);
   const gSegmentNorms = gSegments.map((s) => normalizeTitleForMatching(s));
 
-  const GENERIC_DESCRIPTOR_NORMS = new Set([
-    'collection',
-    'trilogy',
-    'anthology',
-    'pack',
-    'bundle',
-    'remastered',
-    'edition',
-    'bonus',
-    'bonusdisc',
-    'disc',
-    'game',
-    'saga',
-    'compilation',
-  ]);
+  const GENERIC_DESCRIPTOR_NORMS = new Set(['pack', 'bundle', 'game']);
 
   const isAcronymOf = (acronym: string, fullTitle: string): boolean => {
     const cleanAcro = acronym.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -529,7 +513,9 @@ function matchAlternative(
     return initials === cleanAcro || initials.startsWith(cleanAcro);
   };
 
-  const isDescriptorSegment = (
+  // Only match non-edition structural box-art taglines, volume indicators, and acronym prefixes.
+  // Never swallow edition/expansion segments onto base games via generic string matching.
+  const isBoxArtFramingOrAcronymSegment = (
     segment: string,
     fullTitle?: string,
   ): boolean => {
@@ -539,24 +525,12 @@ function matchAlternative(
     if (fullTitle && isAcronymOf(segment, fullTitle)) {
       return true;
     }
-    if (
-      lower.includes('add-on') ||
-      lower.includes('addon') ||
-      lower.includes('expansion') ||
-      lower.includes('extension de jeu') ||
-      lower.includes('tutorial')
-    ) {
-      return false;
-    }
-    return (
-      isTrueEditionOrRevisionVariant(lower) ||
-      /^(?:starring\s+.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|pack|trilogy\s*pack|collection|anthology|remaster(?:ed)?|hd(?:\s*remaster(?:ed)?)?|bonus\s*content.*|bonus\s*disc.*)$/i.test(
-        lower,
-      )
+    return /^(?:starring\s+.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|trilogy\s+pack)$/i.test(
+      lower,
     );
   };
 
-  // Case A: The release contains the full game title as one of its segments, and all remaining segments are edition/descriptor labels.
+  // Non-edition framing match (e.g., "JSRF - Jet Set Radio Future", "Tomb Raider II - Starring Lara Croft")
   if (
     !GENERIC_DESCRIPTOR_NORMS.has(gNorm) &&
     gNorm.length >= 4 &&
@@ -565,7 +539,9 @@ function matchAlternative(
     const unMatchedSegments = rSegments.filter(
       (s) => normalizeTitleForMatching(s) !== gNorm,
     );
-    if (unMatchedSegments.every((s) => isDescriptorSegment(s, gTitle))) {
+    if (
+      unMatchedSegments.every((s) => isBoxArtFramingOrAcronymSegment(s, gTitle))
+    ) {
       return true;
     }
   }
@@ -1057,124 +1033,267 @@ export function stripRetailPreorderAndPlatformTrailer(title: string): string {
 }
 
 /**
- * Standard packaging, release-window, format, and budget edition qualifiers
- * shared between edition-stripping and IGDB lookup without bespoke pun lists.
+ * Grammatical edition split candidate emitted right-to-left from title syntax without
+ * relying on hardcoded edition pun/DLC keyword lists.
  */
-const SHARED_EDITION_QUALIFIERS: readonly string[] = [
-  'definitive',
-  'super\\s+deluxe',
-  'ultra\\s+deluxe',
-  'deluxe',
-  'ultimate',
-  'complete',
-  'standard',
-  'special',
-  'steelbook',
-  "collector'?s?",
-  'anniversary',
-  '\\d+(?:st|nd|rd|th)\\s+anniversary',
-  'remastered',
-  'legacy',
-  'hd',
-  'plus',
-  'enhanced',
-  'nintendo\\s+switch(?:\\s*2)?',
-  '(?<!Nintendo\\s)Switch\\s*2',
-  'xbox\\s*one',
-  'year\\s+(?:one|\\d+)',
-  'day\\s+(?:one|1|zero|0)',
-  'launch(?:\\s+day)?',
-  'first\\s+press',
-  'retro',
-  'classic',
-  'big\\s+box',
-  'vhs',
-  'premium',
-  'limited(?:\\s+run)?',
-  'strictly\\s+limited',
-  'super\\s+rare',
-  'red\\s+art',
-  'fangamer',
-  'iam8bit\\s+exclusive',
-  '(?:best\\s+buy|gamestop|walmart|target|amazon|vgp|pnp|store|online)\\s+exclusive',
-  'exclusive',
-  'retail',
-  'physical',
-  'playstation\\s+hits',
-  'nintendo\\s+hits',
-  "player'?s?\\s+choice",
-  'greatest\\s+hits',
-  'platinum\\s+hits',
-  'nes',
-];
-
-const EXTRA_SPACE_EDITION_QUALIFIERS: readonly string[] = [
-  ...SHARED_EDITION_QUALIFIERS,
-  'retail',
-  'royal',
-  'next\\s+level',
-  'gold',
-  'platinum',
-  'silver',
-  'goty',
-  'game\\s+of\\s+the\\s+year',
-  'expanded',
-  "director'?s?",
-];
-
-const SHARED_EDITION_GROUP = `(?:${SHARED_EDITION_QUALIFIERS.join('|')})`;
-const EXTRA_SPACE_EDITION_GROUP = `(?:${EXTRA_SPACE_EDITION_QUALIFIERS.join('|')})`;
-
-const DELIMITED_EDITION_STRIP_RE = new RegExp(
-  `\\s*(?::|[-–—])\\s*${SHARED_EDITION_GROUP}\\s*editions?`,
-  'gi',
-);
-const SPACE_EDITION_STRIP_RE = new RegExp(
-  `\\s+${SHARED_EDITION_GROUP}\\s+editions?`,
-  'gi',
-);
-const WRAPPER_EDITION_STRIP_RE = new RegExp(
-  `\\s*(?:[:\\-–—|]\\s*)?${EXTRA_SPACE_EDITION_GROUP}\\s+editions?$`,
-  'i',
-);
+export interface EditionSplitCandidate {
+  base: string;
+  suffix: string;
+  kind: 'bracket' | 'plus' | 'delimited' | 'space';
+}
 
 const NON_ENGLISH_EDITION_RE =
   /\b(?:goldene|silberne|kristall|rote|blaue|gelbe|smaragd|rubin|saphir|feuerrote|blattgr(?:u|ü)ne|speciale|edici[oó]n|edizione|ausgabe|auflage)\b/i;
 
-export function stripEditionSuffix(title: string): string {
+const GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE =
+  /\b(?:the|a|an|of|for|in|on|at|to|by|with|from|and|or)$/i;
+
+const PLATFORM_EDITION_ONLY_RE =
+  /^(?:Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i;
+
+const TEMPORAL_OR_PLATFORM_SPACE_EDITION_RE =
+  /^(.{2,}?)\s+((?:Year|Day|Season)\s+(?:\d+|Zero|One|Two|Three)\s+Editions?|(?:Nintendo\s+)?Switch(?:\s*2)?\s+Editions?|Xbox\s+One\s+Editions?)$/i;
+
+const GRAMMATICAL_DELIMITED_EDITION_SUFFIX_RE =
+  /^(?:(?:\S+\s+){1,2}Editions?|Game\s+of\s+the\s+Year(?:\s+Edition)?|(?:Nintendo\s+)?Switch(?:\s*2)?\s+Editions?|Xbox\s+One\s+Editions?|(?:Year|Day|Season)\s+(?:\d+|Zero|One|Two|Three)\s+Editions?|(?:The\s+)?(?:Director'?s?|Extended|Final)\s+Cut|(?:HD\s+)?Remaster(?:ed)?|Remake|GOTY|(?:\S+\s+){0,2}Exclusive(?:\s+Edition)?|(?:Premium|Collector'?s?|Treasure)\s+Box|(?:Ultra\s+)?Deluxe|Trilogy\s+Pack|Complete|Ultimate|Definitive|HD|SE)$/i;
+
+/**
+ * Generates ordered, deduplicated right-to-left grammatical edition split candidates
+ * for a game title (`bracket`, `plus`, `delimited`, and `space` modifier peels).
+ * Consumers verify ambiguity (`plus`, un-delimited space suffixes) against the catalog
+ * or IGDB entities rather than hardcoding finite DLC/pun lists.
+ */
+export function generateEditionSplitCandidates(
+  title: string,
+): EditionSplitCandidate[] {
+  const trimmed = normalizeTypography(title || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!trimmed || trimmed.length < 4) return [];
+
+  const candidates: EditionSplitCandidate[] = [];
+  const seen = new Set<string>();
+  const addCand = (cand: EditionSplitCandidate) => {
+    const base = cand.base
+      .replace(/[\s:|\-–—]+$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const suffix = cand.suffix
+      .replace(/^["'“”]+|["'“”]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (base.length < 2 || !suffix) return;
+    if (NON_ENGLISH_EDITION_RE.test(suffix)) return;
+    const key = `${cand.kind}::${base.toLowerCase()}::${suffix.toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push({ base, suffix, kind: cand.kind });
+    }
+  };
+
+  // 1. Trailing parenthetical/bracketed packaging edition wrappers ("Sea of Stars (Retail Edition)", "[RETRO EDITION]")
+  const bracketMatch = trimmed.match(
+    /^(.{2,}?)\s*(?:\[([^[\]]+)\]|\(([^()]+)\))\s*$/,
+  );
+  if (bracketMatch) {
+    const inner = (bracketMatch[2] || bracketMatch[3] || '').trim();
+    if (/\b(?:Editions?|Exclusive)\b$/i.test(inner)) {
+      addCand({ base: bracketMatch[1], suffix: inner, kind: 'bracket' });
+    }
+  }
+
+  // 2. Physical `+` suffix ("Pokemon Scarlet + The Hidden Treasure of Area Zero", "Sonic Mania + Team Sonic Racing")
+  // Always emitted so entity-aware callers distinguish Base+DLC from dual-game combos.
+  const plusMatch = trimmed.match(/^(.{4,}?)\s+(\+\s+.+)$/);
+  if (plusMatch && !isCompilationOrBundleTitle(plusMatch[1].trim())) {
+    addCand({ base: plusMatch[1], suffix: plusMatch[2], kind: 'plus' });
+  }
+
+  // 3. Stacked hardware platform wrapper following an inner edition or title
+  const stackedPlatformMatch = trimmed.match(
+    /^(.{3,}?)(?:\s*[:\-–—|]\s*|\s+)((?:Nintendo\s+)?Switch(?:\s*2)?\s+Editions?|Switch\s*2\s+Editions?|Xbox\s+One\s+Editions?)$/i,
+  );
+  if (stackedPlatformMatch) {
+    addCand({
+      base: stackedPlatformMatch[1],
+      suffix: stackedPlatformMatch[2],
+      kind: trimmed.slice(stackedPlatformMatch[1].length).match(/[:\-–—|]/)
+        ? 'delimited'
+        : 'space',
+    });
+  }
+
+  // 4. Rightmost separator-delimited (`:`, ` - `, ` | `) edition/reissue headwords
+  const sepRe = /(?:\s*:\s*|\s+[-–—|]\s+)/g;
+  const sepIndices: Array<{ index: number; len: number }> = [];
+  let sm: RegExpExecArray | null;
+  while ((sm = sepRe.exec(trimmed)) !== null) {
+    sepIndices.push({ index: sm.index, len: sm[0].length });
+  }
+  for (let i = sepIndices.length - 1; i >= 0; i--) {
+    const { index, len } = sepIndices[i];
+    const basePart = trimmed.slice(0, index).trim();
+    const suffixPart = trimmed
+      .slice(index + len)
+      .replace(/^["'“”]+|["'“”]+$/g, '')
+      .trim();
+    if (basePart.length < 2 || !suffixPart) continue;
+    if (
+      GRAMMATICAL_DELIMITED_EDITION_SUFFIX_RE.test(suffixPart) &&
+      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(basePart)
+    ) {
+      addCand({ base: basePart, suffix: suffixPart, kind: 'delimited' });
+    }
+  }
+
+  // 5. Temporal/ordinal or platform un-delimited phrases ("Year 1 Edition", "Day One Edition")
+  const tempMatch = trimmed.match(TEMPORAL_OR_PLATFORM_SPACE_EDITION_RE);
+  if (
+    tempMatch &&
+    !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(tempMatch[1].trim())
+  ) {
+    addCand({
+      base: tempMatch[1],
+      suffix: tempMatch[2],
+      kind: 'space',
+    });
+  }
+
+  // 6. Un-delimited right-to-left `N`-word + `Edition(s)` / `Remastered` / `GOTY` boundary peels (N = 1..4)
+  const spaceTokensMatch = trimmed.match(
+    /^(.+?)\s+(Editions?|Remastered|GOTY|Game\s+of\s+the\s+Year)$/i,
+  );
+  if (spaceTokensMatch) {
+    const headword = spaceTokensMatch[2];
+    const prefixStr = spaceTokensMatch[1].trim();
+    if (/^Editions?$/i.test(headword)) {
+      const words = prefixStr.split(/\s+/).filter(Boolean);
+      let lastDelimIdx = prefixStr.lastIndexOf(':');
+      const dashMatchRe = /\s[-–—]\s/g;
+      let dm: RegExpExecArray | null;
+      while ((dm = dashMatchRe.exec(prefixStr)) !== null) {
+        if (dm.index > lastDelimIdx) lastDelimIdx = dm.index;
+      }
+      const maxPeelWords = Math.min(4, words.length - 1);
+      for (let k = 1; k <= maxPeelWords; k++) {
+        const base = words.slice(0, words.length - k).join(' ');
+        const strippedBaseLen = base.replace(/[\s:|\-–—]+$/, '').length;
+        if (lastDelimIdx >= 0 && strippedBaseLen <= lastDelimIdx) {
+          break;
+        }
+        const suffix = `${words.slice(words.length - k).join(' ')} ${headword}`;
+        if (
+          base.length >= 2 &&
+          !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(base)
+        ) {
+          addCand({ base, suffix, kind: 'space' });
+        }
+      }
+    } else if (
+      prefixStr.length >= 2 &&
+      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(prefixStr)
+    ) {
+      addCand({ base: prefixStr, suffix: headword, kind: 'space' });
+    }
+  }
+
+  // 7. Stacked recursive peels: if top delimited/space candidate base itself splits cleanly, emit full chain
+  const firstCand = candidates[0];
+  if (firstCand && firstCand.kind !== 'plus') {
+    for (const inner of generateEditionSplitCandidates(firstCand.base)) {
+      if (inner.kind === 'delimited' || inner.kind === 'bracket') {
+        addCand({
+          base: inner.base,
+          suffix: `${inner.suffix} - ${firstCand.suffix}`,
+          kind: inner.kind,
+        });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+/**
+ * Resolves the grammatical edition split for `title` using an entity lookup predicate
+ * (`hasEntity`). Never splits a title when the full title itself exists as a standalone
+ * catalog/IGDB entity, and never treats a 2-game `+` combo (where the right side is a
+ * standalone game) as a Base+DLC edition.
+ */
+export function resolveEditionSplitWithCatalog(
+  title: string,
+  hasEntity: (candidateTitle: string) => boolean,
+): EditionSplitCandidate | null {
+  const trimmed = normalizeTypography(title || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!trimmed) return null;
+  if (hasEntity(trimmed)) return null;
+
+  for (const cand of generateEditionSplitCandidates(trimmed)) {
+    if (cand.kind === 'plus') {
+      const rightSide = cand.suffix.replace(/^\+\s*/, '').trim();
+      if (rightSide && hasEntity(rightSide)) {
+        return null;
+      }
+    }
+    if (hasEntity(cand.base)) {
+      return cand;
+    }
+  }
+  return null;
+}
+
+export function stripEditionSuffix(
+  title: string,
+  options: {
+    hasEntity?: (candidateTitle: string) => boolean;
+    allowGenericSingleWord?: boolean;
+  } = {},
+): string {
   const norm = normalizeTypography(title || '').replace(
-    /\s*\((?:retail|standard|limited|collector'?s?|deluxe|special)\s+editions?\)\s*$/i,
+    /\s*\([^()]*\bEditions?\)\s*$/i,
     '',
   );
+  if (!norm) return '';
+
   let out = norm
-    .replace(DELIMITED_EDITION_STRIP_RE, '')
-    .replace(SPACE_EDITION_STRIP_RE, '')
     .replace(
       /\s*(?:[,:\-–—]\s*)?\b(?:a|the)\s+telltale(?:\s+games)?\s+series\b/gi,
       '',
     )
-    .replace(/:\s*(?:ultra\s+)?deluxe$/i, '')
-    .replace(/\s*\+\s*the hidden treasure of area zero/gi, '')
-    .replace(/\s*\+\s*booster course pass/gi, '')
-    .replace(/\s*\+\s*expansion pass/gi, '')
-    .replace(/\s*\+\s*star-crossed world/gi, '')
-    .replace(/\s*\+\s*jamboree tv/gi, '')
-    .replace(/\s*\+\s*arcade game series$/gi, '')
     .trim();
 
-  // Strip structural separator-delimited "... Edition" (e.g. "Among Us: Crewmate Edition") without hardcoded puns
-  const delimitedEd = out.match(
-    /^(.{3,}?)\s*(?::|\s+[-–—]\s+)\s*["'“”]?([A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+)?\s+Editions?)["'“”]?$/i,
-  );
-  if (
-    delimitedEd &&
-    !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(delimitedEd[1].trim()) &&
-    !NON_ENGLISH_EDITION_RE.test(delimitedEd[2]) &&
-    !GENERIC_SPACE_EDITION_BLOCKED_RE.test(delimitedEd[2]) &&
-    !PLATFORM_EDITION_ONLY_RE.test(delimitedEd[2])
-  ) {
-    out = delimitedEd[1].trim();
+  if (options.hasEntity) {
+    for (let pass = 0; pass < 3; pass++) {
+      const resolved = resolveEditionSplitWithCatalog(out, options.hasEntity);
+      if (!resolved || resolved.base === out) break;
+      out = resolved.base;
+    }
+    return out;
   }
+
+  for (let pass = 0; pass < 3; pass++) {
+    const candidates = generateEditionSplitCandidates(out).filter((c) => {
+      if (c.kind === 'plus') return false;
+      if (c.kind === 'space') {
+        if (TEMPORAL_OR_PLATFORM_SPACE_EDITION_RE.test(out)) return true;
+        if (
+          options.allowGenericSingleWord &&
+          /^\S+\s+Editions?$/i.test(c.suffix)
+        ) {
+          return true;
+        }
+        return false;
+      }
+      return true;
+    });
+    if (candidates.length === 0) break;
+    const best = candidates[0];
+    if (!best.base || best.base === out) break;
+    out = best.base;
+  }
+
   return out;
 }
 
@@ -1267,15 +1386,23 @@ export function cleanTitleForIgdbLookup(rawTitle: string): string {
  */
 export function stripIgdbEditionWrapper(
   title: string,
-  options: { allowBareSpecial?: boolean; allowDelimitedGeneric?: boolean } = {},
+  options: {
+    allowBareSpecial?: boolean;
+    allowDelimitedGeneric?: boolean;
+    allowGenericSingleWord?: boolean;
+  } = {},
 ): string {
   let current = cleanTitleForIgdbLookup(title);
   if (!current) return '';
 
   for (let pass = 0; pass < 4; pass++) {
     const before = current;
-    current = stripEditionSuffix(current);
-    const splitEd = splitTitleEditionSuffix(current);
+    current = stripEditionSuffix(current, {
+      allowGenericSingleWord: options.allowGenericSingleWord,
+    });
+    const splitEd = splitTitleEditionSuffix(current, {
+      allowGenericSingleWord: options.allowGenericSingleWord,
+    });
     if (
       splitEd &&
       splitEd.base.length >= 2 &&
@@ -1293,18 +1420,13 @@ export function stripIgdbEditionWrapper(
           structuralDelimitedEdition[1].trim(),
         ) &&
         !NON_ENGLISH_EDITION_RE.test(structuralDelimitedEdition[2]) &&
-        !GENERIC_SPACE_EDITION_BLOCKED_RE.test(structuralDelimitedEdition[2]) &&
         !PLATFORM_EDITION_ONLY_RE.test(structuralDelimitedEdition[2])
       ) {
         current = structuralDelimitedEdition[1].trim();
       }
     }
     current = current
-      .replace(
-        /\s*\((?:retail|standard|limited|collector'?s?|deluxe|special)\s+editions?\)\s*$/i,
-        '',
-      )
-      .replace(WRAPPER_EDITION_STRIP_RE, '')
+      .replace(/\s*\([^()]*\bEditions?\)\s*$/i, '')
       .replace(
         /\s*(?:[:\-–—|]\s*)?(?:The\s+)?(?:Final\s+Cut|Director'?s?\s+Cut|Extended\s+Cut|HD\s+Remaster(?:ed)?|Remastered|Remake|Game\s+of\s+the\s+Year|GOTY)$/i,
         '',
@@ -1413,7 +1535,7 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
     /\s*\([^()]*\bcover\s+art\s*\)\s*$/i,
     /\s*(?:\((?:game|disc|cartridge|cart)\s+only\)|(?:[:\-–—]\s*|\s+)(?:game|disc|cartridge|cart)\s+only)\s*$/i,
     /\s*\([^()]{2,40}?\s+editions?\)\s*$/i,
-    /\s*\[(?:retro|limited|collector'?s?|special|deluxe)\s+edition\]\s*$/i,
+    /\s*\[[^[\]]+\s+editions?\]\s*$/i,
     /\s*(?:[:\-–—]\s*|\s+)trilogy\s+pack\s*$/i,
     /\s+(?:game\s+)?bundle\s*$/i,
     /^(?:2\s+games\s+in\s+one!?|2\s+in\s+1\s+game\s+pack|2\s+game\s+bundle)\s*[-:]\s*/i,
@@ -1429,9 +1551,15 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
   if (normalizedRaw && normalizedRaw !== raw) {
     addKey(normalizedRaw);
   }
-  const splitEd = splitTitleEditionSuffix(normalizedRaw);
-  if (splitEd && !splitEd.suffix.startsWith('+')) {
-    addKey(splitEd.base);
+  for (const cand of generateEditionSplitCandidates(normalizedRaw)) {
+    if (cand.kind === 'delimited' || cand.kind === 'bracket') {
+      addKey(cand.base);
+    } else if (
+      cand.kind === 'plus' ||
+      TEMPORAL_OR_PLATFORM_SPACE_EDITION_RE.test(normalizedRaw)
+    ) {
+      addKey(cand.base);
+    }
   }
   addKey(stripEditionSuffix(normalizedRaw));
   addKey(stripIgdbEditionWrapper(normalizedRaw));
@@ -1657,138 +1785,50 @@ export function buildDetailedIgdbMatchVariants(
   return variants;
 }
 
-const PLUS_ADDON_KEYWORD_RE =
-  /\b(?:pass|expansion|booster|treasure|world|tv|minions|fury|story|chapter|dlc|content|island|quest|season|pack|episode|adventure)\b/i;
-
 const RETAIL_BRACKET_EDITION_RE =
-  /\s*\[((?:Retro|Limited|Collector'?s?|Special|Deluxe)\s+Edition)\]\s*$/i;
-
-const SPACE_EDITION_RE = new RegExp(
-  `^(.{2,}?)(?:\\s*:\\s*|\\s+[-–—]\\s+|\\s+)(${EXTRA_SPACE_EDITION_GROUP}\\s+Editions?|(?:Premium|Collector'?s?|Treasure)\\s+Box)$`,
-  'i',
-);
-
-const GENERIC_1WORD_SPACE_EDITION_RE =
-  /^(.{2,}?[^\s:\-–—])\s+["'“”]?([A-Za-z][A-Za-z0-9'’.-]*\s+Editions?)["'“”]?$/i;
-
-const GENERIC_SPACE_EDITION_BLOCKED_RE =
-  /^(?:Championship|Arcade|Pocket|First|Second|Third|Final|Home|Console|World|Tour|Tournament|Sports|NetLink|Original|New|International|Pro|Club|Family|Party|Festival|Junior|Kids|Educational|Teacher|Student)\s+Editions?$/i;
-
-const GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE =
-  /\b(?:the|a|an|of|for|in|on|at|to|by|with|from|and|or)$/i;
-
-const KNOWN_EDITION_PHRASE_RE = new RegExp(
-  `^(?:The\\s+)?(?:${EXTRA_SPACE_EDITION_GROUP}\\s+Editions?|(?:Premium|Collector'?s?|Treasure)\\s+Box)$`,
-  'i',
-);
-
-const NAMED_EDITION_CUT_RE =
-  /^(.{3,}?)(?:\s*[:\-–—]\s*|\s+)(Director'?s?\s+Cut|Extended\s+Cut|GOTY|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited|Remastered|HD\s+Remaster)$/i;
+  /\s*\[([A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+){0,3}\s+Editions?)\]\s*$/i;
 
 const RETAIL_PAREN_EDITION_RE =
-  /\s*\(((?:Retail|Standard|Limited|Collector'?s?|Deluxe|Special)\s+Editions?)\)\s*$/i;
-
-const PLATFORM_EDITION_ONLY_RE =
-  /^(?:Nintendo\s+Switch(?:\s*2)?|Switch\s*2|Xbox\s*One)\s+Editions?$/i;
-
-const STANDALONE_CONTENT_EDITION_RE =
-  /^(?:Director'?s?\s+Cut|Extended\s+Cut|Remastered|HD\s+Remaster|Remake|Final\s+Cut|Complete\s+Adventure|Expansion\s+Pass|Treasure\s+Trove|Connected|Tamriel\s+Unlimited)$/i;
+  /\s*\(([A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+){0,3}\s+Editions?)\)\s*$/i;
 
 function splitTitleEditionSuffix(
   title: string,
-  options: { allowGenericSingleWord?: boolean } = {},
+  options: {
+    allowGenericSingleWord?: boolean;
+    hasEntity?: (candidateTitle: string) => boolean;
+  } = {},
 ): { base: string; suffix: string } | null {
   const trimmed = normalizeTypography(title || '');
   if (!trimmed) return null;
 
-  // 1. Physical cart/disc DLC bundle suffix ("Pokemon Scarlet + The Hidden Treasure of Area Zero")
-  const plusMatch = trimmed.match(/^(.{4,}?)\s+(\+\s+.+)$/);
-  if (plusMatch) {
-    const base = plusMatch[1].trim();
-    const suffix = plusMatch[2].trim();
-    if (
-      !isCompilationOrBundleTitle(base) &&
-      PLUS_ADDON_KEYWORD_RE.test(suffix)
-    ) {
-      return { base, suffix };
-    }
+  if (options.hasEntity) {
+    const resolved = resolveEditionSplitWithCatalog(trimmed, options.hasEntity);
+    return resolved ? { base: resolved.base, suffix: resolved.suffix } : null;
   }
 
-  // 2. Separator-delimited English "... Edition" ("Game: Special Edition", "... - \"Lovely Edition\"")
-  // vs space-delimited ("Sonic Racing: CrossWorlds Year 1 Edition"): if both match, prefer whichever leaves the longer base title
-  // without fragmenting an already-complete delimited edition phrase.
-  const sepEditionMatch = trimmed.match(
-    /^(.{3,}?)\s*(?::\s*|\s+[-–—]\s+)\s*["'“”]?((?:(?!\s+[-–—]\s+)[^:])+?\bEditions?)["'“”]?$/i,
-  );
-  const sepSuffixIsKnownEdition = Boolean(
-    sepEditionMatch && KNOWN_EDITION_PHRASE_RE.test(sepEditionMatch[2].trim()),
-  );
-  const knownSpaceMatch = trimmed.match(SPACE_EDITION_RE);
-  const rawGenericSpaceMatch =
-    options.allowGenericSingleWord &&
-    !knownSpaceMatch &&
-    !sepSuffixIsKnownEdition
-      ? trimmed.match(GENERIC_1WORD_SPACE_EDITION_RE)
-      : null;
-  const validGenericSpaceMatch =
-    rawGenericSpaceMatch &&
-    !NON_ENGLISH_EDITION_RE.test(rawGenericSpaceMatch[2].trim()) &&
-    !GENERIC_SPACE_EDITION_BLOCKED_RE.test(rawGenericSpaceMatch[2].trim()) &&
-    !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(
-      rawGenericSpaceMatch[1].trim(),
-    )
-      ? rawGenericSpaceMatch
-      : null;
-  const spaceEditionMatch = knownSpaceMatch ?? validGenericSpaceMatch;
-
-  if (
-    spaceEditionMatch &&
-    !NON_ENGLISH_EDITION_RE.test(spaceEditionMatch[2].trim()) &&
-    (!sepEditionMatch ||
-      (!sepSuffixIsKnownEdition &&
-        spaceEditionMatch[1].trim().length > sepEditionMatch[1].trim().length))
-  ) {
-    return {
-      base: spaceEditionMatch[1].trim(),
-      suffix: spaceEditionMatch[2].trim(),
-    };
-  }
-  if (sepEditionMatch) {
-    const base = sepEditionMatch[1].trim();
-    const suffix = sepEditionMatch[2].trim();
-    if (
-      (sepSuffixIsKnownEdition || suffix.split(/\s+/).length <= 3) &&
-      !GENERIC_SPACE_EDITION_BASE_TAIL_GUARD_RE.test(base) &&
-      !NON_ENGLISH_EDITION_RE.test(suffix) &&
-      !GENERIC_SPACE_EDITION_BLOCKED_RE.test(suffix)
-    ) {
-      return { base, suffix };
+  for (const cand of generateEditionSplitCandidates(trimmed)) {
+    if (cand.kind === 'plus') continue;
+    if (cand.kind === 'space') {
+      if (TEMPORAL_OR_PLATFORM_SPACE_EDITION_RE.test(trimmed)) {
+        return { base: cand.base, suffix: cand.suffix };
+      }
+      if (
+        options.allowGenericSingleWord &&
+        /^\S+\s+(?:Editions?|Remastered|GOTY)$/i.test(cand.suffix)
+      ) {
+        return { base: cand.base, suffix: cand.suffix };
+      }
+      continue;
     }
-  }
-  if (spaceEditionMatch) {
-    const base = spaceEditionMatch[1].trim();
-    const suffix = spaceEditionMatch[2].trim();
-    if (!NON_ENGLISH_EDITION_RE.test(suffix)) {
-      return { base, suffix };
-    }
-  }
-
-  // 4. Recognized physical edition/cut qualifiers without the word "Edition"
-  const namedMatch = trimmed.match(NAMED_EDITION_CUT_RE);
-  if (namedMatch) {
-    const base = namedMatch[1].trim();
-    const suffix = namedMatch[2].trim();
-    if (base.length >= 3 && !NON_ENGLISH_EDITION_RE.test(suffix)) {
-      return { base, suffix };
-    }
+    return { base: cand.base, suffix: cand.suffix };
   }
 
   return null;
 }
 
 /**
- * Extracts a trailing physical edition, DLC add-on, or platform-edition suffix
- * from a game title while ignoring localized non-English edition tags.
+ * Extracts a trailing physical edition or platform-edition suffix from a game title
+ * while ignoring localized non-English edition tags.
  */
 export function extractEditionSuffix(title: string): string | null {
   return splitTitleEditionSuffix(title)?.suffix ?? null;
@@ -1803,7 +1843,10 @@ export function extractEditionSuffix(title: string): string | null {
  * Preserves non-English titles (`Pokemon - Goldene Edition`), standalone platform editions
  * (`Nintendo Switch 2 Edition`), remasters/cuts (`Remastered`, `Director's Cut`), and `+` DLC.
  */
-export function extractPhysicalEditionForVariant(rawTitle: string): {
+export function extractPhysicalEditionForVariant(
+  rawTitle: string,
+  options: { hasEntity?: (candidateTitle: string) => boolean } = {},
+): {
   baseTitle: string;
   edition: string | null;
 } {
@@ -1812,12 +1855,12 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   );
   if (!workingRaw) return { baseTitle: '', edition: null };
 
-  // Preserve explicit boutique/retail packaging tags like `[RETRO EDITION]` or `(Retail Edition)`
+  // Preserve explicit bracketed/parenthetical packaging tags like `[RETRO EDITION]` or `(Retail Edition)`
   // even when followed by promo/series brackets (`[PREMIUM EDITION GAMES SERIES 10]`) before structural cleanup.
   let bracketEdition: string | null = null;
   let parenEdition: string | null = null;
   const rawBracketMatch = workingRaw.match(
-    /\s*\[((?:Retro|Limited|Collector'?s?|Special|Deluxe)\s+Edition)\](?=\s*(?:\[|$))/i,
+    /\s*\[([A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+){0,3}\s+Editions?)\](?=\s*(?:\[|$))/i,
   );
   if (rawBracketMatch && rawBracketMatch.index !== undefined) {
     const candidateBase = workingRaw.slice(0, rawBracketMatch.index).trim();
@@ -1836,7 +1879,7 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
     }
   }
   const rawParenMatch = workingRaw.match(
-    /\s*\(((?:Retail|Standard|Limited|Collector'?s?|Deluxe|Special)\s+Editions?)\)(?=\s*(?:\(|\[|$))/i,
+    /\s*\(([A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+){0,3}\s+Editions?)\)(?=\s*(?:\(|\[|$))/i,
   );
   if (rawParenMatch && rawParenMatch.index !== undefined) {
     const candidateBase = workingRaw.slice(0, rawParenMatch.index).trim();
@@ -1855,10 +1898,9 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   const preCleaned = stripRetailPreorderAndPlatformTrailer(workingRaw);
   if (!preCleaned) return { baseTitle: '', edition: null };
 
-  // Strip any remaining trailing bracket/paren edition marker after framing cleanup.
   let working = preCleaned;
   const bracketEdMatch = working.match(RETAIL_BRACKET_EDITION_RE);
-  if (bracketEdMatch) {
+  if (bracketEdMatch && bracketEdMatch.index !== undefined) {
     const candidateBase = working.slice(0, bracketEdMatch.index).trim();
     if (
       candidateBase.length >= 3 &&
@@ -1874,7 +1916,7 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
     }
   }
   const parenMatch = working.match(RETAIL_PAREN_EDITION_RE);
-  if (parenMatch) {
+  if (parenMatch && parenMatch.index !== undefined) {
     const candidateBase = working.slice(0, parenMatch.index).trim();
     if (
       candidateBase.length >= 3 &&
@@ -1890,33 +1932,38 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   // Handle stacked Switch 2 wrapper after an inner packaging edition:
   // e.g. "Sonic Racing: CrossWorlds - Year One Edition Nintendo Switch 2 Edition"
   const stackedSw2Match = working.match(
-    /^(.{3,}?)\s+((?:Nintendo\s+)?Switch\s+2\s+Edition)$/i,
+    /^(.{3,}?)\s+((?:Nintendo\s+)?Switch\s*2\s+Editions?)$/i,
   );
   if (stackedSw2Match) {
     const inner = stackedSw2Match[1].trim();
     const sw2Suffix = stackedSw2Match[2].trim();
-    const innerSplit = splitTitleEditionSuffix(inner);
+    const innerSplit = splitTitleEditionSuffix(inner, {
+      allowGenericSingleWord: true,
+      hasEntity: options.hasEntity,
+    });
     if (
       innerSplit &&
       !innerSplit.suffix.startsWith('+') &&
       !PLATFORM_EDITION_ONLY_RE.test(innerSplit.suffix) &&
-      !STANDALONE_CONTENT_EDITION_RE.test(innerSplit.suffix) &&
+      !isStandaloneContentReissueSuffix(innerSplit.suffix) &&
       !NON_ENGLISH_EDITION_RE.test(innerSplit.suffix)
     ) {
-      const sep = innerSplit.base.includes(':') ? ' - ' : ' - ';
       return {
-        baseTitle: `${innerSplit.base}${sep}${sw2Suffix}`,
+        baseTitle: `${innerSplit.base} - ${sw2Suffix}`,
         edition: innerSplit.suffix,
       };
     }
   }
 
-  const split = splitTitleEditionSuffix(working);
+  const split = splitTitleEditionSuffix(working, {
+    allowGenericSingleWord: true,
+    hasEntity: options.hasEntity,
+  });
   if (
     split &&
     !split.suffix.startsWith('+') &&
     !PLATFORM_EDITION_ONLY_RE.test(split.suffix) &&
-    !STANDALONE_CONTENT_EDITION_RE.test(split.suffix) &&
+    !isStandaloneContentReissueSuffix(split.suffix) &&
     !NON_ENGLISH_EDITION_RE.test(split.suffix)
   ) {
     return {
@@ -1938,18 +1985,12 @@ export function extractPhysicalEditionForVariant(rawTitle: string): {
   return { baseTitle: preCleaned, edition: null };
 }
 
-const SINGLE_TITLE_AMPERSAND_GUARD_RE =
-  /\b(?:ratchet\s*&\s*clank|mario\s*&\s*luigi|dungeons\s*&\s*dragons|sonic\s*&\s*knuckles|saints\s*(?:&|and)\s*sinners|krypto\s*(?:&|and)\s*ace|blood\s*&\s*truth|guns,\s*gore\s*&\s*cannoli|pocky\s*&\s*rocky|kane\s*&\s*lynch|sam\s*&\s*max|toejam\s*&\s*earl|banjo\s*(?:&|and)\s*kazooie|kameo\s*&\s*|pride\s*&\s*prejudice|law\s*&\s*order|fast\s*&\s*furious|rock\s*&\s*roll|hide\s*&\s*seek|search\s*&\s*rescue|cops\s*&\s*robbers|sword\s*&\s*shield|pen\s*&\s*paper|mount\s*&\s*blade|command\s*&\s*conquer|puzzles\s*&\s*dragons)\b/i;
+function isStandaloneContentReissueSuffix(suffix: string): boolean {
+  return /^(?:Director'?s?\s+Cut|Extended\s+Cut|Remastered|HD\s+Remaster(?:ed)?|Remake|Final\s+Cut)$/i.test(
+    suffix.trim(),
+  );
+}
 
-/**
- * Extracts constituent single-game titles from genuine physical multi-game
- * cartridges/discs (e.g. "Sonic Mania + Team Sonic Racing", "Yakuza Kiwami 1+2",
- * "Star Wars Jedi Outcast/Jedi Academy", "Harvest Moon: The Lost Valley and Skytree Village").
- *
- * Returns `[]` unless `>= 2` clean constituent titles are confidently extracted so
- * single titles that naturally contain `&` or `and` (e.g. "Ratchet & Clank",
- * "Saints and Sinners", "Krypto & Ace") are never mis-split.
- */
 /**
  * Splits a string on ` & ` or ` and ` separators while keeping double-quoted
  * substrings intact (e.g. `Shin chan: "Me and the Professor" & "Shiro of Coal Town"`).
@@ -1985,7 +2026,18 @@ function cleanComboPart(part: string): string {
     .trim();
 }
 
-export function parseComboCartConstituentTitles(title: string): string[] {
+/**
+ * Extracts constituent single-game titles from genuine physical multi-game
+ * cartridges/discs using grammatical structure and optional entity verification.
+ *
+ * When `options.hasStandaloneGame` is provided, ambiguous `A + B`, shared-prefix
+ * `A/B`, and natural `A & B` splits are verified against actual catalog/IGDB entities
+ * instead of relying on hardcoded game or DLC keyword blacklists.
+ */
+export function parseComboCartConstituentTitles(
+  title: string,
+  options: { hasStandaloneGame?: (candidateTitle: string) => boolean } = {},
+): string[] {
   const framed = stripStructuralStoreFraming(normalizeTypography(title || ''), {
     stripAllBrackets: true,
   });
@@ -2066,11 +2118,7 @@ export function parseComboCartConstituentTitles(title: string): string[] {
   // 1. Explicit " + " delimiter ("Sonic Mania + Team Sonic Racing")
   if (/\s+\+\s+/.test(body)) {
     const parts = body.split(/\s+\+\s+/);
-    // Reject Pokémon/Mario Switch "+ Booster Course Pass / Expansion Pass" DLC add-ons
-    if (
-      parts.length >= 2 &&
-      !PLUS_ADDON_KEYWORD_RE.test(parts[parts.length - 1])
-    ) {
+    if (parts.length >= 2) {
       // Handle leading number continuation like "Atari Recharged Collection 3 + 4"
       if (parts.length === 2 && /^\d+$/.test(parts[1].trim())) {
         const prefixNum = parts[0].trim().match(/^(.+?)\s+(\d+)$/);
@@ -2081,11 +2129,28 @@ export function parseComboCartConstituentTitles(title: string): string[] {
           ]);
         }
       }
-      return normalizeSplitParts(parts);
+      const rightSide = parts[parts.length - 1].trim();
+      const rightIsExplicitExpansionSyntax = /\b(?:pass|expansion|dlc)\b/i.test(
+        rightSide,
+      );
+      if (options.hasStandaloneGame) {
+        const resolved = normalizeSplitParts(parts);
+        if (
+          resolved.length >= 2 &&
+          !rightIsExplicitExpansionSyntax &&
+          options.hasStandaloneGame(rightSide)
+        ) {
+          return resolved;
+        }
+        return [];
+      }
+      if (!rightIsExplicitExpansionSyntax) {
+        return normalizeSplitParts(parts);
+      }
     }
   }
 
-  // 2. Explicit slash delimiter with shared franchise prefix support
+  // 2. Explicit slash delimiter with grammatical / entity-verified shared franchise prefix
   // e.g. "Star Wars Jedi Outcast/Jedi Academy" -> ["Star Wars Jedi Outcast", "Star Wars Jedi Academy"]
   if (
     /\s*\/\s*/.test(body) &&
@@ -2097,27 +2162,34 @@ export function parseComboCartConstituentTitles(title: string): string[] {
       slashParts.length <= 4 &&
       slashParts.every((s) => s.length >= 4)
     ) {
-      if (slashParts.length === 2) {
+      if (slashParts.length === 2 && !slashParts[1].includes(':')) {
+        const sharedColon = slashParts[0].match(/^([^:]{3,}):\s+(.+)$/);
+        if (sharedColon) {
+          return normalizeSplitParts([
+            slashParts[0],
+            `${sharedColon[1].trim()}: ${slashParts[1]}`,
+          ]);
+        }
         const firstWords = slashParts[0].split(/\s+/);
         const secondWords = slashParts[1].split(/\s+/);
-        if (firstWords.length >= 3 && secondWords.length >= 2) {
-          const sharedColon = slashParts[0].match(/^([^:]{3,}):\s+(.+)$/);
-          if (sharedColon && !slashParts[1].includes(':')) {
-            return normalizeSplitParts([
-              slashParts[0],
-              `${sharedColon[1].trim()}: ${slashParts[1]}`,
-            ]);
+        if (options.hasStandaloneGame && firstWords.length >= 2) {
+          for (let k = firstWords.length - 1; k >= 1; k--) {
+            const candSecond = `${firstWords.slice(0, k).join(' ')} ${slashParts[1]}`;
+            if (options.hasStandaloneGame(candSecond)) {
+              return normalizeSplitParts([slashParts[0], candSecond]);
+            }
           }
-          const brandMatch = slashParts[0].match(
-            /^(Star\s+Wars|Super\s+Mario|Mega\s+Man|Final\s+Fantasy|Resident\s+Evil|Dragon\s+Quest|Harvest\s+Moon)\s+(.+)$/i,
-          );
-          if (
-            brandMatch &&
-            !slashParts[1].toLowerCase().startsWith(brandMatch[1].toLowerCase())
-          ) {
+        } else if (
+          firstWords.length >= 4 &&
+          secondWords.length === 2 &&
+          firstWords[0].toLowerCase() !== secondWords[0].toLowerCase()
+        ) {
+          const prefixLen = firstWords.length - secondWords.length;
+          if (prefixLen >= 1 && prefixLen <= 3) {
+            const prefix = firstWords.slice(0, prefixLen).join(' ');
             return normalizeSplitParts([
               slashParts[0],
-              `${brandMatch[1]} ${slashParts[1]}`,
+              `${prefix} ${slashParts[1]}`,
             ]);
           }
         }
@@ -2126,53 +2198,69 @@ export function parseComboCartConstituentTitles(title: string): string[] {
     }
   }
 
-  // 3. Colon-prefixed shared franchise with "and" / "&" (only when right-hand side does NOT introduce its own colon):
-  // e.g. "Harvest Moon: The Lost Valley and Skytree Village", "Shin chan: \"Me and the Professor...\" & \"Shiro of Coal Town\""
+  // 3. Colon-prefixed shared franchise with "and" / "&" (requiring >= 2 words on each side and entity verification when provided)
   const colonIdx = body.indexOf(':');
   if (colonIdx > 2 && colonIdx < body.length - 6) {
     const prefix = body.slice(0, colonIdx).trim();
     const rest = body.slice(colonIdx + 1).trim();
-    if (!SINGLE_TITLE_AMPERSAND_GUARD_RE.test(rest)) {
-      const ampParts = splitOutsideQuotes(rest, /^\s+(?:&|and)\s+/i);
+    const ampParts = splitOutsideQuotes(rest, /^\s+(?:&|and)\s+/i);
+    if (
+      ampParts.length === 2 &&
+      !ampParts[1].includes(':') &&
+      cleanComboPart(ampParts[0]).split(/\s+/).length >= 2 &&
+      cleanComboPart(ampParts[1]).split(/\s+/).length >= 2
+    ) {
+      const expanded = normalizeSplitParts([
+        `${prefix}: ${cleanComboPart(ampParts[0])}`,
+        `${prefix}: ${cleanComboPart(ampParts[1])}`,
+      ]);
       if (
-        ampParts.length === 2 &&
-        !ampParts[1].includes(':') &&
-        cleanComboPart(ampParts[0]).split(/\s+/).length >= 2 &&
-        cleanComboPart(ampParts[1]).split(/\s+/).length >= 2
+        expanded.length === 2 &&
+        (!options.hasStandaloneGame ||
+          expanded.every((p) => options.hasStandaloneGame!(p)))
       ) {
-        return normalizeSplitParts([
-          `${prefix}: ${cleanComboPart(ampParts[0])}`,
-          `${prefix}: ${cleanComboPart(ampParts[1])}`,
-        ]);
+        return expanded;
       }
     }
   }
 
   // 4. Explicit Bundle/Pack wrapper with " & " or " and "
-  if (hasExplicitComboWrapper && !SINGLE_TITLE_AMPERSAND_GUARD_RE.test(body)) {
+  if (hasExplicitComboWrapper) {
     const ampParts = splitOutsideQuotes(body, /^\s+(?:&|and)\s+/i);
     if (
       ampParts.length === 2 &&
       cleanComboPart(ampParts[0]).length >= 3 &&
       cleanComboPart(ampParts[1]).length >= 3
     ) {
-      return normalizeSplitParts(ampParts);
+      const cleaned = normalizeSplitParts(ampParts);
+      if (
+        cleaned.length === 2 &&
+        (hadExplicitComboSuffix ||
+          hadExplicitComboPrefix ||
+          !options.hasStandaloneGame ||
+          cleaned.every((p) => options.hasStandaloneGame!(p)))
+      ) {
+        return cleaned;
+      }
     }
   }
 
   // 5. Standalone dual-game `&` compilation ("Forza Motorsport & Xbox Live Arcade")
-  if (
-    !SINGLE_TITLE_AMPERSAND_GUARD_RE.test(body) &&
-    /\s+&\s+/.test(body) &&
-    !/:\s*.*\s+&\s+/.test(body)
-  ) {
+  if (/\s+&\s+/.test(body) && !/:\s*.*\s+&\s+/.test(body)) {
     const parts = splitOutsideQuotes(body, /^\s+&\s+/);
     if (
       parts.length === 2 &&
       cleanComboPart(parts[0]).split(/\s+/).length >= 2 &&
       cleanComboPart(parts[1]).split(/\s+/).length >= 2
     ) {
-      return normalizeSplitParts(parts);
+      const cleaned = normalizeSplitParts(parts);
+      if (
+        cleaned.length === 2 &&
+        (!options.hasStandaloneGame ||
+          cleaned.every((p) => options.hasStandaloneGame!(p)))
+      ) {
+        return cleaned;
+      }
     }
   }
 
@@ -2193,12 +2281,46 @@ export function resolveCanonicalDisplayTitle(
   if (!igdbClean) return srcClean;
   if (!srcClean) return igdbClean;
 
-  const srcEd = splitTitleEditionSuffix(srcClean);
-  if (!srcEd) {
+  const igdbNorm = normalizeTitleForMatching(igdbClean);
+  if (normalizeTitleForMatching(srcClean) === igdbNorm) {
     return igdbClean;
   }
 
-  const igdbEd = splitTitleEditionSuffix(igdbClean);
+  // Prefer an exact entity-verified grammatical split against igdbClean first
+  const entitySplit = resolveEditionSplitWithCatalog(
+    srcClean,
+    (cand) => normalizeTitleForMatching(cand) === igdbNorm,
+  );
+  if (entitySplit) {
+    if (entitySplit.suffix.startsWith('+')) {
+      return `${igdbClean} ${entitySplit.suffix}`;
+    }
+    if (igdbClean.includes(':') || /[!?]$/.test(igdbClean)) {
+      return `${igdbClean} - ${entitySplit.suffix}`;
+    }
+    return `${igdbClean}: ${entitySplit.suffix}`;
+  }
+
+  const srcEd = splitTitleEditionSuffix(srcClean, {
+    allowGenericSingleWord: true,
+  });
+  if (!srcEd) {
+    // Preserve colon-delimited expansion subtitles when IGDB only matched the bare base title
+    // (e.g. "Shovel Knight: Treasure Trove" vs "Shovel Knight") while stripping DAT dash taglines
+    // ("Driver - You Are the Wheelman" -> "Driver").
+    const colonIdx = srcClean.indexOf(':');
+    if (
+      colonIdx > 1 &&
+      normalizeTitleForMatching(srcClean.slice(0, colonIdx)) === igdbNorm
+    ) {
+      return `${igdbClean}: ${srcClean.slice(colonIdx + 1).trim()}`;
+    }
+    return igdbClean;
+  }
+
+  const igdbEd = splitTitleEditionSuffix(igdbClean, {
+    allowGenericSingleWord: true,
+  });
   if (
     igdbEd &&
     normalizeTitleForMatching(srcEd.suffix) ===

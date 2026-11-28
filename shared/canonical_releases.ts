@@ -9,6 +9,8 @@
  */
 
 import {
+  areCanonicalTitlesSequelCompatible,
+  isCompilationOrBundleTitle,
   normalizeTitleForMatching,
   gameMatchesReleaseWithAlternatives,
 } from './title_matching.js';
@@ -20,6 +22,8 @@ import {
   isIgnoredFormatRelease,
 } from './source_format.js';
 import {
+  BOX_SET_ROM_GROUPING_MAP,
+  SUPERSEDED_RELEASE_PAIRS,
   VOUCHER_BUNDLES_MISSING_IN_SOURCES,
   findRetailPackInDisc,
   normalizeForLabelMatch,
@@ -1021,4 +1025,233 @@ export function isCanonicalNoiseTitle(
   }
 
   return false;
+}
+
+const EXCLUSIVE_EXEMPT_EXTRA_TITLE_RE = /\b(?:action\s+pack|bundle|saga)\b/i;
+
+export interface LinkingGameDescriptor {
+  stable_id: number;
+  platform_id: number;
+  title: string;
+  igdb_id?: number | null;
+  bundle_parent_id?: number | null;
+}
+
+export interface LinkingCanonicalDescriptor {
+  id?: number | null;
+  platform_id?: number | null;
+  raw_title?: string | null;
+  rom_name?: string | null;
+  variants?: string | null;
+  packin_host_normalized_title?: string | null;
+}
+
+/**
+ * Enforces release exclusivity across standalone (non-bundle, non-compilation)
+ * `games` rows so distinct titles cannot share a single `canonical_release_id`, and
+ * prevents base games from stealing canonical releases whose exact title is owned by
+ * an edition entry on the same platform.
+ */
+export class CanonicalLinkingExclusivityGuard {
+  private readonly exactOwnersByPlatNorm = new Map<
+    string,
+    LinkingGameDescriptor[]
+  >();
+  private readonly parentPlatformMap?: Map<number, number>;
+  private readonly usedCanonicalIdsByGame = new Map<number, Set<number>>();
+  private readonly exclusiveOwnerByCanonicalId = new Map<number, number>();
+
+  constructor(
+    games: LinkingGameDescriptor[],
+    parentPlatformMap?: Map<number, number>,
+  ) {
+    this.parentPlatformMap = parentPlatformMap;
+    for (const g of games) {
+      const norm = normalizeTitleForMatching(g.title);
+      if (!norm) continue;
+      const key = `${g.platform_id}::${norm}`;
+      const bucket = this.exactOwnersByPlatNorm.get(key);
+      if (bucket) {
+        if (!bucket.some((x) => x.stable_id === g.stable_id)) {
+          bucket.push(g);
+        }
+      } else {
+        this.exactOwnersByPlatNorm.set(key, [g]);
+      }
+    }
+  }
+
+  /**
+   * Returns true if `candidateTitle` matches any game registered on `platformId`
+   * (or its parent platform), for catalog-backed edition/combo resolution.
+   */
+  hasEntity(platformId: number, candidateTitle: string): boolean {
+    const norm = normalizeTitleForMatching(candidateTitle);
+    if (!norm) return false;
+    if (this.exactOwnersByPlatNorm.has(`${platformId}::${norm}`)) {
+      return true;
+    }
+    const parentId = this.parentPlatformMap?.get(platformId);
+    return parentId !== undefined
+      ? this.exactOwnersByPlatNorm.has(`${parentId}::${norm}`)
+      : false;
+  }
+
+  /**
+   * Returns true when a game/canonical pair belongs to a documented shared-disc
+   * exemption (box-set children, compilations, demos, pack-ins, superseded discs)
+   * that may legitimately share a `canonical_release_id` across distinct `games` rows.
+   */
+  isSharedDiscExempt(
+    game: Pick<
+      LinkingGameDescriptor,
+      'platform_id' | 'title' | 'bundle_parent_id'
+    >,
+    canonical: LinkingCanonicalDescriptor,
+  ): boolean {
+    if (game.bundle_parent_id != null) return true;
+    if (
+      isCompilationOrBundleTitle(game.title) ||
+      EXCLUSIVE_EXEMPT_EXTRA_TITLE_RE.test(game.title)
+    ) {
+      return true;
+    }
+    if (
+      canonical.raw_title &&
+      isCompilationOrBundleTitle(canonical.raw_title)
+    ) {
+      return true;
+    }
+    if (canonical.packin_host_normalized_title) return true;
+    if (canonical.variants && /\bDemo\b/i.test(canonical.variants)) {
+      return true;
+    }
+    const romName = canonical.rom_name || '';
+    if (romName) {
+      if (/\((?:Demo|Beta|Proto)\)/i.test(romName)) return true;
+      if (findRetailPackInDisc(romName) !== null) return true;
+      const baseNoExt = romName
+        .replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, '')
+        .trim()
+        .toLowerCase();
+      if (BOX_SET_ROM_GROUPING_MAP[baseNoExt] !== undefined) return true;
+    }
+    const gameNorm = normalizeTitleForMatching(game.title);
+    if (
+      SUPERSEDED_RELEASE_PAIRS.some(
+        (pair) =>
+          pair.platformId === game.platform_id &&
+          (pair.originalNormalizedTitle === gameNorm ||
+            pair.supersetNormalizedTitle === gameNorm),
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns true when `candidateRawTitle` belongs verbatim to another distinct game
+   * on the same platform (e.g. "Overcooked: Gourmet Edition" vs base "Overcooked!").
+   */
+  isEditionOwnedByAnotherGame(
+    game: Pick<
+      LinkingGameDescriptor,
+      'stable_id' | 'platform_id' | 'title' | 'igdb_id'
+    >,
+    candidateRawTitle: string | null | undefined,
+    canonicalPlatformId?: number | null,
+  ): boolean {
+    const cleanCand =
+      cleanTitleWithoutParentheticals((candidateRawTitle || '').trim()) ||
+      (candidateRawTitle || '').trim();
+    const candNorm = normalizeTitleForMatching(cleanCand);
+    if (!candNorm) return false;
+    const gameNorm = normalizeTitleForMatching(game.title);
+    if (candNorm === gameNorm) return false;
+
+    const platformsToCheck =
+      canonicalPlatformId != null && canonicalPlatformId !== game.platform_id
+        ? [game.platform_id, canonicalPlatformId]
+        : [game.platform_id];
+    for (const pid of platformsToCheck) {
+      const owners = this.exactOwnersByPlatNorm.get(`${pid}::${candNorm}`);
+      if (!owners) continue;
+      if (
+        owners.some(
+          (o) =>
+            o.stable_id !== game.stable_id &&
+            (o.igdb_id == null ||
+              game.igdb_id == null ||
+              o.igdb_id !== game.igdb_id) &&
+            areCanonicalTitlesSequelCompatible(o.title, cleanCand),
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  recordExistingLink(
+    game: LinkingGameDescriptor,
+    canonical: LinkingCanonicalDescriptor,
+  ): void {
+    const cid = canonical.id;
+    if (cid == null || cid <= 0) return;
+    let gameSet = this.usedCanonicalIdsByGame.get(game.stable_id);
+    if (!gameSet) {
+      gameSet = new Set<number>();
+      this.usedCanonicalIdsByGame.set(game.stable_id, gameSet);
+    }
+    gameSet.add(cid);
+    if (
+      !this.isSharedDiscExempt(game, canonical) &&
+      !this.exclusiveOwnerByCanonicalId.has(cid)
+    ) {
+      this.exclusiveOwnerByCanonicalId.set(cid, game.stable_id);
+    }
+  }
+
+  canClaim(
+    game: LinkingGameDescriptor,
+    canonical: LinkingCanonicalDescriptor,
+  ): boolean {
+    const cid = canonical.id;
+    if (cid != null && cid > 0) {
+      if (this.usedCanonicalIdsByGame.get(game.stable_id)?.has(cid)) {
+        return false;
+      }
+      if (!this.isSharedDiscExempt(game, canonical)) {
+        const owner = this.exclusiveOwnerByCanonicalId.get(cid);
+        if (owner !== undefined && owner !== game.stable_id) {
+          return false;
+        }
+      }
+    }
+    const effectiveTitle =
+      canonical.raw_title ||
+      (canonical.rom_name
+        ? cleanTitleWithoutParentheticals(
+            canonical.rom_name.replace(/\.(?:xiso\.iso|[a-z0-9]{2,4})$/i, ''),
+          )
+        : '');
+    if (
+      this.isEditionOwnedByAnotherGame(
+        game,
+        effectiveTitle,
+        canonical.platform_id,
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  markClaimed(
+    game: LinkingGameDescriptor,
+    canonical: LinkingCanonicalDescriptor,
+  ): void {
+    this.recordExistingLink(game, canonical);
+  }
 }
