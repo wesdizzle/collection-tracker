@@ -1453,6 +1453,28 @@ describe('Canonical Releases & Physical Verification Engine', () => {
           'Demos',
         ),
       ).toBe(false);
+      // Structural compilation/cross-platform extract rejection preserves budget lines
+      expect(
+        isIgnoredFormatRelease(
+          'Teenage Mutant Ninja Turtles',
+          'Teenage Mutant Ninja Turtles (USA) (The Cowabunga Collection).nes',
+          13,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Assault Suits Valken',
+          'Assault Suits Valken (World) (En) (Switch).sfc',
+          15,
+        ),
+      ).toBe(true);
+      expect(
+        isIgnoredFormatRelease(
+          'Armored Core 4',
+          'Armored Core 4 (Japan) (The Best Collection).iso',
+          32,
+        ),
+      ).toBe(false);
     });
 
     it('drops ignored Redump <category> releases during deduplicateDatReleases', () => {

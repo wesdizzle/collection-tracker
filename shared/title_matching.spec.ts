@@ -43,9 +43,19 @@ describe('Title Normalization', () => {
     );
   });
 
-  it('should strip franchise suffixes like "the hedgehog"', () => {
+  it('preserves differentiating franchise nouns like "lego" and "the hedgehog" while redirecting exact Spinball/Chaos DAT naming', () => {
+    // Exact historical DAT redirects handle Spinball/Chaos while other "the hedgehog" titles keep their tokens
+    expect(normalizeTitleForMatching('Sega Sonic the Hedgehog: Spinball')).toBe(
+      'sonicspinball',
+    );
     expect(normalizeTitleForMatching('Sonic the Hedgehog Chaos')).toBe(
       'sonicchaos',
+    );
+    expect(normalizeTitleForMatching('Shadow the Hedgehog')).toBe(
+      'shadowhedgehog',
+    );
+    expect(normalizeTitleForMatching("LEGO Marvel's Avengers")).not.toBe(
+      normalizeTitleForMatching("Marvel's Avengers"),
     );
   });
 
@@ -112,20 +122,19 @@ describe('Title Matching Strategies', () => {
         'Return to Castle Wolfenstein - Tides of War',
       ),
     ).toBe(true);
-    // Game title has subtitle, release is base (Super Mario All-Stars)
+    // Removed edition/bundle-collapsing pre-split aliases must NOT collapse blindly in bare titlesMatch
     expect(
       titlesMatch(
         'Super Mario All-Stars: Limited Edition',
         'Super Mario All-Stars',
       ),
-    ).toBe(true);
-    // Game title has subtitle, release is base (Assassin's Creed Chronicles)
+    ).toBe(false);
     expect(
       titlesMatch(
         "Assassin's Creed Chronicles: Trilogy Pack",
         "Assassin's Creed Chronicles",
       ),
-    ).toBe(true);
+    ).toBe(false);
     // Prince of Persia Trilogy HD override
     expect(
       titlesMatch('Prince of Persia Trilogy HD', 'Prince of Persia Trilogy'),
@@ -160,13 +169,19 @@ describe('Title Matching Strategies', () => {
       ),
     ).toBe(true);
 
-    // NieR: Automata Switch edition alias matching
+    // Edition-collapsing redirects removed: distinct editions and LEGO/non-LEGO titles remain separate
     expect(
       titlesMatch(
         'NieR: Automata',
         'NieR - Automata - The End of YoRHa Edition',
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(titlesMatch('Overcooked: Gourmet Edition', 'Overcooked!')).toBe(
+      false,
+    );
+    expect(titlesMatch("LEGO Marvel's Avengers", "Marvel's Avengers")).toBe(
+      false,
+    );
   });
 
   it('should prevent edition games from matching base releases without that edition', () => {
@@ -754,7 +769,7 @@ describe('Title Matching Strategies', () => {
         'Super Mario All-Stars (USA)',
         14,
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       titlesMatch(
@@ -860,12 +875,20 @@ describe('Title Matching Strategies', () => {
     ).toBe(true);
     expect(
       titlesMatch(
-        'BioShock Infinite',
+        'BioShock Infinite: The Complete Edition',
         'BioShock Infinite - The Complete Edition - Bonus Content Disc',
         'BioShock Infinite - The Complete Edition - Bonus Content Disc (USA, Europe).iso',
         48,
       ),
     ).toBe(true);
+    expect(
+      titlesMatch(
+        'BioShock Infinite',
+        'BioShock Infinite - The Complete Edition - Bonus Content Disc',
+        'BioShock Infinite - The Complete Edition - Bonus Content Disc (USA, Europe).iso',
+        48,
+      ),
+    ).toBe(false);
 
     // Standalone-title bonus discs and pre-order promo discs remain blocked from matching base game
     expect(
@@ -1261,9 +1284,11 @@ describe('Title Matching Strategies', () => {
       expect(buildCanonicalLinkerMatchKeys('Inside & Limbo Bundle')).toContain(
         'insidelimbo',
       );
-      expect(
-        buildCanonicalLinkerMatchKeys('Mega Man X: Legacy Collection 1+2'),
-      ).toContain('megamanxlegacycollection');
+      const mmx12Keys = buildCanonicalLinkerMatchKeys(
+        'Mega Man X: Legacy Collection 1+2',
+      );
+      expect(mmx12Keys).toContain('megamanxlegacycollection12');
+      expect(mmx12Keys).not.toContain('megamanxlegacycollection');
       expect(
         buildCanonicalLinkerMatchKeys('Persona 5 Royal: Steelbook Edition'),
       ).toContain('persona5royal');

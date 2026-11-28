@@ -2099,3 +2099,184 @@ export const VOUCHER_BUNDLES_MISSING_IN_SOURCES: VoucherBundleDefinition[] = [
     note: 'Original standard retail release included a digital download voucher for the original Bayonetta.',
   },
 ];
+
+export interface RedumpMultiDiscQuirkSpec {
+  /** Normalized prefix match against lowercase DAT filename without extension */
+  titlePrefixLower: string;
+  /** Applicable platform ID */
+  platformId: number;
+  /** Optional parenthetical token normalization for cross-region shared Disc 2 pressings */
+  regionRewrites?: Array<{
+    requiredSubstrings: string[];
+    parentheticalPattern: RegExp;
+    replacementParen: string;
+    canonicalRegion: string;
+  }>;
+  /** Parenthetical variants present on only one disc of a standard multi-disc box set that must be suppressed so discs group together */
+  suppressDiscVariantsPattern?: RegExp;
+  /** Rationale documenting the upstream Redump DAT quirk */
+  rationale: string;
+}
+
+/**
+ * Curated registry of Redump multi-disc catalog quirks where physical box-set discs
+ * carry inconsistent regional or variant parentheticals across Disc 1 vs Disc 2/3.
+ * Centralizes upstream DAT anomalies here instead of scattering title branches across parsers.
+ */
+export const REDUMP_MULTIDISC_QUIRKS: RedumpMultiDiscQuirkSpec[] = [
+  {
+    titlePrefixLower: 'halo 3 - odst',
+    platformId: 48,
+    regionRewrites: [
+      {
+        requiredSubstrings: ['(usa, brazil)', '(disc 2)'],
+        parentheticalPattern: /\(usa,\s*brazil\)/gi,
+        replacementParen: '(USA)',
+        canonicalRegion: 'USA',
+      },
+      {
+        requiredSubstrings: ['(europe, asia)', '(disc 2)'],
+        parentheticalPattern: /\(europe,\s*asia\)/gi,
+        replacementParen: '(Europe, Australia)',
+        canonicalRegion: 'Europe, Australia',
+      },
+    ],
+    rationale:
+      'Redump tags Halo 3: ODST Multiplayer Disc 2 as (USA, Brazil) and (Europe, Asia), whereas Campaign Disc 1 is regionalized as (USA) / (Europe, Australia).',
+  },
+  {
+    titlePrefixLower: 'resident evil 6',
+    platformId: 48,
+    regionRewrites: [
+      {
+        requiredSubstrings: ['(usa, europe)', '(disc 2)', '(voice over pack)'],
+        parentheticalPattern: /\(usa,\s*europe\)/gi,
+        replacementParen: '(World)',
+        canonicalRegion: 'World',
+      },
+    ],
+    rationale:
+      'Redump Xbox 360 Voice Over Pack Disc 2 is labeled (USA, Europe) while sharing a region-free disc build with World Game Disc 1.',
+  },
+  {
+    titlePrefixLower: 'metal gear solid 3 - subsistence',
+    platformId: 30,
+    suppressDiscVariantsPattern: /^(?:limited edition|shokai seisanban)$/i,
+    rationale:
+      'Redump only appends (Limited Edition) / (Shokai Seisanban) onto Existence Disc 3 even though it groups with standard Disc 1/2 in the edition set.',
+  },
+];
+
+export function resolveRedumpMultiDiscRegionQuirk(
+  rawName: string,
+): string | null {
+  if (!rawName) return null;
+  const lower = rawName.toLowerCase();
+  for (const spec of REDUMP_MULTIDISC_QUIRKS) {
+    if (!lower.startsWith(spec.titlePrefixLower) || !spec.regionRewrites) {
+      continue;
+    }
+    for (const rw of spec.regionRewrites) {
+      if (rw.requiredSubstrings.every((s) => lower.includes(s))) {
+        return rw.canonicalRegion;
+      }
+    }
+  }
+  return null;
+}
+
+export function rewriteRedumpDiscLabelQuirk(baseTitle: string): string {
+  if (!baseTitle) return baseTitle;
+  const lower = baseTitle.toLowerCase();
+  for (const spec of REDUMP_MULTIDISC_QUIRKS) {
+    if (!lower.startsWith(spec.titlePrefixLower) || !spec.regionRewrites) {
+      continue;
+    }
+    let out = baseTitle;
+    for (const rw of spec.regionRewrites) {
+      // Disc label quirk applies even if (Disc 2) hasn't been stripped yet
+      const nonDiscSubstrings = rw.requiredSubstrings.filter(
+        (s) => !s.includes('disc '),
+      );
+      if (nonDiscSubstrings.every((s) => lower.includes(s))) {
+        out = out.replace(rw.parentheticalPattern, rw.replacementParen);
+      }
+    }
+    return out;
+  }
+  return baseTitle;
+}
+
+export function shouldSuppressRedumpDiscVariant(
+  rawName: string,
+  hasNumberedDisc: boolean,
+  variantContent: string,
+): boolean {
+  if (!hasNumberedDisc || !rawName) return false;
+  const lower = rawName.toLowerCase();
+  const contentTrimmed = variantContent.trim();
+  for (const spec of REDUMP_MULTIDISC_QUIRKS) {
+    if (
+      lower.startsWith(spec.titlePrefixLower) &&
+      spec.suppressDiscVariantsPattern?.test(contentTrimmed)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export interface HostEmulatorExtractRule {
+  pattern: RegExp;
+  /** Platform IDs where this parenthetical refers to a native release rather than a retro port extract */
+  nativePlatformIds?: number[];
+  rationale: string;
+}
+
+/**
+ * Curated host-game emulation extract parenthetical tags in No-Intro DATs that do not
+ * contain self-describing compilation nouns ("Collection", "Anthology", "All-Stars", etc.).
+ */
+export const RETAIL_HOST_EMULATOR_EXTRACT_RULES: HostEmulatorExtractRule[] = [
+  {
+    pattern: /\b(?:animal\s+crossing|animal\s+forest)\b/i,
+    nativePlatformIds: [20], // GameCube native Animal Crossing itself is unaffected
+    rationale: 'NES/Famicom ROMs extracted from Animal Crossing (GameCube).',
+  },
+  {
+    pattern: /\bzelda\s+collector'?s?\s+edition\b/i,
+    nativePlatformIds: [20],
+    rationale:
+      "NES/N64 Zelda ROMs extracted from The Legend of Zelda: Collector's Edition (GameCube).",
+  },
+  {
+    pattern: /\bgamecube(?:\s+edition)?\b/i,
+    nativePlatformIds: [20],
+    rationale:
+      'Retro ROMs extracted from GameCube bonus discs (e.g. Ocarina of Time Master Quest).',
+  },
+  {
+    pattern:
+      /\b(?:pokemon\s+box|famicombox|game\s*&\s*watch|midway\s+arcade)\b/i,
+    rationale:
+      'Embedded showcase/bonus ROMs extracted from hardware kiosks or bonus discs.',
+  },
+];
+
+export function isRetailHostEmulatorExtractTag(
+  parenInner: string,
+  platformId?: number,
+): boolean {
+  for (const rule of RETAIL_HOST_EMULATOR_EXTRACT_RULES) {
+    if (
+      platformId !== undefined &&
+      rule.nativePlatformIds?.includes(platformId)
+    ) {
+      continue;
+    }
+    if (rule.pattern.test(parenInner)) {
+      return true;
+    }
+  }
+  return false;
+}

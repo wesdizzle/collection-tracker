@@ -762,6 +762,14 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
               tags: ['Nintendo Switch'],
               variants: [{ title: 'Default Title', price: '39.99' }],
             },
+            {
+              id: 77703,
+              title: 'Cassette Beasts - Switch',
+              handle: 'cassette-beasts-switch',
+              product_type: 'Nintendo Switch',
+              tags: ['Switch'],
+              variants: [{ title: 'Default Title', price: '34.99' }],
+            },
           ],
         }),
       });
@@ -776,10 +784,12 @@ describe('Boutique Physical Publisher & Pre-Order Feeds', () => {
           },
         ],
       );
-      expect(boutiqueRes).toHaveLength(1);
+      expect(boutiqueRes).toHaveLength(2);
       expect(boutiqueRes[0].cleanTitle).toBe('OFF');
       expect(boutiqueRes[0].edition).toBe('Bad Human Edition');
       expect(boutiqueRes[0].platformId).toBe(26);
+      expect(boutiqueRes[1].cleanTitle).toBe('Cassette Beasts');
+      expect(boutiqueRes[1].platformId).toBe(26);
 
       const lgnMockFetch = vi.fn().mockImplementation(async (url: string) => {
         if (String(url).includes('/categories')) {

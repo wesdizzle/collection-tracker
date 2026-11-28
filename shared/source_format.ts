@@ -11,6 +11,9 @@ import {
   BOX_SET_DISC_LABELS,
   findRetailPackInDisc,
   getCuratedReleaseTags,
+  isRetailHostEmulatorExtractTag,
+  resolveRedumpMultiDiscRegionQuirk,
+  shouldSuppressRedumpDiscVariant,
 } from './special_labels.js';
 
 /**
@@ -381,11 +384,15 @@ export function isTrueEditionOrRevisionVariant(content: string): boolean {
     return true;
   }
 
-  // 3. Recognized retail editions, budget lines, hardware enhancements, or compilations
+  // 3. Structural retail edition/exclusivity phrases, budget lines, hardware enhancements, and boutique reprint imprints
   if (
-    /\b(?:limited edition|collector'?s edition|special edition|deluxe|gold edition|day one edition|complete edition|game of the year|goty|greatest hits|platinum|playstation.*the best|rockstar classics|classic|nintendo selects|player'?s choice|shindou|genteiban|shokai|tokubetsu|premium|bundle|walmart|gamestop|best buy|target|amazon|edc|sgb|gb compatible|ndsi|virtual console|switch online|lodgenet|sega channel|e-reader|retro-bit|iam8bit|limited run|rerel|reprint)\b/i.test(
+    /\b(?:edition|version|reprint|rerel|re-?release|exclusive|deluxe|goty|game of the year|greatest hits|platinum|playstation.*the best|rockstar classics|classics?|nintendo selects|player'?s choice|shindou|genteiban|shokai|tokubetsu|premium|bundle)\b/i.test(
       lower,
-    )
+    ) ||
+    /\b(?:edc|sgb|gb compatible|ndsi|virtual console|switch online|lodgenet|sega channel|e-reader|retro-bit|iam8bit|limited run)\b/i.test(
+      lower,
+    ) ||
+    /^(?:walmart|gamestop|best buy|target|amazon)$/i.test(lower)
   ) {
     return true;
   }
@@ -402,26 +409,9 @@ export function isTrueEditionOrRevisionVariant(content: string): boolean {
 export function extractRegions(name: string): string | null {
   if (!name) return null;
 
-  // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
-  const nameLower = name.toLowerCase();
-  if (nameLower.startsWith('halo 3 - odst')) {
-    if (nameLower.includes('(usa, brazil)') && nameLower.includes('(disc 2)')) {
-      return 'USA';
-    }
-    if (
-      nameLower.includes('(europe, asia)') &&
-      nameLower.includes('(disc 2)')
-    ) {
-      return 'Europe, Australia';
-    }
-  }
-  if (
-    nameLower.startsWith('resident evil 6') &&
-    nameLower.includes('(usa, europe)') &&
-    nameLower.includes('(disc 2)') &&
-    nameLower.includes('(voice over pack)')
-  ) {
-    return 'World';
+  const quirkRegion = resolveRedumpMultiDiscRegionQuirk(name);
+  if (quirkRegion) {
+    return quirkRegion;
   }
 
   const found: string[] = [];
@@ -511,13 +501,7 @@ export function extractVariants(
         if (hasNumberedDisc && !isTrueEditionOrRevisionVariant(content)) {
           continue;
         }
-        // Special case for MGS3 Subsistence Disc 3 where "(Limited Edition)" or "(Shokai Seisanban)"
-        // was only tagged on Disc 3 in Redump
-        if (
-          hasNumberedDisc &&
-          name.toLowerCase().startsWith('metal gear solid 3 - subsistence') &&
-          /^(?:limited edition|shokai seisanban)$/i.test(content)
-        ) {
+        if (shouldSuppressRedumpDiscVariant(name, hasNumberedDisc, content)) {
           continue;
         }
         if (!found.includes(content)) {
@@ -741,32 +725,45 @@ export function isIgnoredFormatRelease(
         return true;
       }
       if (
-        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|namco museum archives|capcom town|famicombox|pokemon box|ds broadcast|manual|super mario 3d all-stars|digital|atari anthology|atari flashback|capcom classics mini mix|sega smash pack|midway arcade|activision anthology)\b/i.test(
+        /\b(?:virtual console|switch online|classic mini|genesis mini|mega drive mini|lodgenet|sega channel|e-reader|evercade|psn|xbla|eshop|wiiware|minis|dlc|update|manual|digital|all-stars|flashback|smash\s+pack|classics?\s+mini(?:\s+mix)?|retro\s+(?:rewind\s+)?collection|arcade\s+archives|museum\s+archives|capcom\s+town|ds\s+broadcast|wii\s+broadcast)\b/i.test(
           inner,
         ) ||
-        inner.includes('game & watch') ||
-        /\b(?:anniversary|legacy|advance|marvel maximum|disney afternoon|namcot|metal gear solid|kirby's dream|sonic classic|sonic mega|seiken densetsu|20 shuunen special|super mario|zelda|bomberman)\s+collection\b/i.test(
-          inner,
-        ) ||
-        /\bcollection\s+of\s+(?:mana|saga)\b/i.test(inner) ||
-        /\bzelda\s+collector'?s?\s+edition\b/i.test(inner)
+        (/\b(?:collection|anthology)\b/i.test(inner) &&
+          !/\b(?:best\s+collection|series\s+collection|2k\s+collection|enterbrain\s+collection|akogare\s+girls\s+collection|figure\s+box|collector'?s?\s+edition)\b/i.test(
+            inner,
+          )) ||
+        isRetailHostEmulatorExtractTag(inner, platformId)
       ) {
         return true;
       }
-      if (
-        platformId !== undefined &&
-        platformId !== 20 &&
-        /\b(?:gamecube(?:\s+edition)?|animal crossing|animal forest)\b/i.test(
-          inner,
-        )
-      ) {
-        return true;
-      }
-      if (
-        platformId === undefined &&
-        /\b(?:animal crossing|animal forest)\b/i.test(inner)
-      ) {
-        return true;
+      if (platformId !== undefined) {
+        const crossPlatformTokens = inner
+          .split(',')
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean);
+        const CROSS_PLATFORM_EXTRACT_NAMES: Array<{
+          pattern: RegExp;
+          nativeIds: number[];
+        }> = [
+          {
+            pattern: /^(?:(?:nintendo\s+)?switch(?:\s*2)?|nsw2?)$/,
+            nativeIds: [26, 27],
+          },
+          { pattern: /^wii\s*u$/, nativeIds: [24] },
+          { pattern: /^ps\s*vita$/, nativeIds: [33] },
+          { pattern: /^(?:playstation\s*4|ps4)$/, nativeIds: [34] },
+          { pattern: /^(?:playstation\s*5|ps5)$/, nativeIds: [35] },
+        ];
+        if (
+          crossPlatformTokens.some((tok) =>
+            CROSS_PLATFORM_EXTRACT_NAMES.some(
+              (rule) =>
+                rule.pattern.test(tok) && !rule.nativeIds.includes(platformId),
+            ),
+          )
+        ) {
+          return true;
+        }
       }
     }
   }
@@ -1053,14 +1050,8 @@ export function isPackInCompanionDemoRom(
   platformId: number | null | undefined,
   romName: string | null | undefined,
 ): boolean {
-  if (!romName) return false;
-  return (
-    (platformId === 29 && /^mega man legends 2.*\(demo\)/i.test(romName)) ||
-    (platformId === 30 &&
-      /^metal gear solid 2 - sons of liberty - trial edition.*\(demo\)/i.test(
-        romName,
-      )) ||
-    (platformId === 30 &&
-      /^final fantasy xii\s*\(usa\)\s*\(demo\)/i.test(romName))
-  );
+  if (!romName || platformId === null || platformId === undefined) {
+    return false;
+  }
+  return findRetailPackInDisc(romName)?.hostPlatformId === platformId;
 }

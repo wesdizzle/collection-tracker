@@ -216,77 +216,9 @@ export const BOUTIQUE_FEED_CONFIGS: BoutiqueFeedConfig[] = [
 ];
 
 /**
- * Common non-game merch or peripheral keywords to filter out from game pre-order feeds.
+ * Boutique feed hardware/merch filtering delegates to the unified `isStorefrontNonGameOrMultiBoxBundle`
+ * helper exported by `./retail.js` so storefront exclusion rules never drift between modules.
  */
-const NON_GAME_KEYWORDS = [
-  'vinyl',
-  '2xlp',
-  '3xlp',
-  'lp vinyl',
-  '180g',
-  'audio cd',
-  'soundtrack',
-  'original score',
-  'ost',
-  'cassette',
-  'slipmat',
-  'turntable',
-  'plush',
-  't-shirt',
-  'tee',
-  'hoodie',
-  'poster',
-  'art print',
-  'artbook',
-  'art book',
-  'pin set',
-  'enamel pin',
-  'lapel pin',
-  'keychain',
-  'slipcover only',
-  'slipcover',
-  'empty steelbook',
-  'trading cards',
-  'card pack',
-  'card sleeve',
-  'card games',
-  'blind box',
-  'standee',
-  'acrylic stand',
-  'figure only',
-  'figurine',
-  'action figure',
-  'statue',
-  'controller',
-  'faceplate',
-  'carrying case',
-  'travel bag',
-  'replacement case',
-  'manual only',
-  'desk mat',
-  'wall scroll',
-  'medallion',
-  'mug',
-  'jacket',
-  'tote bag',
-  'apparel',
-  'test equipment',
-  'digital code only',
-];
-
-const NON_GAME_REGEXES = [
-  ...NON_GAME_KEYWORDS.map((kw) => {
-    const escaped = kw
-      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      .replace(/\s+/g, '\\s+');
-    if (kw === 'controller') {
-      return /(?<!air\s+traffic\s+|traffic\s+)\bcontroller\b/i;
-    }
-    return new RegExp(`\\b${escaped}\\b`, 'i');
-  }),
-  /\bnendoroid\s+(?:doll|figure|petit|plus|pin)\b/i,
-  /\btrading\s+card(?!\s*(?:game\b|[:\-–—]\s*card\s+summoner\b))\b/i,
-];
 
 const BOUTIQUE_PLATFORM_PATTERNS: Array<{ regex: RegExp; id: number }> = [
   { regex: /\b(?:Nintendo\s+)?Switch\s+2\b/i, id: 27 },
@@ -377,10 +309,7 @@ export function cleanBoutiqueTitle(
   const lowerRaw = rawTitle.toLowerCase();
 
   // Fast rejection of merchandise, soundtracks, hardware, and multi-box storefront bundles
-  if (
-    isStorefrontNonGameOrMultiBoxBundle(rawTitle) ||
-    NON_GAME_REGEXES.some((rx) => rx.test(rawTitle))
-  ) {
+  if (isStorefrontNonGameOrMultiBoxBundle(rawTitle)) {
     return {
       cleanTitle: rawTitle,
       platformId: null,
@@ -655,7 +584,7 @@ function isCleanBoxSetGameLine(text: string): boolean {
   if (BOX_SET_PROSE_SENTENCE_RE.test(text)) return false;
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length >= 6 && /[.!]$/.test(text)) return false;
-  return !NON_GAME_REGEXES.some((rx) => rx.test(text));
+  return !isStorefrontNonGameOrMultiBoxBundle(text);
 }
 
 function extractTagGamePrefix(
@@ -786,10 +715,7 @@ function parseShopifyBoutiqueItem(
       : '';
   if (
     !rawTitle ||
-    isStorefrontNonGameOrMultiBoxBundle(rawTitle, item.product_type, tagsStr) ||
-    NON_GAME_REGEXES.some((rx) => rx.test(rawTitle)) ||
-    (item.product_type &&
-      NON_GAME_REGEXES.some((rx) => rx.test(item.product_type!)))
+    isStorefrontNonGameOrMultiBoxBundle(rawTitle, item.product_type, tagsStr)
   ) {
     return [];
   }
@@ -1309,7 +1235,7 @@ export async function fetchLimitedGameNewsReleases(
         });
         if (
           !cleaned.isGame ||
-          NON_GAME_REGEXES.some((rx) => rx.test(decodedHeadline)) ||
+          isStorefrontNonGameOrMultiBoxBundle(decodedHeadline) ||
           !cleaned.cleanTitle ||
           cleaned.cleanTitle.length < 2
         ) {

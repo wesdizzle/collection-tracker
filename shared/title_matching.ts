@@ -66,14 +66,11 @@ export function normalizeTitleForMatching(
   t = t.replace(/pac\s+man/g, 'pacman');
   t = t.replace(/super\s+mario/g, 'supermario');
 
-  // Remove publisher prefixes/suffixes and franchise specific prefixes
+  // Remove publisher prefixes/suffixes (preserving differentiating franchise nouns such as "lego" and "the hedgehog")
   t = t.replace(
-    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|lego|nickelodeon|lara croft)s?\b/gi,
+    /\b(disney|sega|nintendo|sony|microsoft|capcom|konami|namco|square enix|square|enix|atari|ubisoft|ea|marvel|sid meiers?|tom clancys?|nickelodeon|lara croft)s?\b/gi,
     '',
   );
-
-  // Remove franchise specific suffixes like "the hedgehog"
-  t = t.replace(/\bthe hedgehog\b/gi, '');
 
   // Normalize common special disc descriptors to "bonus disc"
   t = t.replace(/\b(tokusei|kakuchou|special)\s+disc\b/gi, 'bonus disc');
@@ -100,15 +97,15 @@ export function normalizeTitleForMatching(
   const words = t.split(/\s+/).filter((w) => w.length > 0);
   const cleanTitle = words.join('');
 
-  // Explicit overrides using clean alphanumeric keys to resolve colons, spaces, and other punctuation differences.
-  const ALIASES: Record<string, string> = {
+  // Documented historical DAT/IGDB title redirects (cross-regional titles, slash/trilogy naming,
+  // and un-subtitled DAT names) that never collapse distinct editions or combo releases.
+  const HISTORICAL_DAT_TITLE_REDIRECTS: Record<string, string> = {
     anothercrabstreasure: 'anothercrabtreasure',
     earthboundbeginnings: 'mother',
     legendzeldaocarinatimelegendzeldaocarinatimemasterquesttwogamebonusdisc:
       'legendzeldaocarinatimemasterquest',
     legendzeldaocarinatimemasterquesttwogamebonusdisc:
       'legendzeldaocarinatimemasterquest',
-    pokemoncolosseumbonusdisc: 'pokemoncolosseumbonusdisc',
     princepersiatrilogyhd: 'princepersiatrilogy',
     jakdaxtercollection: 'jakdaxtertrilogy',
     ratchetclankcollection: 'ratchetclanktrilogy',
@@ -116,11 +113,12 @@ export function normalizeTitleForMatching(
     finalfantasyxx2hdremaster:
       'finalfantasyxfinalfantasyx2finalfantasyxx2hdremaster',
     sonicclassics: 'soniccompilation',
+    sonichedgehogchaos: 'sonicchaos',
+    sonichedgehogspinball: 'sonicspinball',
     n: 'nplus',
     lemmings3d: '3dlemmings',
     harvestmonnewbeginning: 'harvestmon3dnewbeginning',
     harvestmontaletwotowns: 'harvestmon3dtaletwotowns',
-    bioshockinfinitecomplete: 'bioshockinfinitecompletebonuscontentdisc',
     watchmenendisnigh: 'watchmenendisnighparts12',
     classicscollection: 'classicscollectionvol1',
     metalgearsolidlegacycollection: 'metalgearsolidlegacycollection19872012',
@@ -144,41 +142,28 @@ export function normalizeTitleForMatching(
     littlebigplanetplaystationvita: 'littlebigplanetpsvita',
     homeuniquehorroradventure: 'home',
     fireemblemthreehopes: 'fireemblemwarriorsthreehopes',
-    nierautomataendyorha: 'nierautomata',
     anniversarycollectionarcadeclassics: 'arcadeclassicsanniversary',
     batmanenemywithintelltaleseries: 'batmanenemywithin',
     blastermasterzeroii: 'blastermasterzero2',
-    childlightultimatevaliantheartsgreatwar:
-      'childlightultimatevaliantheartsgreatwardoublepack',
-    cryptnecrodancerswitch: 'cryptnecrodancer',
     finalfantasypixelremastercollection:
       'finalfantasyivipixelremastercollection',
     glover: 'gloverqubyteclassics',
     groundedfullyyoked: 'groundedfullyyolked',
-    harvestmonlighthope: 'harvestmonlighthopespecial',
-    megamanlegacycollection12: 'megamanlegacycollection',
-    ninokuniwrathwhitewitchremastered: 'ninokuniwrathwhitewitch',
     octodaddadliestcatch: 'octodaddeadliestcatch',
     oddworldmunchoddysee: 'oddworldmunchoddysseyhd',
     oddworldnewntasty: 'oddworldabeoddyseenewntasty',
-    pikmin12bundle: 'pikmin12',
-    plantsvszombiesbattleneighborvillecomplete:
-      'plantsvszombiesbattleneighborville',
-    shantaeriskyrevengedirectorcut: 'shantaeriskyrevenge',
-    baldurgatebaldurgateiienhancededitions: 'baldurgatebaldurgateii',
-    overcokedgourmet: 'overcoked',
     pacmance2: 'pacmanchampionship2',
-    insidelimbobundle: 'insidelimbo',
-    limboinsidebundle: 'insidelimbo',
-    megamanxlegacycollection12: 'megamanxlegacycollection',
     slycollection: 'slycoopercollection',
   };
 
   if (
     !skipAliases &&
-    Object.prototype.hasOwnProperty.call(ALIASES, cleanTitle)
+    Object.prototype.hasOwnProperty.call(
+      HISTORICAL_DAT_TITLE_REDIRECTS,
+      cleanTitle,
+    )
   ) {
-    return ALIASES[cleanTitle];
+    return HISTORICAL_DAT_TITLE_REDIRECTS[cleanTitle];
   }
 
   return cleanTitle;
@@ -204,11 +189,9 @@ export function titlesMatch(
   rawReleaseName?: string,
   platformId?: number,
 ): boolean {
-  const PRE_SPLIT_ALIASES: Record<string, string> = {
+  const PRE_SPLIT_HISTORICAL_DAT_REDIRECTS: Record<string, string> = {
     'final fantasy x/x-2 hd remaster':
       'final fantasy x / final fantasy x-2 / final fantasy x x-2 hd remaster',
-    'super mario all-stars: limited edition': 'super mario all-stars',
-    "assassin's creed chronicles: trilogy pack": "assassin's creed chronicles",
     'the amazing spider-man vs. the kingpin':
       'spider-man / spider-man vs. the kingpin / the amazing spider-man vs. the kingpin',
     "x-men: gamesmaster's legacy": "x-men - gamemaster's legacy",
@@ -218,14 +201,30 @@ export function titlesMatch(
       'minecraft - story mode - a telltale games series - the complete adventure / minecraft - story mode - the complete adventure',
     'minecraft: story mode - season two':
       'minecraft - story mode - season two - the telltale series / minecraft - story mode - season two',
-    'bioshock infinite':
-      'bioshock infinite / bioshock infinite - the complete edition - bonus content disc',
+    'wave race 64 - kawasaki jet ski':
+      'wave race 64 / wave race 64 - kawasaki jet ski',
+    'wave race 64: kawasaki jet ski':
+      'wave race 64 / wave race 64: kawasaki jet ski',
   };
   const gLower = gameTitle.toLowerCase().trim();
   if (platformId === 14 && gLower === 'the amazing spider-man 2') {
     gameTitle = 'spider-man 2';
-  } else if (Object.prototype.hasOwnProperty.call(PRE_SPLIT_ALIASES, gLower)) {
-    gameTitle = PRE_SPLIT_ALIASES[gLower];
+  } else if (
+    Object.prototype.hasOwnProperty.call(
+      PRE_SPLIT_HISTORICAL_DAT_REDIRECTS,
+      gLower,
+    )
+  ) {
+    gameTitle = PRE_SPLIT_HISTORICAL_DAT_REDIRECTS[gLower];
+  }
+  const rLower = releaseTitle.toLowerCase().trim();
+  if (
+    Object.prototype.hasOwnProperty.call(
+      PRE_SPLIT_HISTORICAL_DAT_REDIRECTS,
+      rLower,
+    )
+  ) {
+    releaseTitle = PRE_SPLIT_HISTORICAL_DAT_REDIRECTS[rLower];
   }
 
   const gameAlts = gameTitle
@@ -399,6 +398,14 @@ function matchAlternative(
     }
   }
 
+  const rWithoutBonusDiscRole = rAlt
+    .replace(/\s+-\s+bonus\s+content\s+disc$/i, '')
+    .trim();
+  const rWithoutBonusDiscNorm =
+    rWithoutBonusDiscRole !== rAlt
+      ? normalizeTitleForMatching(rWithoutBonusDiscRole)
+      : rNorm;
+
   // 2. Enforce boundary check to prevent matching a standalone Bonus Disc, Tutorial Disc,
   // Standalone Add-on Pack, or Expansion Kit to a main game (or vice versa).
   // Parenthetical `(Bonus Disc)`, `(Bonus DVD)`, `(Bonus Content Disc)`, or `(Un CD Bonus)`
@@ -428,13 +435,17 @@ function matchAlternative(
 
     const gameIsBonusEntry = hasStandaloneBonusTitle(gameLower);
     const relFullLower = rawLower || rBaseLower;
+    const isExactEditionBonusContentMatch =
+      !gameIsBonusEntry &&
+      rWithoutBonusDiscRole !== rAlt &&
+      gNorm === rWithoutBonusDiscNorm;
 
     if (gameIsBonusEntry) {
       // A standalone Bonus Disc game entry (e.g. "Pokémon Colosseum Bonus Disc") must only match a Bonus/Tokusei/Kakuchou disc release
       if (!hasStandaloneBonusTitle(relFullLower)) {
         return false;
       }
-    } else {
+    } else if (!isExactEditionBonusContentMatch) {
       // A standard game entry must not match standalone-title bonus discs (e.g. "Pokemon Colosseum Bonus Disc" or "Pokemon Colosseum (USA) (Bonus Disc)") or add-on/promo packs
       if (
         hasStandaloneBonusTitle(rBaseLower) ||
@@ -447,18 +458,11 @@ function matchAlternative(
     }
   }
 
-  // 3. Enforce boundary check to prevent matching a LEGO game to a non-LEGO game (or vice versa).
-  const isLegoGame = /\blego\b/i.test(gTitle);
-  const isLegoRelease =
-    /\blego\b/i.test(rAlt) ||
-    (rawReleaseName && /\blego\b/i.test(rawReleaseName));
-  if (isLegoGame !== !!isLegoRelease) {
-    return false;
-  }
-
-  // Strategy 1: Exact match on normalized strings (including Japanese ou/ō romanization equivalence)
+  // Strategy 1: Exact match on normalized strings (including Japanese ou/ō romanization equivalence
+  // and trailing physical Bonus Content Disc role suffixes when the edition itself matches).
   if (
     gNorm === rNorm ||
+    gNorm === rWithoutBonusDiscNorm ||
     (gNorm.length >= 6 &&
       rNorm.length >= 6 &&
       gNorm.replace(/ou/g, 'o') === rNorm.replace(/ou/g, 'o'))
@@ -479,29 +483,6 @@ function matchAlternative(
   if (
     gNorm === 'metalgearsolid' &&
     (rNorm.includes('specialmissions') || rNorm.includes('vrmissions'))
-  ) {
-    return false;
-  }
-
-  // Exclude distinct sequels, spin-offs, and separate editions from matching base games via dash/colon splitting
-  const hasExactAndSubstring = (exact: string, sub: string) =>
-    (gNorm === exact && rNorm.includes(sub)) ||
-    (rNorm === exact && gNorm.includes(sub));
-
-  if (
-    hasExactAndSubstring('shovelknight', 'treasuretrove') ||
-    hasExactAndSubstring('returncastlewolfenstein', 'tideswar') ||
-    hasExactAndSubstring('returncastlewolfenstein', 'operationresurrection') ||
-    hasExactAndSubstring('eldenring', 'nightreign') ||
-    hasExactAndSubstring('untildawn', 'rushblod') ||
-    hasExactAndSubstring('walkingdead', 'survivalinstinct') ||
-    hasExactAndSubstring('minecraft', 'storymode') ||
-    hasExactAndSubstring('pokemonranger', 'batonnage') ||
-    hasExactAndSubstring('pokemonranger', 'hikarinokiseki') ||
-    hasExactAndSubstring('pokemonranger', 'shadowsalamia') ||
-    hasExactAndSubstring('pokemonranger', 'guardiansigns') ||
-    hasExactAndSubstring('zoneenders', 'anubis') ||
-    hasExactAndSubstring('zoneenders', '2ndrunner')
   ) {
     return false;
   }
@@ -569,7 +550,7 @@ function matchAlternative(
     }
     return (
       isTrueEditionOrRevisionVariant(lower) ||
-      /^(?:starring\s+.*|kawasaki.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|pack|trilogy\s*pack|collection|anthology|remaster(?:ed)?|hd(?:\s*remaster(?:ed)?)?|bonus\s*content.*|bonus\s*disc.*)$/i.test(
+      /^(?:starring\s+.*|\d+\s+games\s+in\s+.*|vol(?:ume)?\s*\d+|pack|trilogy\s*pack|collection|anthology|remaster(?:ed)?|hd(?:\s*remaster(?:ed)?)?|bonus\s*content.*|bonus\s*disc.*)$/i.test(
         lower,
       )
     );
@@ -1197,6 +1178,12 @@ export function stripEditionSuffix(title: string): string {
   return out;
 }
 
+/**
+ * NECESSARY EVIL — UPSTREAM COMMUNITY SHEET TYPO REPAIR:
+ * Corrective regexes for verified typos in third-party Google Sheets / storefront titles
+ * before querying IGDB. Regularly re-evaluate against upstream data exports and prune
+ * entries once the source sheets fix these spellings.
+ */
 const SHEET_TYPO_FIXES: Array<[RegExp, string]> = [
   [/\bdot\s+hack\b/gi, '.hack'],
   [/\btelllate\b/gi, 'telltale'],
@@ -1428,6 +1415,7 @@ export function buildCanonicalLinkerMatchKeys(title: string): string[] {
     /\s*\([^()]{2,40}?\s+editions?\)\s*$/i,
     /\s*\[(?:retro|limited|collector'?s?|special|deluxe)\s+edition\]\s*$/i,
     /\s*(?:[:\-–—]\s*|\s+)trilogy\s+pack\s*$/i,
+    /\s+(?:game\s+)?bundle\s*$/i,
     /^(?:2\s+games\s+in\s+one!?|2\s+in\s+1\s+game\s+pack|2\s+game\s+bundle)\s*[-:]\s*/i,
     /\s+\b(?:premium|collector'?s?|treasure)\s+box\s*$/i,
   ];

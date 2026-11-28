@@ -27,6 +27,8 @@ import {
   SUPERSEDED_RELEASE_PAIRS,
   findRetailPackInDisc,
   normalizeForLabelMatch,
+  rewriteRedumpDiscLabelQuirk,
+  shouldSuppressRedumpDiscVariant,
 } from './special_labels.js';
 
 /**
@@ -706,17 +708,8 @@ export function stripDiscIndicator(
       base,
     ) || /[-_\s]*\((?:ichi|ni|san|yon|shi|go)\)/i.test(base);
 
-  // Normalize cross-region companion Disc 2s that share a retail box with a single-region Disc 1
-  if (baseLower.startsWith('halo 3 - odst')) {
-    base = base
-      .replace(/\(usa,\s*brazil\)/gi, '(USA)')
-      .replace(/\(europe,\s*asia\)/gi, '(Europe, Australia)');
-  } else if (
-    baseLower.startsWith('resident evil 6') &&
-    baseLower.includes('(voice over pack)')
-  ) {
-    base = base.replace(/\(usa,\s*europe\)/gi, '(World)');
-  }
+  // Normalize cross-region companion Disc 2s via the centralized Redump multi-disc quirk registry
+  base = rewriteRedumpDiscLabelQuirk(base);
 
   // Regex to match and strip typical disc indicators (e.g. "Disc 1", "Disco 2", "Disque 1", "(Disc A)")
   base = base.replace(
@@ -745,9 +738,7 @@ export function stripDiscIndicator(
       return '';
     }
     if (
-      hasNumberedDisc &&
-      baseLower.startsWith('metal gear solid 3 - subsistence') &&
-      /^(?:limited edition|shokai seisanban)$/i.test(innerLower)
+      shouldSuppressRedumpDiscVariant(baseLower, hasNumberedDisc, innerLower)
     ) {
       return '';
     }

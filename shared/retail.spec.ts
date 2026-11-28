@@ -959,7 +959,7 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
         ),
       ).toBe(true);
       expect(isNonGameRetailTitle('Taito CE Bundle')).toBe(true);
-      expect(isNonGameRetailTitle('Indie Action RPG Bundle')).toBe(true);
+      expect(isNonGameRetailTitle('Indie Action RPG Mega Bundle')).toBe(true);
       expect(isNonGameRetailTitle('Couch Co-Op Fun Collector Bundle')).toBe(
         true,
       );
@@ -973,6 +973,12 @@ describe('Retail Deals & Stock Client (VGP, PNP Games)', () => {
       ).toBe(true);
       expect(isNonGameRetailTitle('Frostpunk: Console Edition')).toBe(false);
       expect(isNonGameRetailTitle('Xbox Live Arcade')).toBe(false);
+      expect(
+        isNonGameRetailTitle(
+          'Pinball FX - Williams Pinball Anthology Bundle Edition',
+        ),
+      ).toBe(false);
+      expect(isNonGameRetailTitle('Cassette Beasts')).toBe(false);
 
       // Single-game merch add-on bundles remain matchable for existence/retail links without spawning merch variants
       expect(

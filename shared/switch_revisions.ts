@@ -206,9 +206,12 @@ export interface BaseGameMetadata {
 }
 
 /**
+ * NECESSARY EVIL — UPSTREAM SPREADSHEET HYGIENE:
  * Known title discrepancies in the "Past Revisions SW1" spreadsheet tab where
- * editors used shorthand titles, word transpositions, or edition suffixes that
- * differ from the main-tab game title.
+ * community editors used shorthand titles, word transpositions, or edition suffixes
+ * that differ from the main-tab game title.
+ * Regularly audit and prune entries when the upstream Nintendo Revised spreadsheet
+ * standardizes these tab titles.
  */
 export const PAST_REVISION_TITLE_ALIASES: Record<string, string> = {
   [normalizeTitleForMatching(
@@ -239,9 +242,12 @@ export interface ImpliedPastRevision {
 }
 
 /**
+ * NECESSARY EVIL — UPSTREAM SPREADSHEET OMISSIONS:
  * Retail Switch games where all regional rows on the main spreadsheet tab were
  * updated to Rev 001+ and editors omitted the base Rev 000 launch print from
  * the "Past Revisions SW1" tab.
+ * Regularly audit against live Nintendo Revised exports and prune any title whose
+ * Rev 000 launch print is later backfilled upstream.
  */
 export const SWITCH_IMPLIED_PAST_REVISIONS: ImpliedPastRevision[] = [
   {
