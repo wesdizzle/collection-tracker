@@ -6534,15 +6534,36 @@ describe('Worker API Logic', () => {
           )?.id,
         ).toBe(10);
 
-        // Tier 3a: allowlist subtitles match; distinct subtitled sequels reject
+        // Tier 3a & Tier 1 alias: structural tie-in descriptors and IGDB alternative_names match; distinct subtitled sequels reject
         expect(
           selectStrictIgdbMatch(
-            [{ id: 20, name: 'Doom II: Hell on Earth', platforms: [24] }],
+            [
+              {
+                id: 20,
+                name: 'Doom II: Hell on Earth',
+                alternative_names: [{ name: 'Doom II' }],
+                platforms: [24],
+              },
+            ],
             normalizeTitleForMatching('Doom II'),
             24,
             { rawTitle: 'Doom II' },
           )?.id,
         ).toBe(20);
+        expect(
+          selectStrictIgdbMatch(
+            [
+              {
+                id: 22,
+                name: 'The Incredibles: The Official Video Game',
+                platforms: [24],
+              },
+            ],
+            normalizeTitleForMatching('The Incredibles'),
+            24,
+            { rawTitle: 'The Incredibles' },
+          )?.id,
+        ).toBe(22);
         expect(
           selectStrictIgdbMatch(
             [{ id: 21, name: 'Ghost Recon 2: Summit Strike', platforms: [11] }],
@@ -6552,15 +6573,15 @@ describe('Worker API Logic', () => {
           ),
         ).toBeNull();
 
-        // Tier 3b: cascading benign query taglines match; distinct spin-offs reject
+        // Tier 3b: cascading structural tie-in/episodic subtitles match; distinct spin-offs reject
         expect(
           selectStrictIgdbMatch(
-            [{ id: 30, name: 'The Hobbit', platforms: [24] }],
+            [{ id: 30, name: 'The Incredibles', platforms: [24] }],
             normalizeTitleForMatching(
-              'The Hobbit - The Prelude to the Lord of the Rings',
+              'The Incredibles - The Official Video Game',
             ),
             24,
-            { rawTitle: 'The Hobbit - The Prelude to the Lord of the Rings' },
+            { rawTitle: 'The Incredibles - The Official Video Game' },
           )?.id,
         ).toBe(30);
         expect(
@@ -6597,7 +6618,9 @@ describe('Worker API Logic', () => {
 
         // fetchIgdbMetadataForTitles runs ~ and benign subtitle retry passes
         stubIgdbFetch({
-          'The Hobbit': [{ id: 248450, name: 'The Hobbit', platforms: [24] }],
+          'The Polar Express': [
+            { id: 248450, name: 'The Polar Express', platforms: [24] },
+          ],
           'Minecraft - Story Mode': [
             { id: 8339, name: 'Minecraft: Story Mode', platforms: [41] },
           ],
@@ -6613,9 +6636,9 @@ describe('Worker API Logic', () => {
         try {
           const metaMap = await fetchIgdbMetadataForTitles(mockEnv, [
             {
-              key: 'hobbit',
-              title: 'The Hobbit - The Prelude to the Lord of the Rings',
-              normalizedTitle: 'hobbitpreludelordrings',
+              key: 'polar',
+              title: 'The Polar Express - The Official Video Game',
+              normalizedTitle: 'polarexpressofficialvideogame',
               igdbPlatformId: 24,
             },
             {
@@ -6633,7 +6656,7 @@ describe('Worker API Logic', () => {
               igdbPlatformId: 59,
             },
           ]);
-          expect(metaMap.get('hobbit')?.igdb_id).toBe(248450);
+          expect(metaMap.get('polar')?.igdb_id).toBe(248450);
           expect(metaMap.get('mcsm')?.igdb_id).toBe(8339);
           expect(metaMap.get('hunt')?.igdb_id).toBe(40723);
         } finally {
@@ -12960,13 +12983,20 @@ describe('Worker API Logic', () => {
     });
 
     it('classifies Category A packaging vs Category B follow-up version_parents, folds Category A commutatively, links Category B Seeking rows bidirectionally, and heals late IGDB links in rolling sweep', async () => {
-      // 1. Unit classification: Category A packaging / pun boxes / CIAB vs Category B on-media follow-ups
+      // 1. Unit classification: Step 1 CIAB, Step 2 complete-source media identity, Step 3 IGDB game_type & >=90d post-DLC causality
       expect(
         classifyIgdbVersionParentEdition(
           {
             id: 407117,
             name: 'Overlord: Dagdan Collection',
-            version_parent: { id: 366896, name: 'Overlord', platforms: [130] },
+            game_type: 0,
+            first_release_date: 1600000000,
+            version_parent: {
+              id: 366896,
+              name: 'Overlord',
+              platforms: [130],
+              first_release_date: 1600000000,
+            },
           },
           130,
         )?.classification,
@@ -12976,10 +13006,13 @@ describe('Worker API Logic', () => {
           {
             id: 210461,
             name: "Oddworld: Stranger's Wrath - Limited Oddition",
+            game_type: 0,
+            first_release_date: 1580000000,
             version_parent: {
               id: 18357,
               name: "Oddworld: Stranger's Wrath",
               platforms: [130],
+              first_release_date: 1580000000,
             },
           },
           130,
@@ -12990,10 +13023,13 @@ describe('Worker API Logic', () => {
           {
             id: 134220,
             name: 'Persona 5 Royal: Phantom Thieves Edition',
+            game_type: 3,
+            first_release_date: 1585612800,
             version_parent: {
               id: 114283,
               name: 'Persona 5 Royal',
               platforms: [48],
+              first_release_date: 1585612800,
             },
           },
           48,
@@ -13004,10 +13040,13 @@ describe('Worker API Logic', () => {
           {
             id: 342885,
             name: 'Tomba! Special Edition: Whoopee Edition',
+            game_type: 0,
+            first_release_date: 1722470400,
             version_parent: {
               id: 256467,
               name: 'Tomba! Special Edition',
               platforms: [130],
+              first_release_date: 1722470400,
             },
           },
           130,
@@ -13018,10 +13057,14 @@ describe('Worker API Logic', () => {
           {
             id: 999111,
             name: 'Sonic Mania: Complete Edition [nscollectors_ciab]',
+            game_type: 9,
+            first_release_date: 1534291200,
             version_parent: {
               id: 19686,
               name: 'Sonic Mania',
               platforms: [130],
+              first_release_date: 1502755200,
+              dlcs: [701],
             },
           },
           130,
@@ -13033,10 +13076,14 @@ describe('Worker API Logic', () => {
           {
             id: 381623,
             name: 'Bloodstained: Ritual of the Night - Complete Edition',
+            game_type: 9,
+            first_release_date: 1592438400,
             version_parent: {
               id: 10760,
               name: 'Bloodstained: Ritual of the Night',
               platforms: [130],
+              first_release_date: 1560816000,
+              dlcs: [702],
             },
           },
           130,
@@ -13051,10 +13098,14 @@ describe('Worker API Logic', () => {
           {
             id: 76723,
             name: 'Sonic Mania Plus',
+            game_type: 9,
+            first_release_date: 1531785600,
             version_parent: {
               id: 19686,
               name: 'Sonic Mania',
               platforms: [130],
+              first_release_date: 1502755200,
+              dlcs: [701],
             },
           },
           130,
@@ -13085,7 +13136,15 @@ describe('Worker API Logic', () => {
           {
             id: 136857,
             name: 'Dark Souls: Artorias of the Abyss Edition',
-            version_parent: { id: 2155, name: 'Dark Souls', platforms: [9] },
+            game_type: 3,
+            first_release_date: 1345766400,
+            version_parent: {
+              id: 2155,
+              name: 'Dark Souls',
+              platforms: [9],
+              first_release_date: 1316649600,
+              expansions: [703],
+            },
           },
           9,
         )?.classification,
@@ -13104,6 +13163,60 @@ describe('Worker API Logic', () => {
           48,
         ),
       ).toBeNull();
+      // Step 2: Complete-source single shared base media forces packaging; divergent media forces followup
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 381623,
+            name: 'Bloodstained: Ritual of the Night - Complete Edition',
+            game_type: 9,
+            first_release_date: 1592438400,
+            version_parent: {
+              id: 10760,
+              name: 'Bloodstained: Ritual of the Night',
+              platforms: [130],
+            },
+          },
+          130,
+          { sharesSingleBaseMedia: true },
+        )?.classification,
+      ).toBe('packaging');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 555001,
+            name: 'Slime Rancher: Deluxe Edition',
+            game_type: 3,
+            first_release_date: 1550000000,
+            version_parent: {
+              id: 16287,
+              name: 'Slime Rancher',
+              platforms: [49],
+              first_release_date: 1500000000,
+              dlcs: [801],
+            },
+          },
+          49,
+        )?.classification,
+      ).toBe('followup');
+      expect(
+        classifyIgdbVersionParentEdition(
+          {
+            id: 555002,
+            name: 'Slime Rancher: Collector Launch Edition',
+            game_type: 0,
+            first_release_date: 1500000000,
+            version_parent: {
+              id: 16287,
+              name: 'Slime Rancher',
+              platforms: [49],
+              first_release_date: 1500000000,
+              dlcs: [801],
+            },
+          },
+          49,
+        )?.classification,
+      ).toBe('packaging');
 
       // 2. Commutative arrival + rolling fold + Category B watched series Seeking & detail shared_media_releases
       const futurePub = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
@@ -13185,12 +13298,15 @@ describe('Worker API Logic', () => {
                       {
                         id: 381623,
                         name: 'Bloodstained: Ritual of the Night - Complete Edition',
+                        game_type: 9,
+                        first_release_date: 1592438400,
                         platforms: [{ id: 130, name: 'Nintendo Switch' }],
                         collections: [{ name: 'Bloodstained' }],
                         version_parent: {
                           id: 10760,
                           name: 'Bloodstained: Ritual of the Night',
                           platforms: [130],
+                          first_release_date: 1560816000,
                         },
                       },
                     ],
@@ -13240,12 +13356,15 @@ describe('Worker API Logic', () => {
                 {
                   id: 381623,
                   name: 'Bloodstained: Ritual of the Night - Complete Edition',
+                  game_type: 9,
+                  first_release_date: 1592438400,
                   platforms: [130],
                   collections: [{ name: 'Bloodstained' }],
                   version_parent: {
                     id: 10760,
                     name: 'Bloodstained: Ritual of the Night',
                     platforms: [130],
+                    first_release_date: 1560816000,
                   },
                 },
               ]);
@@ -13508,6 +13627,292 @@ describe('Worker API Logic', () => {
         'Lego Batman',
         'Lego Superman',
       ]);
+    });
+
+    it('folds multiple Category A editions commutatively in one rolling sweep and merges on (platform_id, igdb_id) conflict without duplicate rows', async () => {
+      db.exec(`
+        INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES (26, 'switch', 'Nintendo Switch', 130);
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id) VALUES
+          (9301, '9301', 'Star Odyssey: Collector Edition', 26, 77001),
+          (9302, '9302', 'Star Odyssey: Steelbook Edition', 26, 77002);
+        INSERT INTO game_releases (id, game_id, region, canonical_release_id) VALUES
+          ('9301-1', 9301, 'USA', NULL),
+          ('9302-1', 9302, 'USA', NULL);
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media) VALUES
+          (1, '9302-1', 1, 1);
+      `);
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input: string | URL | Request) => {
+          const urlStr =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/games')) {
+            return Response.json([
+              {
+                id: 77001,
+                name: 'Star Odyssey: Collector Edition',
+                game_type: 0,
+                first_release_date: 1650000000,
+                platforms: [130],
+                collections: [{ name: 'Star Odyssey' }],
+                version_parent: {
+                  id: 77000,
+                  name: 'Star Odyssey',
+                  platforms: [130],
+                  first_release_date: 1650000000,
+                },
+              },
+              {
+                id: 77002,
+                name: 'Star Odyssey: Steelbook Edition',
+                game_type: 0,
+                first_release_date: 1650000000,
+                platforms: [130],
+                collections: [{ name: 'Star Odyssey' }],
+                version_parent: {
+                  id: 77000,
+                  name: 'Star Odyssey',
+                  platforms: [130],
+                  first_release_date: 1650000000,
+                },
+              },
+            ]);
+          }
+          return Response.json([]);
+        });
+
+      try {
+        await syncWorkerIgdbSeriesAndCanonical(mockEnv);
+        const rows = db
+          .prepare(
+            `SELECT stable_id, title, igdb_id FROM games WHERE platform_id = 26 AND igdb_id = 77000`,
+          )
+          .all() as Array<{
+          stable_id: number;
+          title: string;
+          igdb_id: number;
+        }>;
+        expect(rows).toHaveLength(1);
+        expect(rows[0].title).toBe('Star Odyssey');
+
+        const mergedReleases = db
+          .prepare(`SELECT id, variants FROM game_releases WHERE game_id = ?`)
+          .all(rows[0].stable_id) as Array<{
+          id: string;
+          variants: string | null;
+        }>;
+        expect(mergedReleases.length).toBeGreaterThanOrEqual(2);
+        expect(
+          mergedReleases.some((r) => r.variants === 'Steelbook Edition'),
+        ).toBe(true);
+        expect(
+          db
+            .prepare(
+              `SELECT ownership_status FROM user_game_releases WHERE user_id = 1 AND release_id = '9302-1'`,
+            )
+            .get(),
+        ).toEqual({ ownership_status: 1 });
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('merges on (platform_id, igdb_id) conflict under unique partial index in syncWorkerBroadCatalogPopulation and insertCatalogGameWithReleases while allowing bundle children', async () => {
+      db.exec(`
+        UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unique_platform_igdb
+          ON games (platform_id, igdb_id)
+          WHERE igdb_id IS NOT NULL AND bundle_parent_id IS NULL;
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id, bundle_parent_id) VALUES
+          (9459, '9459', 'Star Harbor Box Set', 26, NULL, NULL),
+          (9461, '9461', 'Star Harbor - Bonus Disc', 26, 88001, 9459);
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_crc, is_verified_physical) VALUES
+          (9910, 26, 'Star Harbor (USA)', '${normalizeTitleForMatching('Star Harbor')}', 'USA', 'ABC12345', 1);
+        INSERT INTO sync_state (key, value) VALUES ('catalog_seed_cursor', '9909');
+      `);
+
+      let insertedConcurrentBroad = false;
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input: string | URL | Request) => {
+          const urlStr =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            if (!insertedConcurrentBroad) {
+              insertedConcurrentBroad = true;
+              // Simulate another path inserting standalone (26, 88001) after broad loader snapshot.
+              db.exec(`
+                INSERT INTO games (stable_id, id, title, platform_id, igdb_id, bundle_parent_id)
+                VALUES (9460, '9460', 'Star Harbor', 26, 88001, NULL);
+                INSERT INTO game_releases (id, game_id, region)
+                VALUES ('9460-1', 9460, 'Japan');
+              `);
+            }
+            return Response.json([
+              {
+                name: 'q0',
+                result: [
+                  {
+                    id: 88001,
+                    name: 'Star Harbor',
+                    url: 'https://www.igdb.com/games/star-harbor',
+                    platforms: [130],
+                    collections: [{ name: 'Star Harbor' }],
+                    first_release_date: 1650000000,
+                    release_dates: [
+                      { platform: 130, release_region: 2, date: 1650000000 },
+                    ],
+                  },
+                ],
+              },
+            ]);
+          }
+          return Response.json([]);
+        });
+
+      try {
+        const res = await syncWorkerBroadCatalogPopulation(mockEnv);
+        expect(res.skipped).toBe(false);
+
+        const standaloneRows = db
+          .prepare(
+            `SELECT stable_id FROM games WHERE platform_id = 26 AND igdb_id = 88001 AND bundle_parent_id IS NULL`,
+          )
+          .all() as Array<{ stable_id: number }>;
+        expect(standaloneRows.map((r) => r.stable_id)).toEqual([9460]);
+
+        const mergedReleases = db
+          .prepare(
+            `SELECT id, region, canonical_release_id FROM game_releases WHERE game_id = 9460 ORDER BY id ASC`,
+          )
+          .all() as Array<{
+          id: string;
+          region: string | null;
+          canonical_release_id: number | null;
+        }>;
+        expect(mergedReleases.map((r) => r.region)).toEqual(['Japan', 'USA']);
+        expect(
+          mergedReleases.some((r) => r.canonical_release_id === 9910),
+        ).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it('insertCatalogGameWithReleases handles concurrent (platform_id, igdb_id) UNIQUE constraint conflict in syncWorkerWatchedSeriesDiscovery', async () => {
+      db.exec(`
+        UPDATE platforms SET igdb_id = 130, launch_date = '2017-03-03' WHERE id = 26;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unique_platform_igdb
+          ON games (platform_id, igdb_id)
+          WHERE igdb_id IS NOT NULL AND bundle_parent_id IS NULL;
+        INSERT INTO user_tracking_rules (user_id, rule_type, match_value, target_status, region_scope, is_ignored)
+        VALUES (1, 'series', 'Crystal Vale', 2, 'home', 0);
+        INSERT INTO canonical_releases (id, platform_id, raw_title, normalized_title, region, rom_crc, is_verified_physical) VALUES
+          (9920, 26, 'Crystal Vale (Europe)', '${normalizeTitleForMatching('Crystal Vale')}', 'Europe', 'EF012345', 1);
+      `);
+
+      let raceTriggered = false;
+      const basePrepare = mockEnv.DB.prepare.bind(mockEnv.DB);
+      const raceEnv: Env = {
+        ...mockEnv,
+        DB: {
+          ...mockEnv.DB,
+          prepare: (sql: string) => {
+            if (
+              !raceTriggered &&
+              sql.includes('INSERT INTO games (') &&
+              sql.includes('stable_id, id, title, platform_id')
+            ) {
+              raceTriggered = true;
+              db.exec(`
+                INSERT INTO games (stable_id, id, title, platform_id, igdb_id, bundle_parent_id)
+                VALUES (9470, '9470', 'Crystal Vale', 26, 88002, NULL);
+                INSERT INTO game_releases (id, game_id, region)
+                VALUES ('9470-1', 9470, 'USA');
+              `);
+            }
+            return basePrepare(sql);
+          },
+        } as Env['DB'],
+      };
+
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockImplementation(async (input: string | URL | Request) => {
+          const urlStr =
+            typeof input === 'string'
+              ? input
+              : input instanceof URL
+                ? input.toString()
+                : input.url;
+          if (urlStr.includes('id.twitch.tv/oauth2/token')) {
+            return Response.json({ access_token: 'tok', expires_in: 3600 });
+          }
+          if (urlStr.includes('api.igdb.com/v4/multiquery')) {
+            return Response.json([
+              {
+                name: 's0',
+                result: [
+                  {
+                    id: 88002,
+                    name: 'Crystal Vale',
+                    url: 'https://www.igdb.com/games/crystal-vale',
+                    platforms: [{ id: 130, name: 'Nintendo Switch' }],
+                    collections: [{ name: 'Crystal Vale' }],
+                    first_release_date: 1650000000,
+                    release_dates: [
+                      { platform: 130, release_region: 1, date: 1650000000 },
+                    ],
+                  },
+                ],
+              },
+            ]);
+          }
+          return Response.json([]);
+        });
+
+      try {
+        const res = await syncWorkerWatchedSeriesDiscovery(raceEnv);
+        expect(res.skipped).toBe(false);
+        expect(raceTriggered).toBe(true);
+
+        const standaloneRows = db
+          .prepare(
+            `SELECT stable_id FROM games WHERE platform_id = 26 AND igdb_id = 88002 AND bundle_parent_id IS NULL`,
+          )
+          .all() as Array<{ stable_id: number }>;
+        expect(standaloneRows.map((r) => r.stable_id)).toEqual([9470]);
+
+        const mergedReleases = db
+          .prepare(
+            `SELECT region, canonical_release_id FROM game_releases WHERE game_id = 9470 ORDER BY id ASC`,
+          )
+          .all() as Array<{
+          region: string | null;
+          canonical_release_id: number | null;
+        }>;
+        expect(mergedReleases.map((r) => r.region)).toEqual(['USA', 'Europe']);
+        expect(
+          mergedReleases.some((r) => r.canonical_release_id === 9920),
+        ).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
     });
   });
 });
