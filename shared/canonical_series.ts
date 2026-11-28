@@ -9,6 +9,9 @@ export interface GameMetadata {
   title: string;
   collections?: string;
   franchises?: string;
+  collectionsList?: readonly string[] | null;
+  franchisesList?: readonly string[] | null;
+  metadata_json?: string | null;
 }
 
 /**
@@ -260,6 +263,19 @@ const PROTECTED_TAG_COMMAS: Array<[RegExp, string]> = [
  */
 export function splitIgdbTagList(raw?: string): string[] {
   if (!raw) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter(Boolean);
+      }
+    } catch {
+      // Fall through to legacy string splitting
+    }
+  }
   let safe = raw;
   for (const [re, repl] of PROTECTED_TAG_COMMAS) {
     safe = safe.replace(re, repl);
@@ -268,6 +284,33 @@ export function splitIgdbTagList(raw?: string): string[] {
     .split(',')
     .map((s) => s.replaceAll('\u0000', ',').trim())
     .filter(Boolean);
+}
+
+function resolveStructuredOrCommaTags(
+  raw: string | undefined,
+  explicitList: readonly string[] | null | undefined,
+  metaJson: string | null | undefined,
+  metaKey: 'collections_list' | 'franchises_list',
+): string[] {
+  if (Array.isArray(explicitList) && explicitList.length > 0) {
+    return explicitList
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+  }
+  if (metaJson && metaJson.includes(metaKey)) {
+    try {
+      const parsed = JSON.parse(metaJson) as Record<string, unknown>;
+      const list = parsed?.[metaKey];
+      if (Array.isArray(list) && list.length > 0) {
+        return list
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter(Boolean);
+      }
+    } catch {
+      // Fall back to string tag splitting
+    }
+  }
+  return splitIgdbTagList(raw);
 }
 
 /**
@@ -468,7 +511,12 @@ function computeGameCanonicalSeriesInternal(
 ): string {
   const cleanTitle = stripCreatorPrefix(game.title || '');
   const titleLower = cleanTitle.toLowerCase();
-  const rawCollections = splitIgdbTagList(game.collections);
+  const rawCollections = resolveStructuredOrCommaTags(
+    game.collections,
+    game.collectionsList,
+    game.metadata_json,
+    'collections_list',
+  );
 
   const cleanTag = (t: string) =>
     stripCreatorPrefix(t.replace(/\([^)]*\)/g, '').trim());
@@ -477,7 +525,12 @@ function computeGameCanonicalSeriesInternal(
     .filter((s) => getSpinoffRedirect(s) !== null)
     .map((s: string) => (getSpinoffRedirect(s) !== undefined ? s : cleanTag(s)))
     .filter((s) => s && getSpinoffRedirect(s) !== null);
-  const franchisesRaw = splitIgdbTagList(game.franchises)
+  const franchisesRaw = resolveStructuredOrCommaTags(
+    game.franchises,
+    game.franchisesList,
+    game.metadata_json,
+    'franchises_list',
+  )
     .map((s: string) => cleanTag(s))
     .filter((s) => s && getSpinoffRedirect(s) !== null);
 

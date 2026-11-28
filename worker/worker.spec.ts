@@ -41,6 +41,7 @@ import worker, {
   markCanonicalReleasesDirty,
   markCatalogChunksDirty,
   markDbDirty,
+  mergeDuplicateGameIntoTarget,
   performCanonicalReleasesBackup,
   performChunkedCatalogBackup,
   performScheduledBackup,
@@ -13279,17 +13280,22 @@ describe('Worker API Logic', () => {
         await syncWorkerWatchedSeriesDiscovery(mockEnv);
         const bsComplete = db
           .prepare(
-            `SELECT stable_id, id, metadata_json FROM games WHERE igdb_id = 381623 AND platform_id = 26`,
+            `SELECT stable_id, id, version_parent_igdb_id, version_title, metadata_json FROM games WHERE igdb_id = 381623 AND platform_id = 26`,
           )
           .get() as {
           stable_id: number;
           id: string;
+          version_parent_igdb_id: number | null;
+          version_title: string | null;
           metadata_json: string | null;
         };
         expect(bsComplete).toBeTruthy();
+        expect(bsComplete.version_parent_igdb_id).toBe(10760);
+        expect(bsComplete.version_title).toBe('Complete Edition');
         expect(JSON.parse(bsComplete.metadata_json || '{}')).toMatchObject({
           version_parent_igdb_id: 10760,
           version_title: 'Complete Edition',
+          collections_list: ['Bloodstained'],
         });
         expect(
           db
@@ -13356,6 +13362,49 @@ describe('Worker API Logic', () => {
       } finally {
         fetchSpy.mockRestore();
       }
+    });
+
+    it('refuses mergeDuplicateGameIntoTarget when both source and target hold journal_entries for the same user', async () => {
+      db.exec(`
+        INSERT OR IGNORE INTO platforms (id, name, display_name, igdb_id) VALUES (49, 'xboxone', 'Xbox One', 49);
+        INSERT INTO games (stable_id, id, title, platform_id, igdb_id) VALUES
+          (9101, '9101', 'Slime Rancher', 49, 16287),
+          (9102, '9102', 'Slime Rancher: Deluxe Edition', 49, NULL);
+        INSERT INTO game_releases (id, game_id, region) VALUES
+          ('9101-1', 9101, 'USA'),
+          ('9102-1', 9102, 'USA');
+        INSERT INTO user_game_releases (user_id, release_id, ownership_status, has_media) VALUES
+          (1, '9101-1', 1, 1),
+          (1, '9102-1', 1, 1);
+        INSERT INTO journal_entries (user_id, item_type, item_id, purchase_date, price_paid, merchant) VALUES
+          (1, 'game', '9101', '2021-01-05', 12.13, 'eBay'),
+          (1, 'game', '9102', '2020-12-30', 32.61, 'Amazon');
+      `);
+
+      const res = await mergeDuplicateGameIntoTarget(mockEnv, {
+        sourceStableId: 9102,
+        sourceTitle: 'Slime Rancher: Deluxe Edition',
+        sourceSlug: '9102',
+        targetStableId: 9101,
+        targetTitle: 'Slime Rancher',
+        platformId: 49,
+        allowVersionParentMerge: true,
+        extractedVariantOverride: 'Deluxe Edition',
+      });
+
+      expect(res.merged).toBe(false);
+      expect(
+        db.prepare(`SELECT stable_id FROM games WHERE stable_id = 9102`).get(),
+      ).toBeTruthy();
+      const journals = db
+        .prepare(
+          `SELECT item_id, merchant FROM journal_entries WHERE user_id = 1 AND item_type = 'game' AND item_id IN ('9101', '9102') ORDER BY item_id`,
+        )
+        .all();
+      expect(journals).toEqual([
+        { item_id: '9101', merchant: 'eBay' },
+        { item_id: '9102', merchant: 'Amazon' },
+      ]);
     });
   });
 });

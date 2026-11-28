@@ -16,6 +16,7 @@ import {
   getGameDetailQueryParams,
   buildGameReleasesByGameIdQuery,
   buildTargetedCompanionByIgdbIdQuery,
+  buildTargetedCompanionByVersionParentQuery,
   buildVersionParentChildrenCompanionQuery,
   enrichGameDetailWithCompanionsAndVouchers,
   ACTIVE_GAMES_LIST_WHERE_CLAUSE,
@@ -658,6 +659,59 @@ describe('resolveLocalizedReleaseTitle', () => {
         expect.objectContaining({
           stable_id: 11,
           title: 'Bloodstained: Ritual of the Night - Complete Edition',
+        }),
+      ]);
+
+      // Column-backed version_parent_igdb_id / version_title (no metadata_json required)
+      db.exec(`
+        INSERT INTO games (id, stable_id, title, platform_id, igdb_id, version_parent_igdb_id, version_title, canonical_series, metadata_json)
+        VALUES
+          ('12', 12, 'Bloodstained: Ritual of the Night - Deluxe On-Media', 26, 381624, 10760, 'Deluxe On-Media', 'Bloodstained', NULL);
+        INSERT INTO game_releases (id, game_id, region)
+        VALUES ('12-1', 12, 'USA');
+      `);
+      const indexedVpPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN ${buildTargetedCompanionByVersionParentQuery(null)}`,
+        )
+        .all(10760, 26) as Array<{ detail: string }>;
+      expect(
+        indexedVpPlan.some((p) =>
+          p.detail.includes('idx_games_version_parent_igdb_id'),
+        ),
+      ).toBe(true);
+      const indexedVpRows = db
+        .prepare(buildTargetedCompanionByVersionParentQuery(null))
+        .all(10760, 26) as Array<Record<string, unknown>>;
+      const colParentObj = {
+        id: '10',
+        stable_id: 10,
+        title: 'Bloodstained: Ritual of the Night',
+        platform_id: 26,
+        igdb_id: 10760,
+        metadata_json: null,
+        region: 'USA',
+        releases: [{ id: '10-1', region: 'USA' }],
+      };
+      enrichGameDetailWithCompanionsAndVouchers(
+        colParentObj,
+        indexedVpRows as unknown as Parameters<
+          typeof enrichGameDetailWithCompanionsAndVouchers
+        >[1],
+      );
+      expect(
+        (
+          colParentObj as {
+            shared_media_releases?: Array<{
+              stable_id?: number;
+              title: string;
+            }>;
+          }
+        ).shared_media_releases,
+      ).toEqual([
+        expect.objectContaining({
+          stable_id: 12,
+          title: 'Bloodstained: Ritual of the Night - Deluxe On-Media',
         }),
       ]);
     } finally {

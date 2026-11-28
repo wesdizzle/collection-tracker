@@ -43,6 +43,7 @@ import {
   buildCompatibleToysForGameQuery,
   buildGameDetailQuery,
   buildGamesListQuery,
+  buildTargetedCompanionByVersionParentQuery,
   CATALOG_GAMES_CHUNK_BOUND_QUERY,
   CATALOG_MAX_GAME_STABLE_ID_QUERY,
   CATALOG_MAX_TOY_STABLE_ID_QUERY,
@@ -119,7 +120,7 @@ export const PROTECTED_TABLES = [
 
 export const MAX_SECONDARY_INDEXES: Record<string, number> = {
   users: 2,
-  games: 7,
+  games: 8,
   game_releases: 7,
   toys: 5,
   toy_game_compatibility: 1,
@@ -489,6 +490,11 @@ export function runCollectionStaticSchemaCostGuard(
       sql: buildCompatibleGamesForToyQuery(1),
       params: [1, 1],
     },
+    {
+      name: 'version_parent children companion lookup by indexed version_parent_igdb_id',
+      sql: buildTargetedCompanionByVersionParentQuery(1),
+      params: [1, 10760, 26],
+    },
   ];
 
   const result = runStaticSchemaCostGuard({
@@ -538,6 +544,15 @@ export function runCollectionStaticSchemaCostGuard(
           params: retailCandidatesQuery.params,
           requiredSubstrings: [
             'idx_games_platform_id',
+            'idx_game_releases_game_id',
+          ],
+        },
+        {
+          name: 'version_parent children companion lookup by indexed version_parent_igdb_id',
+          sql: buildTargetedCompanionByVersionParentQuery(1),
+          params: [1, 10760, 26],
+          requiredSubstrings: [
+            'idx_games_version_parent_igdb_id',
             'idx_game_releases_game_id',
           ],
         },

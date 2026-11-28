@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS games (
     barcode TEXT,
     bundle_parent_id INTEGER REFERENCES games (stable_id) ON DELETE SET NULL,
     bundle_disc_number INTEGER,
+    version_parent_igdb_id INTEGER,
+    version_title TEXT,
     retail_price INTEGER,
     retail_regular_price INTEGER,
     retail_discount_pct INTEGER,
@@ -252,6 +254,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oi
 
 CREATE INDEX IF NOT EXISTS idx_games_id ON games (id);
 CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id) WHERE igdb_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_games_version_parent_igdb_id
+    ON games (version_parent_igdb_id)
+    WHERE version_parent_igdb_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_games_platform_id ON games (platform_id);
 CREATE INDEX IF NOT EXISTS idx_games_canonical_series ON games (canonical_series);
 CREATE INDEX IF NOT EXISTS idx_games_bundle_parent ON games (bundle_parent_id);

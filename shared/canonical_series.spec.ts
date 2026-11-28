@@ -15,7 +15,7 @@ describe('computeGameCanonicalSeriesWithSource', () => {
     }
   });
 
-  it('classifies IGDB-collection-backed series as metadata', () => {
+  it('classifies IGDB-collection-backed series as metadata and reads structured list fields before legacy comma splitting', () => {
     assert.deepEqual(
       computeGameCanonicalSeriesWithSource({
         title: 'Star Fox 64',
@@ -23,6 +23,23 @@ describe('computeGameCanonicalSeriesWithSource', () => {
         franchises: 'Star Fox',
       }),
       { series: 'Star Fox', source: 'metadata' },
+    );
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({
+        title: 'Custom Comma Franchise Entry',
+        collections: 'Alpha, Beta',
+        collectionsList: ['Alpha, Beta'],
+      }),
+      { series: 'Alpha, Beta', source: 'metadata' },
+    );
+    assert.deepEqual(
+      computeGameCanonicalSeriesWithSource({
+        title: 'Metadata JSON Tag Array Entry',
+        metadata_json: JSON.stringify({
+          collections_list: ['Studio, Inc. Chronicles'],
+        }),
+      }),
+      { series: 'Studio, Inc. Chronicles', source: 'metadata' },
     );
   });
 
