@@ -254,6 +254,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub) WHERE oi
 
 CREATE INDEX IF NOT EXISTS idx_games_id ON games (id);
 CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id) WHERE igdb_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_games_unique_platform_igdb
+    ON games (platform_id, igdb_id)
+    WHERE igdb_id IS NOT NULL AND bundle_parent_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_games_version_parent_igdb_id
     ON games (version_parent_igdb_id)
     WHERE version_parent_igdb_id IS NOT NULL;
